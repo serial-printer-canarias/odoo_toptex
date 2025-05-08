@@ -5,7 +5,7 @@
     "author": "Serial Printer",
     "depends": ["base", "product", "sale", "purchase"],
     "data": [
-        "views/toptex_menus.xml",
+        
         "views/toptex_product_views.xml",
         "views/toptex_brand_import_button.xml"
     ],
