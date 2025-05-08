@@ -9,6 +9,6 @@ class ToptexBrand(models.Model):
     toptex_id = fields.Char(string='ID en Toptex', required=True, index=True)
 
     def import_brands(self):
-        # Aquí irá luego la lógica para conectarse a la API de Toptex
         _logger = logging.getLogger(__name__)
         _logger.info("Botón de importar marcas presionado.")
+        # Aquí irá la lógica real de la API
