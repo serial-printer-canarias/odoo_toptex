@@ -1,5 +1,4 @@
-
-from . import toptex_models
+from . import toptex_brand
 from odoo import models, fields
 
 class ToptexBrand(models.Model):
