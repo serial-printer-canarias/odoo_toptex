@@ -35,7 +35,7 @@
         <field name="view_mode">tree,form</field>
     </record>
 
-    <!-- Menús -->
+    <!-- Menú raíz y submenú -->
     <menuitem id="menu_toptex_root" name="Toptex"/>
     <menuitem id="menu_toptex_brand" name="Marcas"
               parent="menu_toptex_root"
