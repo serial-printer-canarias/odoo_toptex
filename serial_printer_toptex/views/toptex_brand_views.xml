@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="view_toptex_brand_tree" model="ir.ui.view">
         <field name="name">toptex.brand.tree</field>
@@ -22,7 +22,10 @@
                         <field name="toptex_id"/>
                     </group>
                     <footer>
-                        <button name="import_brands" type="object" string="Importar marcas" class="btn-primary"/>
+                        <button name="import_brands"
+                                string="Importar marcas"
+                                type="object"
+                                class="btn-primary"/>
                     </footer>
                 </sheet>
             </form>
@@ -30,5 +33,18 @@
     </record>
 
     <record id="action_toptex_brand" model="ir.actions.act_window">
-        <field name="name">Marcas</field>
-        <field name="res_model">
+        <field name="name">Marcas Toptex</field>
+        <field name="res_model">toptex.brand</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+
+    <menuitem id="menu_toptex_root"
+              name="Toptex"
+              sequence="10"/>
+
+    <menuitem id="menu_toptex_brand"
+              name="Marcas"
+              parent="menu_toptex_root"
+              action="action_toptex_brand"
+              sequence="20"/>
+</odoo>
