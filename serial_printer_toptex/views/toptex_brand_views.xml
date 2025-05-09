@@ -21,17 +21,14 @@
                         <field name="name"/>
                         <field name="toptex_id"/>
                     </group>
+                    <footer>
+                        <button name="import_brands" type="object" string="Importar marcas" class="btn-primary"/>
+                    </footer>
                 </sheet>
             </form>
         </field>
     </record>
 
     <record id="action_toptex_brand" model="ir.actions.act_window">
-        <field name="name">Marcas Toptex</field>
-        <field name="res_model">toptex.brand</field>
-        <field name="view_mode">tree,form</field>
-    </record>
-
-    <menuitem id="menu_toptex_root" name="TOPTEX" sequence="10"/>
-    <menuitem id="menu_toptex_brand" name="Marcas" parent="menu_toptex_root" action="action_toptex_brand" sequence="10"/>
-</odoo>
+        <field name="name">Marcas</field>
+        <field name="res_model">
