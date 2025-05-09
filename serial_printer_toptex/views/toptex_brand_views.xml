@@ -5,8 +5,8 @@
         <field name="model">toptex.brand</field>
         <field name="arch" type="xml">
             <tree string="Marcas de Toptex">
-                <field name="name"/>
-                <field name="toptex_id"/>
+                <field name="name" string="Nombre"/>
+                <field name="toptex_id" string="ID Toptex"/>
             </tree>
         </field>
     </record>
@@ -18,8 +18,8 @@
             <form string="Marca de Toptex">
                 <sheet>
                     <group>
-                        <field name="name"/>
-                        <field name="toptex_id"/>
+                        <field name="name" string="Nombre"/>
+                        <field name="toptex_id" string="ID Toptex"/>
                     </group>
                     <footer>
                         <button name="import_brands"
