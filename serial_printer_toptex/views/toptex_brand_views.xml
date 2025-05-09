@@ -28,14 +28,14 @@
         </field>
     </record>
 
-    <!-- Acción para abrir la vista -->
+    <!-- Acción -->
     <record id="action_toptex_brand" model="ir.actions.act_window">
         <field name="name">Marcas Toptex</field>
         <field name="res_model">toptex.brand</field>
         <field name="view_mode">tree,form</field>
     </record>
 
-    <!-- Menú -->
+    <!-- Menús -->
     <menuitem id="menu_toptex_root" name="Toptex"/>
     <menuitem id="menu_toptex_brand" name="Marcas"
               parent="menu_toptex_root"
