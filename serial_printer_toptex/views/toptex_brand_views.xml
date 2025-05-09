@@ -1,6 +1,6 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Vista tipo tree (lista) -->
+    <!-- Vista tipo lista (tree) -->
     <record id="view_toptex_brand_tree" model="ir.ui.view">
         <field name="name">toptex.brand.tree</field>
         <field name="model">toptex.brand</field>
@@ -12,7 +12,7 @@
         </field>
     </record>
 
-    <!-- Vista tipo form -->
+    <!-- Vista tipo formulario (form) -->
     <record id="view_toptex_brand_form" model="ir.ui.view">
         <field name="name">toptex.brand.form</field>
         <field name="model">toptex.brand</field>
@@ -28,7 +28,7 @@
         </field>
     </record>
 
-    <!-- Acción -->
+    <!-- Acción para abrir la vista -->
     <record id="action_toptex_brand" model="ir.actions.act_window">
         <field name="name">Marcas</field>
         <field name="res_model">toptex.brand</field>
@@ -36,7 +36,6 @@
     </record>
 
     <!-- Menú -->
-    <menuitem id="menu_toptex_root" name="Toptex"/>
     <menuitem id="menu_toptex_brand" name="Marcas"
               parent="menu_toptex_root"
               action="action_toptex_brand"/>
