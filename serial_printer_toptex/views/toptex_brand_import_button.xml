@@ -21,6 +21,9 @@
                         <field name="name"/>
                         <field name="toptex_id"/>
                     </group>
+                    <footer>
+                        <button string="Importar Marcas" type="object" name="import_brands" class="btn-primary"/>
+                    </footer>
                 </sheet>
             </form>
         </field>
