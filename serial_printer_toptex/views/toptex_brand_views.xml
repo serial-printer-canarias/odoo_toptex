@@ -18,26 +18,24 @@
         <field name="model">toptex.brand</field>
         <field name="arch" type="xml">
             <form string="Marca de Toptex">
-                <sheet>
-                    <group>
-                        <field name="name"/>
-                        <field name="toptex_id"/>
-                    </group>
-                </sheet>
+                <group>
+                    <field name="name"/>
+                    <field name="toptex_id"/>
+                </group>
             </form>
         </field>
     </record>
 
-    <!-- Acción -->
+    <!-- Acción para ver marcas -->
     <record id="action_toptex_brand" model="ir.actions.act_window">
-        <field name="name">Marcas Toptex</field>
+        <field name="name">Marcas</field>
         <field name="res_model">toptex.brand</field>
         <field name="view_mode">tree,form</field>
     </record>
 
-    <!-- Menú raíz y submenú -->
-    <menuitem id="menu_toptex_root" name="Toptex"/>
-    <menuitem id="menu_toptex_brand" name="Marcas"
+    <!-- Menú Marcas debajo de Toptex -->
+    <menuitem id="menu_toptex_brand"
+              name="Marcas"
               parent="menu_toptex_root"
               action="action_toptex_brand"/>
 </odoo>
