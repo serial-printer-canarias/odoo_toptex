@@ -8,9 +8,10 @@
     "category": "Sales",
     "depends": ["base", "product", "sale", "purchase"],
     "data": [
-        "views/toptex_brand_import_button.xml",
+        "views/toptex_brand_views.xml",
+        "views/toptex_brand_import_button.xml"
     ],
     "installable": True,
     "application": True,
-    "auto_install": False,
+    "auto_install": False
 }
