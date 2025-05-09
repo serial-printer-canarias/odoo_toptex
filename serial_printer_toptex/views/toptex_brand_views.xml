@@ -4,9 +4,9 @@
         <field name="name">toptex.brand.tree</field>
         <field name="model">toptex.brand</field>
         <field name="arch" type="xml">
-            <tree string="Marcas de Toptex">
-                <field name="name" string="Nombre"/>
-                <field name="toptex_id" string="ID Toptex"/>
+            <tree>
+                <field name="name"/>
+                <field name="toptex_id"/>
             </tree>
         </field>
     </record>
@@ -15,15 +15,15 @@
         <field name="name">toptex.brand.form</field>
         <field name="model">toptex.brand</field>
         <field name="arch" type="xml">
-            <form string="Marca de Toptex">
+            <form string="Marca Toptex">
                 <sheet>
                     <group>
-                        <field name="name" string="Nombre"/>
-                        <field name="toptex_id" string="ID Toptex"/>
+                        <field name="name"/>
+                        <field name="toptex_id"/>
                     </group>
                     <footer>
                         <button name="import_brands"
-                                string="Importar marcas"
+                                string="Importar Marcas"
                                 type="object"
                                 class="btn-primary"/>
                     </footer>
@@ -38,10 +38,7 @@
         <field name="view_mode">tree,form</field>
     </record>
 
-    <menuitem id="menu_toptex_root"
-              name="Toptex"
-              sequence="10"/>
-
+    <menuitem id="menu_toptex_root" name="Toptex" sequence="10"/>
     <menuitem id="menu_toptex_brand"
               name="Marcas"
               parent="menu_toptex_root"
