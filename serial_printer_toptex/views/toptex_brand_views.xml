@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Vista Tree -->
+    <!-- Vista tipo tree (lista) -->
     <record id="view_toptex_brand_tree" model="ir.ui.view">
         <field name="name">toptex.brand.tree</field>
         <field name="model">toptex.brand</field>
@@ -12,7 +12,7 @@
         </field>
     </record>
 
-    <!-- Vista Formulario -->
+    <!-- Vista tipo form -->
     <record id="view_toptex_brand_form" model="ir.ui.view">
         <field name="name">toptex.brand.form</field>
         <field name="model">toptex.brand</field>
