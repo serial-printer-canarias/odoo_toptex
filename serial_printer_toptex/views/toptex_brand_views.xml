@@ -26,14 +26,14 @@
         </field>
     </record>
 
-    <!-- Acción para acceder a las marcas -->
+    <!-- Acción -->
     <record id="action_toptex_brand" model="ir.actions.act_window">
         <field name="name">Marcas</field>
         <field name="res_model">toptex.brand</field>
         <field name="view_mode">tree,form</field>
     </record>
 
-    <!-- Menú para acceder desde la raíz -->
+    <!-- Menú -->
     <menuitem id="menu_toptex_brand"
               name="Marcas"
               parent="menu_toptex_root"
