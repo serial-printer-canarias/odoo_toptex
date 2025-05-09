@@ -7,6 +7,7 @@
         <field name="arch" type="xml">
             <tree string="Marcas de Toptex">
                 <field name="name"/>
+                <field name="toptex_id"/>
             </tree>
         </field>
     </record>
@@ -16,10 +17,11 @@
         <field name="name">toptex.brand.form</field>
         <field name="model">toptex.brand</field>
         <field name="arch" type="xml">
-            <form string="Marca Toptex">
+            <form string="Marca de Toptex">
                 <sheet>
                     <group>
                         <field name="name"/>
+                        <field name="toptex_id"/>
                     </group>
                 </sheet>
             </form>
@@ -34,8 +36,5 @@
     </record>
 
     <!-- Menú -->
-    <menuitem id="menu_toptex_brand"
-              name="Marcas"
-              parent="menu_toptex_root"
-              action="action_toptex_brand"/>
+    <menuitem id="menu_toptex_brand" name="Marcas" parent="menu_toptex_root" action="action_toptex_brand"/>
 </odoo>
