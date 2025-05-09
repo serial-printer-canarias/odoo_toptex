@@ -1,13 +1,14 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+
     <!-- Vista tipo tree (lista) -->
     <record id="view_toptex_brand_tree" model="ir.ui.view">
         <field name="name">toptex.brand.tree</field>
         <field name="model">toptex.brand</field>
         <field name="arch" type="xml">
             <tree>
-                <field name="name"/>
-                <field name="toptex_id"/>
+                <field name="name" string="Nombre"/>
+                <field name="toptex_id" string="ID Toptex"/>
             </tree>
         </field>
     </record>
@@ -17,18 +18,12 @@
         <field name="name">toptex.brand.form</field>
         <field name="model">toptex.brand</field>
         <field name="arch" type="xml">
-            <form string="Marca Toptex">
+            <form>
                 <sheet>
                     <group>
-                        <field name="name"/>
-                        <field name="toptex_id"/>
+                        <field name="name" string="Nombre"/>
+                        <field name="toptex_id" string="ID Toptex"/>
                     </group>
-                    <footer>
-                        <button name="import_brands"
-                                type="object"
-                                string="Importar Marcas"
-                                class="btn-primary"/>
-                    </footer>
                 </sheet>
             </form>
         </field>
@@ -36,12 +31,15 @@
 
     <!-- Acción -->
     <record id="action_toptex_brand" model="ir.actions.act_window">
-        <field name="name">Marcas Toptex</field>
+        <field name="name">Marcas</field>
         <field name="res_model">toptex.brand</field>
         <field name="view_mode">tree,form</field>
     </record>
 
     <!-- Menú -->
-    <menuitem id="menu_toptex_root" name="Toptex"/>
-    <menuitem id="menu_toptex_brand" name="Marcas" parent="menu_toptex_root" action="action_toptex_brand"/>
+    <menuitem id="menu_toptex_brand"
+              name="Marcas"
+              parent="menu_toptex_root"
+              action="action_toptex_brand"/>
+
 </odoo>
