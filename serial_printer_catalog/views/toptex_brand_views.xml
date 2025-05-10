@@ -5,7 +5,6 @@
     <record id="view_toptex_brand_tree" model="ir.ui.view">
         <field name="name">Marca externa - Lista</field>
         <field name="model">toptex.brand</field>
-        <field name="type">tree</field>
         <field name="arch" type="xml">
             <tree string="Marcas externas">
                 <field name="name"/>
@@ -18,7 +17,6 @@
     <record id="view_toptex_brand_form" model="ir.ui.view">
         <field name="name">Marca externa - Formulario</field>
         <field name="model">toptex.brand</field>
-        <field name="type">form</field>
         <field name="arch" type="xml">
             <form string="Marca externa">
                 <sheet>
