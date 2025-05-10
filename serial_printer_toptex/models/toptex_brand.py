@@ -5,4 +5,4 @@ class ToptexBrand(models.Model):
     _description = 'Marca de Toptex'
 
     name = fields.Char(string='Nombre', required=True)
-    toptex_id = fields.Char(string='ID Toptex', required=True, index=True)
+    toptex_id = fields.Char(string='ID Toptex', required=True)
