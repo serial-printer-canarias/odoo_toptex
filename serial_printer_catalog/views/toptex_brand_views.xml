@@ -1,81 +1,11 @@
-2025-05-10 10:15:30,969 4 WARNING serial-printer-canarias-odoo-toptex-main-20341253 odoo.modules.loading: Transient module states were reset
-2025-05-10 10:15:30,972 4 ERROR serial-printer-canarias-odoo-toptex-main-20341253 odoo.modules.registry: Failed to load registry
-2025-05-10 10:15:30,973 4 CRITICAL serial-printer-canarias-odoo-toptex-main-20341253 odoo.service.server: Failed to initialize database `serial-printer-canarias-odoo-toptex-main-20341253`. 
-Traceback (most recent call last):
-  File "/home/odoo/src/odoo/odoo/tools/convert.py", line 537, in _tag_root
-    f(rec)
-  File "/home/odoo/src/odoo/odoo/tools/convert.py", line 437, in _tag_record
-    record = model._load_records([data], self.mode == 'update')
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/odoo/src/odoo/odoo/models.py", line 5509, in _load_records
-    records = self._load_records_create([data['values'] for data in to_create])
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/odoo/src/odoo/odoo/models.py", line 5413, in _load_records_create
-    records = self.create(vals_list)
-              ^^^^^^^^^^^^^^^^^^^^^^
-  File "<decorator-gen-9>", line 2, in create
-  File "/home/odoo/src/odoo/odoo/api.py", line 496, in _model_create_multi
-    return create(self, arg)
-           ^^^^^^^^^^^^^^^^^
-  File "/home/odoo/src/odoo/odoo/addons/base/models/ir_ui_view.py", line 518, in create
-    result = super(View, self.with_context(ir_ui_view_partial_validation=True)).create(vals_list)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "<decorator-gen-0>", line 2, in create
-  File "/home/odoo/src/odoo/odoo/api.py", line 496, in _model_create_multi
-    return create(self, arg)
-           ^^^^^^^^^^^^^^^^^
-  File "/home/odoo/src/odoo/odoo/models.py", line 5017, in create
-    records = self._create(data_list)
-              ^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/odoo/src/odoo/odoo/models.py", line 5184, in _create
-    row.append(field.convert_to_column_insert(stored[fname], self, stored))
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/odoo/src/odoo/odoo/fields.py", line 986, in convert_to_column_insert
-    value = self.convert_to_column(value, record, values, validate)
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/odoo/src/odoo/odoo/fields.py", line 2982, in convert_to_column
-    value = self.convert_to_cache(value, record)
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/odoo/src/odoo/odoo/fields.py", line 2992, in convert_to_cache
-    raise ValueError("Wrong value for %s: %r" % (self, value))
-ValueError: Wrong value for ir.ui.view.type: 'tree'
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
 
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "/home/odoo/src/odoo/odoo/service/server.py", line 1328, in preload_registries
-    registry = Registry.new(dbname, update_module=update_module)
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3/dist-packages/decorator.py", line 232, in fun
-    return caller(func, *(extras + args), **kw)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/odoo/src/odoo/odoo/tools/func.py", line 97, in locked
-    return func(inst, *args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/odoo/src/odoo/odoo/modules/registry.py", line 127, in new
-    odoo.modules.load_modules(registry, force_demo, status, update_module)
-  File "/home/odoo/src/odoo/odoo/modules/loading.py", line 484, in load_modules
-    processed_modules += load_marked_modules(env, graph,
-                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/odoo/src/odoo/odoo/modules/loading.py", line 365, in load_marked_modules
-    loaded, processed = load_module_graph(
-                        ^^^^^^^^^^^^^^^^^^
-  File "/home/odoo/src/odoo/odoo/modules/loading.py", line 228, in load_module_graph
-    load_data(env, idref, mode, kind='data', package=package)
-  File "/home/odoo/src/odoo/odoo/modules/loading.py", line 72, in load_data
-    tools.convert_file(env, package.name, filename, idref, mode, noupdate, kind)
-  File "/home/odoo/src/odoo/odoo/tools/convert.py", line 608, in convert_file
-    convert_xml_import(env, module, fp, idref, mode, noupdate)
-  File "/home/odoo/src/odoo/odoo/tools/convert.py", line 679, in convert_xml_import
-    obj.parse(doc.getroot())
-  File "/home/odoo/src/odoo/odoo/tools/convert.py", line 594, in parse
-    self._tag_root(de)
-  File "/home/odoo/src/odoo/odoo/tools/convert.py", line 550, in _tag_root
-    raise ParseError('while parsing %s:%s, somewhere inside\n%s' % (
-odoo.tools.convert.ParseError: while parsing /home/odoo/src/user/serial_printer_catalog/views/toptex_brand_views.xml:3, somewhere inside
-<record id="view_toptex_brand_tree" model="ir.ui.view">
+    <!-- Vista tipo lista -->
+    <record id="view_toptex_brand_tree" model="ir.ui.view">
         <field name="name">Marca externa - Lista</field>
         <field name="model">toptex.brand</field>
+        <field name="type">tree</field>
         <field name="arch" type="xml">
             <tree string="Marcas externas">
                 <field name="name"/>
@@ -83,3 +13,35 @@ odoo.tools.convert.ParseError: while parsing /home/odoo/src/user/serial_printer_
             </tree>
         </field>
     </record>
+
+    <!-- Vista tipo formulario -->
+    <record id="view_toptex_brand_form" model="ir.ui.view">
+        <field name="name">Marca externa - Formulario</field>
+        <field name="model">toptex.brand</field>
+        <field name="type">form</field>
+        <field name="arch" type="xml">
+            <form string="Marca externa">
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="toptex_id"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- AcciÃ³n -->
+    <record id="action_toptex_brand" model="ir.actions.act_window">
+        <field name="name">Marcas externas</field>
+        <field name="res_model">toptex.brand</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+
+    <!-- MenÃº -->
+    <menuitem id="menu_toptex_brand"
+              name="CatÃ¡logo"
+              parent="menu_toptex_root"
+              action="action_toptex_brand" />
+
+</odoo>
