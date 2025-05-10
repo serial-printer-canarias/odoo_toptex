@@ -31,16 +31,16 @@
         </field>
     </record>
 
-    <!-- AcciÃ³n -->
+    <!-- Acción -->
     <record id="action_toptex_brand" model="ir.actions.act_window">
         <field name="name">Marcas externas</field>
         <field name="res_model">toptex.brand</field>
         <field name="view_mode">tree,form</field>
     </record>
 
-    <!-- MenÃº -->
+    <!-- Menú -->
     <menuitem id="menu_toptex_brand"
-              name="CatÃ¡logo"
+              name="Catálogo"
               parent="menu_toptex_root"
               action="action_toptex_brand" />
 
