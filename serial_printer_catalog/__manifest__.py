@@ -1,19 +1,16 @@
-
 {
-    "name": "Catálogo Serial Printer",
+    "name": "Serial Printer Catálogo",
     "version": "1.0",
-    "summary": "Gestión de marcas externas para personalización",
-    "description": "Importa marcas desde proveedor externo y organízalas en tu catálogo.",
+    "depends": ["base"],
     "author": "Serial Printer",
-    "website": "https://serialprintercanarias.com",
-    "category": "Sales",
-    "depends": ["base", "product", "sale", "purchase"],
+    "category": "Tools",
+    "description": "Gestión de marcas externas para catálogo",
     "data": [
         "views/toptex_brand_views.xml",
         "views/toptex_brand_import_button.xml",
         "views/toptex_menus.xml"
     ],
     "installable": True,
-    "application": True,
-    "auto_install": False
+    "auto_install": False,
+    "application": True
 }
