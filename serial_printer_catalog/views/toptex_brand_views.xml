@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+
     <!-- Vista tipo lista -->
     <record id="view_toptex_brand_tree" model="ir.ui.view">
-    <field name="name">Marca externa - Lista</field>
-    <field name="model">toptex.brand</field>
-    <field name="type">tree</field>
-    <field name="arch" type="xml">
-        <tree string="Marcas externas">
-            <field name="name"/>
-            <field name="toptex_id"/>
-        </tree>
-    </field>
-</record>
+        <field name="name">Marca externa - Lista</field>
+        <field name="model">toptex.brand</field>
+        <field name="arch" type="xml">
+            <tree string="Marcas externas">
+                <field name="name"/>
+                <field name="toptex_id"/>
+            </tree>
+        </field>
+    </record>
 
     <!-- Vista tipo formulario -->
     <record id="view_toptex_brand_form" model="ir.ui.view">
@@ -40,5 +40,6 @@
     <menuitem id="menu_toptex_brand"
               name="Catálogo"
               parent="menu_toptex_root"
-              action="action_toptex_brand"/>
+              action="action_toptex_brand" />
+
 </odoo>
