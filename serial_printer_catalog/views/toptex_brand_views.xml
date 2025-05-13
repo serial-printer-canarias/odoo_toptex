@@ -6,10 +6,14 @@
         <field name="model">toptex.brand</field>
         <field name="type">form</field>
         <field name="arch" type="xml">
-            <tree string="Marcas externas">
+            <form string="Marcas externas">
+                <sheet>
+                    <group>
                 <field name="name"/>
                 <field name="toptex_id"/>
-            </tree>
+                    <group>
+                <sheet>
+            <form>
         </field>
     </record>
 
