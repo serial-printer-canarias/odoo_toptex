@@ -1,0 +1,5 @@
+<odoo>
+    <menuitem id="menu_serial_catalog_root" name="Catálogo"/>
+    <menuitem id="menu_serial_catalog_config" name="Configuración" parent="menu_serial_catalog_root"/>
+    <menuitem id="menu_toptex_brand" name="Marcas externas" parent="menu_serial_catalog_config" action="action_toptex_brand"/>
+</odoo>

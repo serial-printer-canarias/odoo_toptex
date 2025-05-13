@@ -1,0 +1,12 @@
+<odoo>
+    <record id="toptex_brand_import_button" model="ir.ui.view">
+        <field name="name">Botón de importación de marcas</field>
+        <field name="model">toptex.brand</field>
+        <field name="inherit_id" ref="view_toptex_brand_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//tree" position="before">
+                <button name="import_toptex_brands" type="object" string="Importar Marcas" class="btn-primary"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
