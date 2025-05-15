@@ -1,3 +1,4 @@
+
 <odoo>
     <record id="view_serial_printer_brand_list" model="ir.ui.view">
         <field name="name">serial_printer.brand.list</field>
@@ -34,14 +35,4 @@
         <field name="res_model">serial_printer.brand</field>
         <field name="view_mode">tree,form</field>
     </record>
-
-    <menuitem id="menu_serial_printer_root"
-              name="Catálogo"
-              sequence="10"/>
-
-    <menuitem id="menu_serial_printer_brand"
-              name="Marcas externas"
-              parent="menu_serial_printer_root"
-              action="action_serial_printer_brand"
-              sequence="1"/>
 </odoo>
