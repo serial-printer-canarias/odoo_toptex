@@ -8,9 +8,9 @@
     "website": "https://serialprinter.local",
     "depends": ["base", "product", "stock", "sale_management", "website_sale"],
     "data": [
-    "views/menu.xml",
     "views/brand_views.xml",
     "views/product_views.xml",
+    "views/menu.xml",
     "data/cron.xml"
  ],
     "installable": True,
