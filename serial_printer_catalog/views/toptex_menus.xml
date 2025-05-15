@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<odoo>
-    <menuitem id="menu_toptex_root" name="Catálogo" sequence="10"/>
-    <menuitem id="menu_toptex_brand" name="Marcas proveedor"
-              parent="menu_toptex_root"
-              action="action_toptex_brand"/>
-</odoo>
