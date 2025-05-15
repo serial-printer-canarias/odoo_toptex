@@ -5,7 +5,7 @@ class SerialPrinterBrand(models.Model):
     _name = 'serial_printer.brand'
     _description = 'Marca externa'
 
-    name = fields.Char(required=True)
+    name = fields.Char(string="Nombre", required=True)
 
     def import_toptex_brands(self):
         url = "https://api.toptex.io/v3/attributes"
