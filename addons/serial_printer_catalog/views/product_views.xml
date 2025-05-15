@@ -1,27 +1,27 @@
 <odoo>
-    <record id=“view_serial_printer_product_list” model=“ir.ui.view”>
-        <field name=“name”>serial_printer.product.list</field>
-        <field name=“model”>serial_printer.product</field>
-        <field name=“arch” type=“xml”>
+    <record id="view_serial_printer_product_list" model="ir.ui.view">
+        <field name="name">serial_printer.product.list</field>
+        <field name="model">serial_printer.product</field>
+        <field name="arch" type="xml">
             <list>
                 <header>
-                    <button name=“import_products_from_api”
-                            type=“object”
-                            string=“Importar productos”
-                            class=“btn-primary”/>
+                    <button name="import_products_from_api"
+                            type="object"
+                            string="Importar productos"
+                            class="btn-primary"/>
                 </header>
-                <field name=“name”/>
-                <field name=“reference”/>
-                <field name=“brand_id”/>
-                <field name=“color”/>
-                <field name=“size”/>
+                <field name="name"/>
+                <field name="reference"/>
+                <field name="brand_id"/>
+                <field name="color"/>
+                <field name="size"/>
             </list>
         </field>
     </record>
 
-    <record id=“action_serial_printer_product” model=“ir.actions.act_window”>
-        <field name=“name”>Productos</field>
-        <field name=“res_model”>serial_printer.product</field>
-        <field name=“view_mode”>list</field>
+    <record id="action_serial_printer_product" model="ir.actions.act_window">
+        <field name="name">Productos</field>
+        <field name="res_model">serial_printer.product</field>
+        <field name="view_mode">list</field>
     </record>
 </odoo>
