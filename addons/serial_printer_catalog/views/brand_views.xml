@@ -1,0 +1,35 @@
+
+<odoo>
+    <record id="view_serial_printer_brand_list" model="ir.ui.view">
+        <field name="name">serial_printer.brand.list</field>
+        <field name="model">serial_printer.brand</field>
+        <field name="arch" type="xml">
+            <list>
+                <header>
+                    <button name="import_toptex_brands"
+                            type="object"
+                            string="Importar marcas"
+                            class="btn-primary"/>
+                </header>
+                <field name="name"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_serial_printer_brand" model="ir.actions.act_window">
+        <field name="name">Marcas externas</field>
+        <field name="res_model">serial_printer.brand</field>
+        <field name="view_mode">list</field>
+    </record>
+
+    <record id="serial_printer_brand_rule" model="ir.rule">
+        <field name="name">Acceso marcas</field>
+        <field name="model_id" ref="model_serial_printer_brand"/>
+        <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+        <field name="perm_read" eval="1"/>
+        <field name="perm_write" eval="1"/>
+        <field name="perm_create" eval="1"/>
+        <field name="perm_unlink" eval="1"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+</odoo>
