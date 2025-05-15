@@ -1,5 +1,12 @@
 
 <odoo>
-    <menuitem id="menu_serial_printer_catalog_root" name="Catálogo" sequence="10"/>
-    <menuitem id="menu_toptex_brand" name="Marcas Externas" parent="menu_serial_printer_catalog_root" action="action_toptex_brand"/>
+    <menuitem id="menu_serial_printer_root"
+              name="Catálogo"
+              sequence="10"/>
+
+    <menuitem id="menu_serial_printer_brand"
+              name="Marcas externas"
+              parent="menu_serial_printer_root"
+              action="action_serial_printer_brand"
+              sequence="1"/>
 </odoo>
