@@ -1,4 +1,4 @@
-<?xml version=“1.0” encoding=“UTF-8”?>
+
 <odoo>
     <record id=“ir_cron_sync_toptex_stock” model=“ir.cron”>
         <field name=“name”>Sincronizar stock TopTex</field>
