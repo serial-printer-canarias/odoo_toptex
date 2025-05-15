@@ -1,20 +1,20 @@
-
 {
     "name": "Serial Printer Catalog",
     "version": "1.0",
-    "summary": "Catálogo de productos y marcas importados por API",
-    "description": "Importa productos, marcas, variantes y precios desde una API externa.",
+    "summary": "Integración completa con API TopTex: productos, variantes y stock",
+    "description": "Sincroniza productos, variantes, imágenes y stock desde la API de TopTex con tu Odoo.",
     "author": "Serial Printer",
     "category": "Sales",
-    "website": "https://www.serialprinter.com",
-    "depends": ["base"],
+    "website": "https://serialprinter.local",
+    "depends": ["base", "product", "stock", "sale_management", "website_sale"],
     "data": [
-        "views/brand_views.xml",
-        "views/product_views.xml",
-        "views/menu.xml"
-    ],
-    "application": True,
+    "views/menu.xml",
+    "views/brand_views.xml",
+    "views/product_views.xml",
+    "data/cron.xml"
+ ],
     "installable": True,
+    "application": True,
     "auto_install": False,
     "license": "LGPL-3"
 }

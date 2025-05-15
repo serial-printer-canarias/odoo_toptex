@@ -1,4 +1,3 @@
-
 import requests
 from odoo import models, fields
 
@@ -8,7 +7,7 @@ class SerialPrinterBrand(models.Model):
 
     name = fields.Char(string="Nombre", required=True)
 
-    def import_toptex_brands(self):
+    def import_brands_from_api(self):
         url = "https://api.toptex.io/v3/attributes"
         headers = {
             "accept": "application/json",
@@ -25,23 +24,21 @@ class SerialPrinterBrand(models.Model):
                 for brand in attribute.get("values", []):
                     name = brand.get("label")
                     if name:
-                        self.env['serial_printer.brand'].sudo()._update_or_create_brand(name)
+                        self.env['serial_printer.brand'].sudo().update_or_create_brand(name)
                         total += 1
 
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
-                'message': f'{total} marcas importadas desde la API',
+                'message': f'{total} marcas importadas correctamente.',
                 'type': 'success',
                 'sticky': False,
             }
         }
 
-    @classmethod
-    def _update_or_create_brand(cls, env, name):
-        existing = env['serial_printer.brand'].search([('name', '=', name)], limit=1)
-        if existing:
-            existing.write({'name': name})
-        else:
-            env['serial_printer.brand'].create({'name': name})
+    @staticmethod
+    def update_or_create_brand(self, name):
+        existing = self.search([('name', '=', name)], limit=1)
+        if not existing:
+            self.create({'name': name})
