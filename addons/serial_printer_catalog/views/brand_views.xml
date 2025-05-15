@@ -1,0 +1,18 @@
+
+<odoo>
+    <record id="view_serial_printer_brand_list" model="ir.ui.view">
+        <field name="name">serial_printer.brand.list</field>
+        <field name="model">serial_printer.brand</field>
+        <field name="arch" type="xml">
+            <list>
+                <header>
+                    <button name="import_toptex_brands"
+                            type="object"
+                            string="Importar marcas"
+                            class="btn-primary"/>
+                </header>
+                <field name="name"/>
+            </list>
+        </field>
+    </record>
+</odoo>
