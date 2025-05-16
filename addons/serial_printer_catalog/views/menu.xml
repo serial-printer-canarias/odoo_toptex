@@ -1,17 +1,21 @@
 <odoo>
-    <menuitem id="menu_serial_printer_root"
-              name="Catálogo"
-              sequence="10"/>
+    <!— Menú raíz “Catálogo” —>
+    <menuitem id=“menu_serial_printer_root”
+              name=“Catálogo”
+              sequence=“10”
+              action=“action_serial_printer_brand” />
 
-    <menuitem id="menu_serial_printer_brand"
-              name="Marcas externas"
-              parent="menu_serial_printer_root"
-              action="action_serial_printer_brand"
-              sequence="1"/>
+    <!— Submenú de marcas —>
+    <menuitem id=“menu_serial_printer_brand”
+              name=“Marcas externas”
+              parent=“menu_serial_printer_root”
+              action=“action_serial_printer_brand”
+              sequence=“1” />
 
-    <menuitem id="menu_serial_printer_product"
-              name="Productos"
-              parent="menu_serial_printer_root"
-              action="action_serial_printer_product"
-              sequence="2"/>
+    <!— Submenú de productos —>
+    <menuitem id=“menu_serial_printer_product”
+              name=“Productos”
+              parent=“menu_serial_printer_root”
+              action=“action_serial_printer_product”
+              sequence=“2” />
 </odoo>
