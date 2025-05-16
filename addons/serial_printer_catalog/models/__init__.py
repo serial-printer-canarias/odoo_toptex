@@ -1,1 +1,1 @@
-from . import brand, product
+# vacío

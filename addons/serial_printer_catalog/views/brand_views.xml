@@ -1,24 +1,11 @@
-<?xml version=“1.0” encoding=“UTF-8”?>
 <odoo>
     <record id=“view_serial_printer_brand_list” model=“ir.ui.view”>
-        <field name=“name”>serial_printer.brand.list</field>
-        <field name=“model”>serial_printer.brand</field>
+        <field name=“name”>serial.printer.brand.list</field>
+        <field name=“model”>serial.printer.brand</field>
         <field name=“arch” type=“xml”>
             <list>
-                <header>
-                    <button name=“import_brands_from_api”
-                            type=“object”
-                            string=“Importar marcas”
-                            class=“btn-primary”/>
-                </header>
                 <field name=“name”/>
             </list>
         </field>
-    </record>
-
-    <record id=“action_serial_printer_brand” model=“ir.actions.act_window”>
-        <field name=“name”>Marcas externas</field>
-        <field name=“res_model”>serial_printer.brand</field>
-        <field name=“view_mode”>list</field>
     </record>
 </odoo>
