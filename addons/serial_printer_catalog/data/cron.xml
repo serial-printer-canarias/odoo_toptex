@@ -1,9 +1,0 @@
-
-<odoo>
-    <field name=“state”>code</field>
-<field name=“code”>model.sync_stock_from_api()</field>
-<field name=“interval_number”>3</field>
-<field name=“interval_type”>hours</field>
-<field name=“numbercall”>-1</field>
-<field name=“active”>True</field>
-</odoo>
