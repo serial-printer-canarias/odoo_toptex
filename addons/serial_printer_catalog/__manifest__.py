@@ -6,13 +6,18 @@
     "author": "Serial Printer",
     "category": "Sales",
     "website": "https://serialprinter.local",
-    "depends": ["base", "product", "stock", "sale_management", "website_sale"],
+    "depends": [
+        "base",
+        "product",
+        "stock",
+        "sale_management",
+        "website_sale"
+    ],
     "data": [
-    "views/brand_views.xml",
-    "views/product_views.xml",
-    "views/menu.xml",
-    "data/cron.xml"
- ],
+        "views/brand_views.xml",
+        "views/product_views.xml",
+        "data/cron.xml"
+    ],
     "installable": True,
     "application": True,
     "auto_install": False,
