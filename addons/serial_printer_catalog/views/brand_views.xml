@@ -1,4 +1,5 @@
 <?xml version=“1.0” encoding=“UTF-8”?>
+
 <odoo>
     <record id=“view_serial_printer_brand_list” model=“ir.ui.view”>
         <field name=“name”>serial_printer.brand.list</field>
