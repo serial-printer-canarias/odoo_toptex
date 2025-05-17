@@ -12,8 +12,8 @@
         "views/product_views.xml",
         "data/cron.xml"
     ],
-    "installable": true,
-    "application": true,
-    "auto_install": false,
+    "installable": True,
+    "application": True,
+    "auto_install": False,
     "license": "LGPL-3"
 }

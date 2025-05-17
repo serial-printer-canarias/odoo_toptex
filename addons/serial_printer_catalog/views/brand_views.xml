@@ -1,11 +1,11 @@
 <odoo>
-    <record id=“view_serial_printer_brand_list” model=“ir.ui.view”>
-        <field name=“name”>serial.printer.brand.list</field>
-        <field name=“model”>serial.printer.brand</field>
-        <field name=“arch” type=“xml”>
-            <list>
-                <field name=“name”/>
-            </list>
+    <record id="view_brand_list" model="ir.ui.view">
+        <field name="name">serial.printer.brand.list</field>
+        <field name="model">serial.printer.brand</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="name"/>
+            </tree>
         </field>
     </record>
 </odoo>
