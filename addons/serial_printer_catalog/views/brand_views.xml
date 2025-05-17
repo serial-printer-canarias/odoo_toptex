@@ -3,7 +3,7 @@
         <field name=“name”>serial.printer.brand.list</field>
         <field name=“model”>serial.printer.brand</field>
         <field name=“arch” type=“xml”>
-            <list string=“Lista de Marcas”>
+            <list>
                 <field name=“name”/>
             </list>
         </field>
