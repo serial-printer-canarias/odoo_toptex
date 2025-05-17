@@ -1,17 +1,18 @@
 from odoo import models, fields, api
 import requests
 
-class SerialPrinterProduct(models.Model):
-    _inherit = 'product.template'
+class ProductTemplate(models.Model):
+    _inherit = "product.template"
 
-    toptex_id = fields.Char(string="TopTex ID")
+    toptex_id = fields.Char("TopTex ID")
+    sync_date = fields.Datetime("Fecha de sincronización")
 
-    @api.model
-    def import_products_from_api(self):
-        # Aquí va la llamada real a la API de TopTex
-        pass
-
-    @api.model
     def sync_stock_from_api(self):
-        # Aquí va la lógica de sincronización de stock
-        pass
+        url = "https://api.toptex.com/v1/products"
+        headers = {"Authorization": "Bearer TU_API_KEY"}
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            for item in response.json().get("products", []):
+                product = self.env["product.template"].search([("toptex_id", "=", item["reference"])], limit=1)
+                if product:
+                    product.qty_available = item.get("stock", 0)

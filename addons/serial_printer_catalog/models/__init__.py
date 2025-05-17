@@ -1,2 +1,1 @@
-from . import product
-from . import brand
+from . import product, brand
