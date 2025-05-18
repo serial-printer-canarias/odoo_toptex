@@ -3,7 +3,7 @@
         <field name="name">serial.printer.brand.form</field>
         <field name="model">serial.printer.brand</field>
         <field name="arch" type="xml">
-            <form>
+            <form string="Marca">
                 <sheet>
                     <group>
                         <field name="name"/>
@@ -14,16 +14,17 @@
         </field>
     </record>
 
-    <menuitem id="serial_printer_catalog_root" name="Catálogo"/>
-    <menuitem id="serial_printer_catalog_menu" name="Marcas" parent="serial_printer_catalog_root"/>
-    
+    <menuitem id="serial_printer_catalog_menu" name="Marcas"
+              parent="menu_serial_printer_root"/>
+
     <record id="action_serial_printer_brand" model="ir.actions.act_window">
         <field name="name">Marcas</field>
         <field name="res_model">serial.printer.brand</field>
         <field name="view_mode">form</field>
     </record>
 
-    <menuitem id="menu_action_serial_printer_brand" name="Ver marcas" 
+    <menuitem id="menu_serial_printer_brand"
+              name="Ver marcas"
               parent="serial_printer_catalog_menu"
               action="action_serial_printer_brand"/>
 </odoo>
