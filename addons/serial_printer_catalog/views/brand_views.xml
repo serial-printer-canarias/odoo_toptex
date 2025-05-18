@@ -16,8 +16,14 @@
 
     <menuitem id="serial_printer_catalog_root" name="Catálogo"/>
     <menuitem id="serial_printer_catalog_menu" name="Marcas" parent="serial_printer_catalog_root"/>
-    <act_window id="action_serial_printer_brand" name="Marcas"
-                res_model="serial.printer.brand"
-                view_mode="form"
-                menu_id="serial_printer_catalog_menu"/>
+    
+    <record id="action_serial_printer_brand" model="ir.actions.act_window">
+        <field name="name">Marcas</field>
+        <field name="res_model">serial.printer.brand</field>
+        <field name="view_mode">form</field>
+    </record>
+
+    <menuitem id="menu_action_serial_printer_brand" name="Ver marcas" 
+              parent="serial_printer_catalog_menu"
+              action="action_serial_printer_brand"/>
 </odoo>
