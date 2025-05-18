@@ -2,7 +2,7 @@ from odoo import models, fields
 
 class SerialPrinterBrand(models.Model):
     _name = 'serial.printer.brand'
-    _description = 'Marca de productos de catálogo'
+    _description = 'Brand from TopTex'
 
-    name = fields.Char(string='Nombre', required=True)
-    code = fields.Char(string='Código')
+    name = fields.Char(string='Name', required=True)
+    code = fields.Char(string='Code', required=True)
