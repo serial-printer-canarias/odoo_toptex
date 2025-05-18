@@ -1,3 +1,12 @@
 <odoo>
     <menuitem id="menu_serial_printer_root" name="Catálogo"/>
+
+    <menuitem id="menu_serial_printer_brands" name="Marcas"
+              parent="menu_serial_printer_root"/>
+
+    <menuitem id="menu_serial_printer_products" name="Productos"
+              parent="menu_serial_printer_root"/>
+
+    <menuitem id="menu_serial_printer_variants" name="Variantes"
+              parent="menu_serial_printer_root"/>
 </odoo>
