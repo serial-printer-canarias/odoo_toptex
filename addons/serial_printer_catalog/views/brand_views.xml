@@ -14,17 +14,15 @@
         </field>
     </record>
 
-    <menuitem id="serial_printer_catalog_menu" name="Marcas"
-              parent="menu_serial_printer_root"/>
-
     <record id="action_serial_printer_brand" model="ir.actions.act_window">
         <field name="name">Marcas</field>
         <field name="res_model">serial.printer.brand</field>
         <field name="view_mode">form</field>
+        <field name="target">current</field>
     </record>
 
-    <menuitem id="menu_serial_printer_brand"
-              name="Ver marcas"
-              parent="serial_printer_catalog_menu"
-              action="action_serial_printer_brand"/>
+    <menuitem id="menu_serial_printer_brand_action"
+              parent="menu_serial_printer_brands"
+              action="action_serial_printer_brand"
+              sequence="1"/>
 </odoo>
