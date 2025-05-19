@@ -1,15 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <menuitem id="menu_serial_printer_variant_root"
+    <menuitem id="menu_catalog_variant"
               name="Variantes"
-              parent="menu_serial_printer_root"/>
+              parent="menu_catalog_root"
+              sequence="30"/>
 
-    <menuitem id="menu_serial_printer_variant"
+    <menuitem id="menu_catalog_variant_list"
               name="Ver variantes"
-              parent="menu_serial_printer_variant_root"/>
-
-    <act_window id="action_serial_printer_variant"
-                name="Variantes"
-                res_model="product.product"
-                view_mode="tree,form"
-                menu_id="menu_serial_printer_variant"/>
+              parent="menu_catalog_variant"
+              action="action_serial_printer_variant_list"
+              sequence="10"/>
 </odoo>
