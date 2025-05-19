@@ -1,0 +1,11 @@
+<odoo>
+    <menuitem id="menu_serial_printer_attribute_root" name="Atributos" parent="menu_serial_printer_root"/>
+
+    <menuitem id="menu_serial_printer_attribute" name="Ver atributos" parent="menu_serial_printer_attribute_root"/>
+
+    <act_window id="action_serial_printer_attribute"
+                name="Atributos"
+                res_model="serial.printer.attribute"
+                view_mode="tree,form"
+                menu_id="menu_serial_printer_attribute"/>
+</odoo>
