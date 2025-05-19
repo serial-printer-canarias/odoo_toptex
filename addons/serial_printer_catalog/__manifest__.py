@@ -6,8 +6,8 @@
     "category": "Sales",
     "summary": "Catálogo sincronizado con API externa",
     "data": [
-        "views/menu_brands.xml",
         "views/brand_views.xml",
+        "views/menu_brands.xml",
         "views/menu_attribute.xml",
         "views/attribute_views.xml",
         "views/menu_variant.xml",
