@@ -1,5 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <record id="view_brand_form" model="ir.ui.view">
+    <!-- Vista de lista -->
+    <record id="view_serial_printer_brand_tree" model="ir.ui.view">
+        <field name="name">serial.printer.brand.tree</field>
+        <field name="model">serial.printer.brand</field>
+        <field name="arch" type="xml">
+            <tree string="Marcas">
+                <field name="name"/>
+                <field name="external_id"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Vista de formulario -->
+    <record id="view_serial_printer_brand_form" model="ir.ui.view">
         <field name="name">serial.printer.brand.form</field>
         <field name="model">serial.printer.brand</field>
         <field name="arch" type="xml">
@@ -7,22 +21,17 @@
                 <sheet>
                     <group>
                         <field name="name"/>
-                        <field name="code"/>
+                        <field name="external_id"/>
                     </group>
                 </sheet>
             </form>
         </field>
     </record>
 
-    <record id="action_serial_printer_brand" model="ir.actions.act_window">
+    <!-- Acción -->
+    <record id="action_serial_printer_brand_list" model="ir.actions.act_window">
         <field name="name">Marcas</field>
         <field name="res_model">serial.printer.brand</field>
-        <field name="view_mode">form</field>
-        <field name="target">current</field>
+        <field name="view_mode">tree,form</field>
     </record>
-
-    <menuitem id="menu_serial_printer_brand_action"
-              parent="menu_serial_printer_brands"
-              action="action_serial_printer_brand"
-              sequence="1"/>
 </odoo>
