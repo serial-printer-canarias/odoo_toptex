@@ -1,0 +1,31 @@
+<odoo>
+    <record id="view_variant_list" model="ir.ui.view">
+        <field name="name">product.product.list.toptex</field>
+        <field name="model">product.product</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="name"/>
+                <field name="default_code"/>
+                <field name="toptex_variant_id"/>
+                <field name="product_tmpl_id"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_variant_form" model="ir.ui.view">
+        <field name="name">product.product.form.toptex</field>
+        <field name="model">product.product</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="default_code"/>
+                        <field name="toptex_variant_id"/>
+                        <field name="product_tmpl_id"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+</odoo>
