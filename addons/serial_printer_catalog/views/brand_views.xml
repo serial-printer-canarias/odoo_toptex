@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <!-- Vista de lista -->
-    <record id="view_serial_printer_brand_tree" model="ir.ui.view">
-        <field name="name">serial.printer.brand.tree</field>
+    <!-- Vista tree (lista) de marcas -->
+    <record id="view_serial_printer_brand_list" model="ir.ui.view">
+        <field name="name">serial.printer.brand.list</field>
         <field name="model">serial.printer.brand</field>
         <field name="arch" type="xml">
-            <tree string="Marcas">
+            <list>
                 <field name="name"/>
-                <field name="external_id"/>
-            </tree>
+                <field name="code"/>
+            </list>
         </field>
     </record>
 
-    <!-- Vista de formulario -->
+    <!-- Vista form de marcas -->
     <record id="view_serial_printer_brand_form" model="ir.ui.view">
         <field name="name">serial.printer.brand.form</field>
         <field name="model">serial.printer.brand</field>
@@ -21,17 +21,18 @@
                 <sheet>
                     <group>
                         <field name="name"/>
-                        <field name="external_id"/>
+                        <field name="code"/>
                     </group>
                 </sheet>
             </form>
         </field>
     </record>
 
-    <!-- Acción -->
+    <!-- Acción para mostrar la lista de marcas -->
     <record id="action_serial_printer_brand_list" model="ir.actions.act_window">
         <field name="name">Marcas</field>
         <field name="res_model">serial.printer.brand</field>
-        <field name="view_mode">tree,form</field>
+        <field name="view_mode">list,form</field>
+        <field name="type">ir.actions.act_window</field>
     </record>
 </odoo>
