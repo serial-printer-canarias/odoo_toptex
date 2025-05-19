@@ -1,11 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <menuitem id="menu_serial_printer_attribute_root" name="Atributos" parent="menu_serial_printer_root"/>
+    <!-- Submenú: Atributos -->
+    <menuitem id="menu_catalog_attribute" name="Atributos"
+              parent="menu_catalog_root" sequence="30"/>
 
-    <menuitem id="menu_serial_printer_attribute" name="Ver atributos" parent="menu_serial_printer_attribute_root"/>
-
-    <act_window id="action_serial_printer_attribute"
-                name="Atributos"
-                res_model="serial.printer.attribute"
-                view_mode="tree,form"
-                menu_id="menu_serial_printer_attribute"/>
+    <!-- Acción: Ver atributos -->
+    <menuitem id="menu_catalog_attribute_list" name="Ver atributos"
+              parent="menu_catalog_attribute"
+              action="action_serial_printer_attribute_list" sequence="10"/>
 </odoo>
