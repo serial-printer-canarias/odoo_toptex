@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <record id="view_variant_list" model="ir.ui.view">
+    <!-- Vista de lista -->
+    <record id="view_serial_printer_variant_list" model="ir.ui.view">
         <field name="name">serial.printer.variant.list</field>
         <field name="model">serial.printer.variant</field>
         <field name="arch" type="xml">
@@ -11,21 +12,21 @@
         </field>
     </record>
 
-    <record id="view_variant_form" model="ir.ui.view">
+    <!-- Vista de formulario -->
+    <record id="view_serial_printer_variant_form" model="ir.ui.view">
         <field name="name">serial.printer.variant.form</field>
         <field name="model">serial.printer.variant</field>
         <field name="arch" type="xml">
-            <form>
-                <sheet>
-                    <group>
-                        <field name="name"/>
-                        <field name="code"/>
-                    </group>
-                </sheet>
+            <form string="Variante">
+                <group>
+                    <field name="name"/>
+                    <field name="code"/>
+                </group>
             </form>
         </field>
     </record>
 
+    <!-- Acción -->
     <record id="action_serial_printer_variant_list" model="ir.actions.act_window">
         <field name="name">Variantes</field>
         <field name="res_model">serial.printer.variant</field>
