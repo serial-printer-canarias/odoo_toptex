@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <menuitem id="menu_catalog_variant"
+              name="Variantes"
+              parent="menu_catalog_root"
+              sequence="30"/>
+
+    <menuitem id="menu_catalog_variant_list"
+              name="Ver variantes"
+              parent="menu_catalog_variant"
+              action="action_serial_printer_variant"
+              sequence="10"/>
+</odoo>
