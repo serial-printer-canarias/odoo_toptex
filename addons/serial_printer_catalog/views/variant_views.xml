@@ -1,7 +1,5 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <!-- Vista tipo lista -->
-    <record id="view_serial_printer_variant_list" model="ir.ui.view">
+    <record id="serial_printer_variant_list" model="ir.ui.view">
         <field name="name">serial.printer.variant.list</field>
         <field name="model">serial.printer.variant</field>
         <field name="arch" type="xml">
@@ -9,4 +7,6 @@
                 <field name="name"/>
                 <field name="code"/>
             </list>
-        </field
+        </field>
+    </record>
+</odoo>
