@@ -1,45 +1,105 @@
-# serial_printer_catalog/models/product.py
-
-from odoo import models, fields
+# -*- coding: utf-8 -*-
 import requests
 import logging
+from odoo import models, fields, api
 
 _logger = logging.getLogger(__name__)
 
+TOPTEX_API_URL = "https://api.toptex.io"
+API_KEY = "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE"
+
+HEADERS = {
+    "x-api-key": API_KEY,
+    "accept": "application/json",
+}
+
 class ProductTemplate(models.Model):
-    _inherit = 'product.template'
+    _inherit = "product.template"
 
-    toptex_code = fields.Char(string='Código TopTex')
+    toptex_id = fields.Char("TopTex ID", index=True)
+    toptex_sku = fields.Char("TopTex SKU", index=True)
 
+    @api.model
     def sync_products_from_api(self):
-        url = "https://api.toptex.io/v3/products"
-        headers = {
-            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4b0vgiZe"
-        }
-
+        """Sincroniza productos desde la API de TopTex"""
         try:
-            response = requests.get(url, headers=headers)
+            url = f"{TOPTEX_API_URL}/v3/products"
+            response = requests.get(url, headers=HEADERS)
             response.raise_for_status()
-            data = response.json()
+            products = response.json()
 
-            for product in data.get("items", []):
-                existing_product = self.env['product.template'].search([
-                    ('toptex_code', '=', product.get("code"))
+            for product in products.get("data", []):
+                self.env["product.template"].sudo().create({
+                    "name": product.get("name"),
+                    "toptex_id": product.get("id"),
+                    "toptex_sku": product.get("sku"),
+                    "type": "product",
+                    "list_price": product.get("price", 0.0),
+                    "default_code": product.get("sku"),
+                })
+            _logger.info("Productos importados correctamente desde TopTex")
+        except Exception as e:
+            _logger.error(f"Error al importar productos desde TopTex: {e}")
+            raise
+
+    @api.model
+    def sync_stock_from_api(self):
+        """Sincroniza stock desde la API de TopTex"""
+        try:
+            url = f"{TOPTEX_API_URL}/v3/stock"
+            response = requests.get(url, headers=HEADERS)
+            response.raise_for_status()
+            stock_data = response.json()
+
+            for item in stock_data.get("data", []):
+                template = self.env["product.template"].sudo().search([
+                    ("toptex_id", "=", item.get("product_id"))
                 ], limit=1)
+                if template:
+                    qty = item.get("quantity", 0.0)
+                    template.qty_available = qty
+            _logger.info("Stock actualizado correctamente desde TopTex")
+        except Exception as e:
+            _logger.error(f"Error al sincronizar stock desde TopTex: {e}")
+            raise
 
-                vals = {
-                    'name': product.get("name"),
-                    'toptex_code': product.get("code"),
-                    'type': 'product',
-                    'sale_ok': True,
-                    'purchase_ok': True,
-                    'default_code': product.get("code")
-                }
+    @api.model
+    def sync_images_from_api(self):
+        """Sincroniza imágenes desde la API de TopTex"""
+        try:
+            url = f"{TOPTEX_API_URL}/v3/images"
+            response = requests.get(url, headers=HEADERS)
+            response.raise_for_status()
+            images = response.json()
 
-                if existing_product:
-                    existing_product.write(vals)
-                else:
-                    self.env['product.template'].create(vals)
+            for img in images.get("data", []):
+                product = self.env["product.template"].sudo().search([
+                    ("toptex_id", "=", img.get("product_id"))
+                ], limit=1)
+                if product and img.get("url"):
+                    image_content = requests.get(img["url"]).content
+                    product.image_1920 = image_content
+            _logger.info("Imágenes sincronizadas correctamente desde TopTex")
+        except Exception as e:
+            _logger.error(f"Error al sincronizar imágenes desde TopTex: {e}")
+            raise
 
-        except requests.exceptions.RequestException as e:
-            _logger.error("Error al conectar con la API de TopTex: %s", str(e))
+    @api.model
+    def sync_prices_from_api(self):
+        """Sincroniza precios personalizados desde la API de TopTex"""
+        try:
+            url = f"{TOPTEX_API_URL}/v3/prices"
+            response = requests.get(url, headers=HEADERS)
+            response.raise_for_status()
+            prices = response.json()
+
+            for item in prices.get("data", []):
+                product = self.env["product.template"].sudo().search([
+                    ("toptex_id", "=", item.get("product_id"))
+                ], limit=1)
+                if product:
+                    product.list_price = item.get("price", 0.0)
+            _logger.info("Precios personalizados actualizados correctamente desde TopTex")
+        except Exception as e:
+            _logger.error(f"Error al sincronizar precios desde TopTex: {e}")
+            raise
