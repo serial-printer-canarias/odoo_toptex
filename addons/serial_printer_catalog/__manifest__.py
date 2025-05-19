@@ -8,8 +8,8 @@
     "data": [
         "views/brand_views.xml",
         "views/menu_brands.xml",
-        "views/menu_attribute.xml",
         "views/attribute_views.xml",
+        "views/menu_attribute.xml",
         "views/menu_variant.xml",
         "views/variant_views.xml",
         "views/product_views.xml",
