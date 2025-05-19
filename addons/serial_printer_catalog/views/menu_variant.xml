@@ -1,0 +1,15 @@
+<odoo>
+    <menuitem id="menu_serial_printer_variant_root"
+              name="Variantes"
+              parent="menu_serial_printer_root"/>
+
+    <menuitem id="menu_serial_printer_variant"
+              name="Ver variantes"
+              parent="menu_serial_printer_variant_root"/>
+
+    <act_window id="action_serial_printer_variant"
+                name="Variantes"
+                res_model="product.product"
+                view_mode="tree,form"
+                menu_id="menu_serial_printer_variant"/>
+</odoo>
