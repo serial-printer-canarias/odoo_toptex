@@ -8,7 +8,6 @@
     'depends': ['base', 'product'],
     'data': [
         'views/menu.xml',
-        'views/menu_brand.xml',
         'views/menu_attribute.xml',
         'views/menu_variant.xml',
         'views/brand_views.xml',
