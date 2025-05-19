@@ -1,31 +1,33 @@
 <odoo>
-    <record id="view_product_template_form_serial_printer" model="ir.ui.view">
-        <field name="name">serial.printer.product.form</field>
+    <record id="view_product_template_list_toptex" model="ir.ui.view">
+        <field name="name">product.template.list.toptex</field>
         <field name="model">product.template</field>
         <field name="arch" type="xml">
-            <form string="Producto">
+            <tree>
+                <field name="name"/>
+                <field name="default_code"/>
+                <field name="toptex_id"/>
+                <field name="toptex_sku"/>
+                <field name="list_price"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_product_template_form_toptex" model="ir.ui.view">
+        <field name="name">product.template.form.toptex</field>
+        <field name="model">product.template</field>
+        <field name="arch" type="xml">
+            <form>
                 <sheet>
                     <group>
                         <field name="name"/>
                         <field name="default_code"/>
+                        <field name="toptex_id"/>
+                        <field name="toptex_sku"/>
                         <field name="list_price"/>
-                        <field name="qty_available"/>
-                        <field name="image_1920" widget="image"/>
                     </group>
                 </sheet>
             </form>
         </field>
     </record>
-
-    <record id="action_serial_printer_product" model="ir.actions.act_window">
-        <field name="name">Productos</field>
-        <field name="res_model">product.template</field>
-        <field name="view_mode">form</field>
-    </record>
-
-    <menuitem id="menu_serial_printer_product_action"
-              name="Ver productos"
-              parent="menu_serial_printer_products"
-              action="action_serial_printer_product"
-              sequence="1"/>
 </odoo>
