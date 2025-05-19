@@ -6,7 +6,6 @@
     "category": "Sales",
     "description": "Sincronización automática con catálogo de productos TopTex",
     "data": [
-        "views/menu_brand.xml",
         "views/menu_attribute.xml",
         "views/menu_variant.xml",
 
