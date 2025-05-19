@@ -12,8 +12,8 @@
     </record>
 
     <record id="action_serial_printer_attribute_list" model="ir.actions.act_window">
-        <field name="name">Atributos</field>
+        <field name="name">Ver atributos</field>
         <field name="res_model">serial.printer.attribute</field>
-        <field name="view_mode">tree</field>
+        <field name="view_mode">tree,form</field>
     </record>
 </odoo>
