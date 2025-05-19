@@ -1,27 +1,11 @@
-<odoo>
-    <record id="view_attribute_list" model="ir.ui.view">
-        <field name="name">serial.printer.attribute.list</field>
-        <field name="model">serial.printer.attribute</field>
-        <field name="arch" type="xml">
-            <tree>
-                <field name="name"/>
-                <field name="code"/>
-            </tree>
-        </field>
-    </record>
-
-    <record id="view_attribute_form" model="ir.ui.view">
-        <field name="name">serial.printer.attribute.form</field>
-        <field name="model">serial.printer.attribute</field>
-        <field name="arch" type="xml">
-            <form>
-                <sheet>
-                    <group>
-                        <field name="name"/>
-                        <field name="code"/>
-                    </group>
-                </sheet>
-            </form>
-        </field>
-    </record>
-</odoo>
+<record id="view_attribute_list" model="ir.ui.view">
+    <field name="name">serial.printer.attribute.list</field>
+    <field name="model">serial.printer.attribute</field>
+    <field name="type">list</field> <!-- IMPORTANTE: USAR "list" EN VEZ DE "tree" -->
+    <field name="arch" type="xml">
+        <tree>
+            <field name="name"/>
+            <field name="code"/>
+        </tree>
+    </field>
+</record>
