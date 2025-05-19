@@ -1,26 +1,29 @@
 {
-    "name": "Serial Printer Catalog",
-    "version": "1.0",
-    "summary": "Integración completa con API TopTex: productos, variantes, imágenes y stock",
-    "description": "Sincroniza productos, variantes, imágenes y stock desde la API de TopTex con tu Odoo.",
-    "author": "Serial Printer",
-    "category": "Sales",
-    "website": "https://serialprinter.local",
-    "depends": [
-        "base",
-        "product",
-        "stock",
-        "sale_management",
-        "website_sale"
+    'name': 'Serial Printer Catalog',
+    'version': '1.0',
+    'summary': 'Sincronización automática con el catálogo de TopTex',
+    'description': 'Importa productos, marcas, variantes, stock, imágenes y precios personalizados desde la API de TopTex.',
+    'author': 'Serial Printer',
+    'category': 'Sales',
+    'depends': ['base', 'product'],
+    'data': [
+        'views/menu.xml',
+        'views/menu_brand.xml',
+        'views/menu_attribute.xml',
+        'views/menu_variant.xml',
+        'views/brand_views.xml',
+        'views/attribute_views.xml',
+        'views/variant_views.xml',
+        'views/product_views.xml',
+
+        'data/cron_brand.xml',
+        'data/cron_attribute.xml',
+        'data/cron_product.xml',
+        'data/cron_stock.xml',
+        'data/cron_image.xml',
+        'data/cron_price.xml',
+        'data/cron_variant.xml',
     ],
-    "data": [
-        "views/menu.xml",
-        "views/brand_views.xml",
-        "views/product_views.xml",
-        "data/cron.xml"
-    ],
-    "installable": True,
-    "application": True,
-    "auto_install": False,
-    "license": "LGPL-3"
+    'installable': True,
+    'application': True,
 }
