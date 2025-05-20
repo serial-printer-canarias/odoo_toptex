@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_serial_printer_attribute_list" model="ir.ui.view">
+        <field name="name">serial.printer.attribute.list</field>
+        <field name="model">serial.printer.attribute</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="type"/>
+                <field name="toptex_id"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_serial_printer_attribute_form" model="ir.ui.view">
+        <field name="name">serial.printer.attribute.form</field>
+        <field name="model">serial.printer.attribute</field>
+        <field name="arch" type="xml">
+            <form>
+                <group>
+                    <field name="name"/>
+                    <field name="type"/>
+                    <field name="toptex_id"/>
+                </group>
+            </form>
+        </field>
+    </record>
+</odoo>
