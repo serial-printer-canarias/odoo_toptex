@@ -1,11 +1,11 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="cron_sync_variants_from_api" model="ir.cron">
         <field name="name">Sincronizar variantes desde API</field>
         <field name="model_id" ref="base.model_serial_printer_variant"/>
         <field name="state">code</field>
         <field name="code">model.sync_variants_from_api()</field>
-        <field name="interval_number">6</field>
+        <field name="interval_number">12</field>
         <field name="interval_type">hours</field>
         <field name="active">True</field>
     </record>
