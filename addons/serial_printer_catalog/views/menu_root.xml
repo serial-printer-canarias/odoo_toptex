@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="menu_serial_printer_catalog_root"
+              name="Catálogo"
+              sequence="1"
+              web_icon="serial_printer_catalog/static/description/icon.png"/>
+</odoo>
