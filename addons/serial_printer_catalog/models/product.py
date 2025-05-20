@@ -4,7 +4,7 @@ import requests
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
-    external_code = fields.Char(string='Código externo TopTex')
+    external_code = fields.Char(string='Código externo (TopTex)')
 
     @api.model
     def sync_products_from_api(self):
@@ -16,29 +16,24 @@ class ProductTemplate(models.Model):
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
             products = response.json()
-            for prod in products:
-                self.create_or_update_product(prod)
+            for p in products:
+                vals = {
+                    'name': p.get('name', ''),
+                    'default_code': p.get('reference'),
+                    'external_code': p.get('code'),
+                    'list_price': float(p.get('price', 0.0)),
+                }
+                existing = self.env['product.template'].search([('external_code', '=', p.get('code'))], limit=1)
+                if existing:
+                    existing.write(vals)
+                else:
+                    self.create(vals)
         else:
-            raise Exception("No se pudo conectar con la API de productos")
-
-    def create_or_update_product(self, prod):
-        existing = self.search([('external_code', '=', prod.get('code'))], limit=1)
-        values = {
-            'name': prod.get('name'),
-            'external_code': prod.get('code'),
-            'default_code': prod.get('code'),
-            'type': 'product',
-            'list_price': prod.get('price', 0.0),
-        }
-
-        if existing:
-            existing.write(values)
-        else:
-            self.create(values)
+            raise Exception(f"Error al sincronizar productos: {response.status_code} - {response.text}")
 
     @api.model
     def sync_stock_from_api(self):
-        url = "https://api.toptex.io/stocks"
+        url = "https://api.toptex.io/stock"
         headers = {
             "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE"
         }
@@ -47,8 +42,10 @@ class ProductTemplate(models.Model):
         if response.status_code == 200:
             stock_data = response.json()
             for item in stock_data:
-                product = self.search([('external_code', '=', item.get('code'))], limit=1)
+                code = item.get('product_code')
+                qty = item.get('stock', 0)
+                product = self.env['product.template'].search([('external_code', '=', code)], limit=1)
                 if product:
-                    product.qty_available = item.get('quantity', 0.0)
+                    product.write({'qty_available': qty})
         else:
-            raise Exception("No se pudo conectar con la API de stock")
+            raise Exception(f"Error al sincronizar stock: {response.status_code} - {response.text}")
