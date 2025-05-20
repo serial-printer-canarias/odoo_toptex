@@ -1,77 +1,55 @@
 import requests
 from odoo import models, fields, api
+from odoo.exceptions import UserError
 
 class SerialPrinterProduct(models.Model):
-    _name = "serial.printer.product"
-    _description = "Producto del catálogo"
+    _name = 'serial.printer.product'
+    _description = 'Producto de proveedor'
+    _rec_name = 'name'
 
-    name = fields.Char(string="Nombre", required=True)
-    toptex_id = fields.Integer(string="ID en TopTex", required=True, unique=True)
-    reference = fields.Char(string="Referencia")
-    price = fields.Float(string="Precio base")
-    stock = fields.Integer(string="Stock")
-    image_url = fields.Char(string="URL de imagen")
+    toptex_id = fields.Char(string='TopTex ID', required=True, index=True)
+    name = fields.Char(string='Nombre')
+    description = fields.Text(string='Descripción')
+    brand = fields.Char(string='Marca')
+    category = fields.Char(string='Categoría')
+    gender = fields.Char(string='Género')
+    sizes = fields.Char(string='Tallas')
+    colors = fields.Char(string='Colores')
+    price = fields.Float(string='Precio base')
+    currency = fields.Char(string='Moneda')
 
     @api.model
     def sync_products_from_api(self):
-        url = "https://api.toptex.io/api/products"
+        url = "https://api.toptex.io/products"
         headers = {
-            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE"
+            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE",
+            "accept": "application/json"
         }
 
         response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            data = response.json()
-            for item in data:
-                self.env["serial.printer.product"].sudo().update_or_create_product(item)
-        else:
-            raise Exception(f"Error {response.status_code}: {response.text}")
+        if response.status_code != 200:
+            raise UserError(f"Error {response.status_code}: {response.text}")
 
-    @api.model
-    def sync_images_from_api(self):
-        url = "https://api.toptex.io/api/products/images"
-        headers = {
-            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE"
+        data = response.json()
+        for product in data:
+            self.create_or_update_product(product)
+
+    def create_or_update_product(self, product):
+        vals = {
+            'toptex_id': product.get('id'),
+            'name': product.get('label'),
+            'description': product.get('description'),
+            'brand': product.get('brand', {}).get('label'),
+            'category': product.get('category', {}).get('label'),
+            'gender': product.get('gender'),
+            'sizes': ', '.join(product.get('sizes', [])),
+            'colors': ', '.join([color.get('label') for color in product.get('colors', [])]),
+            'price': product.get('price', {}).get('unit_price', 0.0),
+            'currency': product.get('price', {}).get('currency'),
         }
 
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            data = response.json()
-            for item in data:
-                product = self.search([("toptex_id", "=", item.get("product_id"))], limit=1)
-                if product:
-                    product.image_url = item.get("url")
-        else:
-            raise Exception(f"Error {response.status_code}: {response.text}")
-
-    @api.model
-    def sync_prices_from_api(self):
-        url = "https://api.toptex.io/api/products/prices"
-        headers = {
-            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE"
-        }
-
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            data = response.json()
-            for item in data:
-                product = self.search([("toptex_id", "=", item.get("product_id"))], limit=1)
-                if product:
-                    product.price = item.get("price", 0.0)
-        else:
-            raise Exception(f"Error {response.status_code}: {response.text}")
-
-    @api.model
-    def update_or_create_product(self, item):
-        existing = self.search([("toptex_id", "=", item.get("id"))], limit=1)
-        values = {
-            "name": item.get("name"),
-            "toptex_id": item.get("id"),
-            "reference": item.get("reference"),
-            "price": item.get("price", 0.0),
-            "stock": item.get("stock", 0),
-        }
+        existing = self.search([('toptex_id', '=', product.get('id'))], limit=1)
         if existing:
-            existing.write(values)
+            existing.write(vals)
         else:
-            self.create(values)
+            self.create(vals)
