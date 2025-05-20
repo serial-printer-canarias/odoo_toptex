@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <menuitem id="menu_serial_printer_products"
+              name="Productos"
+              parent="menu_serial_printer_root"
+              sequence="20"/>
+
+    <record id="action_serial_printer_products" model="ir.actions.act_window">
+        <field name="name">Productos</field>
+        <field name="res_model">product.template</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="submenu_serial_printer_products_list"
+              name="Lista de productos"
+              parent="menu_serial_printer_products"
+              action="action_serial_printer_products"
+              sequence="1"/>
+</odoo>
