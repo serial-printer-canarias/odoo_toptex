@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <menuitem id="menu_serial_printer_brands"
-              name="Marcas externas"
-              parent="menu_serial_printer_root"
-              sequence="5"/>
-
-    <record id="action_serial_printer_brands" model="ir.actions.act_window">
-        <field name="name">Marcas</field>
-        <field name="res_model">serial.printer.brand</field>
-        <field name="view_mode">list,form</field>
+    <record id="serial_printer_brand_list" model="ir.ui.view">
+        <field name="name">serial.printer.brand.list</field>
+        <field name="model">serial.printer.brand</field>
+        <field name="arch" type="xml">
+            <list string="Lista de marcas">
+                <field name="name"/>
+                <field name="toptex_id"/>
+            </list>
+        </field>
     </record>
 
-    <menuitem id="submenu_serial_printer_brands_list"
-              name="Lista de marcas"
-              parent="menu_serial_printer_brands"
-              action="action_serial_printer_brands"
-              sequence="1"/>
+    <record id="action_serial_printer_brand" model="ir.actions.act_window">
+        <field name="name">Marcas del catálogo</field>
+        <field name="res_model">serial.printer.brand</field>
+        <field name="view_mode">list</field>
+    </record>
 </odoo>
