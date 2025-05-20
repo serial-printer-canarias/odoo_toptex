@@ -1,0 +1,30 @@
+{
+    "name": "Serial Printer Catalog",
+    "version": "1.0",
+    "summary": "Catálogo sincronizado con API de productos",
+    "category": "Sales",
+    "author": "Serial Printer",
+    "depends": ["base", "product", "sale"],
+    "data": [
+        "views/menu_root.xml",
+        "views/brand_views.xml",
+        "views/menu_brands.xml",
+        "views/attribute_views.xml",
+        "views/menu_attribute.xml",
+        "views/variant_views.xml",
+        "views/menu_variant.xml",
+        "views/product_views.xml",
+        "views/menu_product.xml",
+
+        "data/cron_brand.xml",
+        "data/cron_attribute.xml",
+        "data/cron_variant.xml",
+        "data/cron_product.xml",
+        "data/cron_stock.xml",
+        "data/cron_image.xml",
+        "data/cron_prices.xml"
+    ],
+    "installable": True,
+    "application": True,
+    "auto_install": False,
+}
