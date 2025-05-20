@@ -1,13 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <menuitem id="menu_catalog_attribute_root"
-              name="Atributos"
-              parent="menu_catalog_root"
-              sequence="30"/>
+    <menuitem id="menu_catalog_attribute_root" name="Atributos"
+              parent="menu_catalog_root" sequence="30"/>
 
-    <menuitem id="menu_catalog_attribute_list"
-              name="Ver atributos"
+    <menuitem id="menu_catalog_attribute_list" name="Ver atributos"
               parent="menu_catalog_attribute_root"
-              action="action_serial_printer_attribute_list"
-              sequence="10"/>
+              action="action_serial_printer_attribute_list" sequence="10"/>
 </odoo>
