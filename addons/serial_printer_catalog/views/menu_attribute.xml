@@ -1,13 +1,13 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <menuitem id="menu_catalog_attribute_root"
+    <menuitem id="menu_serial_printer_attribute_root"
               name="Atributos"
-              parent="menu_catalog_root"
-              sequence="20"/>
+              parent="menu_serial_printer_catalog_root"
+              sequence="30"/>
 
-    <menuitem id="menu_catalog_attribute_list"
+    <menuitem id="menu_serial_printer_attribute_list"
               name="Ver atributos"
-              parent="menu_catalog_attribute_root"
+              parent="menu_serial_printer_attribute_root"
               action="action_serial_printer_attribute_list"
-              sequence="1"/>
+              sequence="10"/>
 </odoo>
