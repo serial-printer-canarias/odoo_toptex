@@ -7,6 +7,7 @@
     'category': 'Sales',
     'depends': ['base', 'product', 'sale', 'stock'],
     'data': [
+        'views/menu_root.xml',
         'views/menu_brands.xml',
         'views/brand_views.xml',
         'views/menu_attribute.xml',
