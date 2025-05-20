@@ -10,7 +10,6 @@
                 <field name="type"/>
                 <field name="list_price"/>
                 <field name="standard_price"/>
-                <field name="available_in_pos"/>
             </list>
         </field>
     </record>
