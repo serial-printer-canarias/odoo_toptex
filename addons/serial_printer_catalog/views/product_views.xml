@@ -1,19 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <!-- Vista heredada para agregar campos al formulario de producto -->
-    <record id="view_product_form_inherit_api" model="ir.ui.view">
-        <field name="name">product.template.form.inherit.api</field>
+    <record id="view_serial_printer_product_list" model="ir.ui.view">
+        <field name="name">serial.printer.product.list</field>
         <field name="model">product.template</field>
-        <field name="inherit_id" ref="product.product_template_only_form_view"/>
         <field name="arch" type="xml">
-            <xpath expr="//sheet/notebook" position="inside">
-                <page string="API Info">
-                    <group>
-                        <field name="external_id"/>
-                        <field name="synced_from_api"/>
-                    </group>
-                </page>
-            </xpath>
+            <list>
+                <field name="name"/>
+                <field name="default_code"/>
+                <field name="external_code"/>
+                <field name="list_price"/>
+                <field name="qty_available"/>
+            </list>
         </field>
+    </record>
+
+    <record id="action_serial_printer_product_list" model="ir.actions.act_window">
+        <field name="name">Productos</field>
+        <field name="res_model">product.template</field>
+        <field name="view_mode">list</field>
+        <field name="domain">[('external_code', '!=', False)]</field>
     </record>
 </odoo>
