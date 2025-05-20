@@ -1,7 +1,7 @@
 {
     "name": "Serial Printer Catalog",
     "version": "1.0",
-    "summary": "Catálogo sincronizado con API de productos",
+    "summary": "Catálogo sincronizado con TopTex",
     "category": "Sales",
     "author": "Serial Printer",
     "depends": ["base", "product", "sale"],
@@ -15,7 +15,6 @@
         "views/menu_variant.xml",
         "views/product_views.xml",
         "views/menu_product.xml",
-
         "data/cron_brand.xml",
         "data/cron_attribute.xml",
         "data/cron_variant.xml",
