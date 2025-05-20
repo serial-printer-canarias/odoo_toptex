@@ -4,10 +4,10 @@
         <field name="name">serial.printer.attribute.list</field>
         <field name="model">serial.printer.attribute</field>
         <field name="arch" type="xml">
-            <list string="Atributos">
+            <tree string="Lista de atributos">
                 <field name="name"/>
                 <field name="toptex_id"/>
-            </list>
+            </tree>
         </field>
     </record>
 </odoo>
