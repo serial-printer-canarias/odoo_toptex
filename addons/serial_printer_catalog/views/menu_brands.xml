@@ -1,17 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <menuitem id="menu_catalog_root"
-              name="Catálogo"
-              sequence="10"/>
-
     <menuitem id="menu_catalog_brand_root"
-              name="Marcas"
-              parent="menu_catalog_root"
-              sequence="10"/>
-
-    <menuitem id="menu_catalog_brand_list"
               name="Ver marcas"
-              parent="menu_catalog_brand_root"
+              parent="menu_catalog_root"
               action="action_serial_printer_brand_list"
-              sequence="1"/>
+              sequence="20"/>
 </odoo>
