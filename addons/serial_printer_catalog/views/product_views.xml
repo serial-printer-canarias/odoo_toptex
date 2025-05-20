@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="view_serial_printer_product_list" model="ir.ui.view">
         <field name="name">serial.printer.product.list</field>
