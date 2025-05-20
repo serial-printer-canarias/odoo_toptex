@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <menuitem id="menu_serial_printer_attributes"
+              name="Atributos"
+              parent="menu_serial_printer_root"
+              sequence="10"/>
+
+    <record id="action_serial_printer_attributes" model="ir.actions.act_window">
+        <field name="name">Atributos</field>
+        <field name="res_model">serial.printer.attribute</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="submenu_serial_printer_attributes_list"
+              name="Lista de atributos"
+              parent="menu_serial_printer_attributes"
+              action="action_serial_printer_attributes"
+              sequence="1"/>
+</odoo>
