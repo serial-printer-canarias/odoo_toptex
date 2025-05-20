@@ -1,13 +1,13 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <menuitem id="menu_catalog_product_root"
+    <menuitem id="menu_serial_printer_product_root"
               name="Productos"
-              parent="menu_catalog_root"
-              sequence="40"/>
+              parent="menu_serial_printer_catalog_root"
+              sequence="50"/>
 
-    <menuitem id="menu_catalog_product_list"
+    <menuitem id="menu_serial_printer_product_list"
               name="Ver productos"
-              parent="menu_catalog_product_root"
+              parent="menu_serial_printer_product_root"
               action="action_serial_printer_product_list"
-              sequence="1"/>
+              sequence="10"/>
 </odoo>
