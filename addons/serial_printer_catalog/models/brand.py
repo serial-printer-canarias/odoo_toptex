@@ -25,10 +25,7 @@ class SerialPrinterBrand(models.Model):
 
     @api.model
     def update_or_create_brand(self, item):
-        existing = self.env["serial.printer.brand"].sudo().search([
-            ("toptex_id", "=", item.get("id"))
-        ], limit=1)
-
+        existing = self.search([("toptex_id", "=", item.get("id"))], limit=1)
         values = {
             "name": item.get("name"),
             "toptex_id": item.get("id")
