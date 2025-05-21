@@ -1,5 +1,9 @@
+# -*- coding: utf-8 -*-
 from odoo import models, fields, api
 import requests
+import logging
+
+_logger = logging.getLogger(__name__)
 
 class SerialPrinterProduct(models.Model):
     _name = 'serial.printer.product'
@@ -19,13 +23,17 @@ class SerialPrinterProduct(models.Model):
             "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE"
         }
 
-        response = requests.get(url, headers=headers)
-        if response.status_code != 200:
-            raise Exception(f"Error {response.status_code}: {response.text}")
-
-        data = response.json()
-        for item in data:
-            self.env["serial.printer.product"].sudo().update_or_create_product(item)
+        try:
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                for item in data:
+                    self.env["serial.printer.product"].sudo().update_or_create_product(item)
+            else:
+                raise Exception(f"Error {response.status_code}: {response.text}")
+        except Exception as e:
+            _logger.error(f"TopTex API error: {str(e)}")
+            raise
 
     @api.model
     def update_or_create_product(self, item):
