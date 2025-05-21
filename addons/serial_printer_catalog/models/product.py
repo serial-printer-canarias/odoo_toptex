@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 from odoo import models, fields, api
 import requests
 
@@ -19,13 +18,14 @@ class SerialPrinterProduct(models.Model):
         headers = {
             "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE"
         }
+
         response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            data = response.json()
-            for item in data:
-                self.env["serial.printer.product"].sudo().update_or_create_product(item)
-        else:
+        if response.status_code != 200:
             raise Exception(f"Error {response.status_code}: {response.text}")
+
+        data = response.json()
+        for item in data:
+            self.env["serial.printer.product"].sudo().update_or_create_product(item)
 
     @api.model
     def update_or_create_product(self, item):
