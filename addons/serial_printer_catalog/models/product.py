@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 from odoo import models, fields, api
 import requests
+import logging
 
+_logger = logging.getLogger(__name__)
 
 class SerialPrinterProduct(models.Model):
     _name = 'serial.printer.product'
@@ -20,19 +22,19 @@ class SerialPrinterProduct(models.Model):
         headers = {
             "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE"
         }
-        response = requests.get(url, headers=headers)
 
+        response = requests.get(url, headers=headers)
         if response.status_code == 200:
             data = response.json()
             for item in data:
-                self.env['serial.printer.product'].sudo().update_or_create_product(item)
+                self.env["serial.printer.product"].sudo().update_or_create_product(item)
         else:
             raise Exception(f"Error {response.status_code}: {response.text}")
 
     @api.model
     def update_or_create_product(self, item):
-        existing = self.env['serial.printer.product'].sudo().search([
-            ('toptex_id', '=', item.get("id"))
+        existing = self.env["serial.printer.product"].sudo().search([
+            ("toptex_id", "=", item.get("id"))
         ], limit=1)
 
         values = {
@@ -49,7 +51,6 @@ class SerialPrinterProduct(models.Model):
         else:
             self.create(values)
 
-    # Esta función se usará en el cron
     @api.model
     def run_sync_cron(self):
         self.sync_products_from_api()
