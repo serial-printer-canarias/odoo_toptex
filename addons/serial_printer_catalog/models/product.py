@@ -1,73 +1,72 @@
-import requests
 from odoo import models, fields, api
+import requests
 import logging
 
 _logger = logging.getLogger(__name__)
 
-class ProductTemplate(models.Model):
-    _inherit = 'product.template'
+class SerialPrinterProduct(models.Model):
+    _name = 'serial.printer.product'
+    _description = 'Producto sincronizado desde la API'
 
-    toptex_id = fields.Char(string="ID TopTex", readonly=True)
-
-class ToptexProductSync(models.Model):
-    _name = 'serial_printer_catalog.product_sync'
-    _description = 'Sincronización de productos desde TopTex'
-
-    @api.model
-    def authenticate_and_get_token(self):
-        auth_url = "https://api.toptex.io/v3/authenticate"
-        api_key = "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe"
-        username = "toes_bafaluydelreymarc"
-        password = "Bafarey12345."
-
-        headers = {
-            "x-api-key": api_key,
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "username": username,
-            "password": password
-        }
-
-        try:
-            response = requests.post(auth_url, json=payload, headers=headers)
-            if response.status_code == 200:
-                token = response.json().get("token")
-                _logger.info("Token obtenido correctamente.")
-                return token
-            else:
-                _logger.error(f"Error al obtener token: {response.text}")
-        except Exception as e:
-            _logger.error(f"Excepción al autenticar: {str(e)}")
-        return None
+    name = fields.Char(string="Nombre del producto")
+    reference = fields.Char(string="Referencia")
+    external_id = fields.Char(string="ID externo del producto")
+    description = fields.Text(string="Descripción")
+    image_url = fields.Char(string="URL de imagen")
 
     @api.model
-    def sync_toptex_products(self):
-        api_key = "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe"
-        token = self.authenticate_and_get_token()
-
-        if not token:
-            _logger.error("No se pudo obtener el token. Abortando sincronización.")
-            return
-
-        url = "https://api.toptex.io/v3/products"
-        headers = {
-            "x-api-key": api_key,
-            "x-toptex-authorization": token
-        }
-
+    def sync_products_from_api(self):
         try:
-            response = requests.get(url, headers=headers)
+            # Paso 1: obtener token con username, password y api-key
+            auth_url = "https://api.toptex.io/v3/authenticate"
+            api_key = "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe"
+            username = "toes_bafaluydelreymarc"
+            password = "Bafarey12345."
+
+            auth_headers = {
+                "x-api-key": api_key,
+                "Content-Type": "application/json",
+                "accept": "application/json"
+            }
+
+            auth_payload = {
+                "username": username,
+                "password": password
+            }
+
+            auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
+            if auth_response.status_code != 200:
+                _logger.error("Error autenticando: %s", auth_response.text)
+                return
+
+            token = auth_response.json().get("token")
+            if not token:
+                _logger.error("No se recibió token de autenticación.")
+                return
+
+            # Paso 2: hacer llamada a productos con token válido
+            products_url = "https://api.toptex.io/api/products"
+            headers = {
+                "x-api-key": api_key,
+                "x-toptex-authorization": token,
+                "accept": "application/json"
+            }
+
+            response = requests.get(products_url, headers=headers)
+
             if response.status_code == 200:
                 products = response.json()
-                for item in products:
-                    self.env['product.template'].create({
-                        'name': item.get('label'),
-                        'default_code': item.get('reference'),
-                        'toptex_id': item.get('id'),
+                for product in products:
+                    self.env['serial.printer.product'].create({
+                        'name': product.get("label"),
+                        'reference': product.get("reference"),
+                        'external_id': product.get("id"),
+                        'description': product.get("description"),
+                        'image_url': product.get("image", {}).get("url", "")
                     })
                 _logger.info("Productos importados correctamente.")
             else:
-                _logger.error(f"Error al obtener productos: {response.text}")
+                _logger.error("Error al obtener productos: %s", response.text)
+
         except Exception as e:
-            _logger.error(f"Excepción al sincronizar productos: {str(e)}")
+            _logger.exception("Excepción durante la sincronización de productos: %s", e)
