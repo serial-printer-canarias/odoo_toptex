@@ -1,15 +1,17 @@
 # -*- coding: utf-8 -*-
 import requests
+import logging
 from odoo import models, fields
+
+_logger = logging.getLogger(__name__)
 
 class SerialPrinterProduct(models.Model):
     _name = 'serial.printer.product'
     _description = 'Producto sincronizado de catálogo'
-    _rec_name = 'name'
 
     name = fields.Char(string="Nombre", required=True)
     toptex_id = fields.Char(string="ID TopTex", required=True, index=True)
-    reference = fields.Char(string="Referencia")
+    ref = fields.Char(string="Referencia")
     description = fields.Text(string="Descripción")
     price = fields.Float(string="Precio")
     stock = fields.Integer(string="Stock")
@@ -20,20 +22,41 @@ class SerialPrinterProduct(models.Model):
             "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe"
         }
 
+        _logger.warning(">>>> Llamando a API TopTex con headers: %s", headers)
+
         response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            products = response.json()
-            for product in products:
-                self.env['serial.printer.product'].create({
-                    'name': product.get('name'),
-                    'toptex_id': product.get('id'),
-                    'reference': product.get('reference'),
-                    'description': product.get('description'),
-                    'price': product.get('price'),
-                    'stock': product.get('stock', 0),
-                })
-        else:
+        if response.status_code != 200:
             raise Exception(f"Error {response.status_code}: {response.text}")
+
+        data = response.json()
+
+        for item in data.get("items", []):
+            product_id = item.get("id")
+            name = item.get("name", "")
+            ref = item.get("reference", "")
+            description = item.get("description", "")
+            price = item.get("price", {}).get("net", 0.0)
+            stock = item.get("stock", {}).get("total", 0)
+
+            existing_product = self.search([('toptex_id', '=', product_id)], limit=1)
+
+            if existing_product:
+                existing_product.write({
+                    'name': name,
+                    'ref': ref,
+                    'description': description,
+                    'price': price,
+                    'stock': stock,
+                })
+            else:
+                self.create({
+                    'toptex_id': product_id,
+                    'name': name,
+                    'ref': ref,
+                    'description': description,
+                    'price': price,
+                    'stock': stock,
+                })
 
     def run_sync_cron(self):
         self.sync_products_from_api()
