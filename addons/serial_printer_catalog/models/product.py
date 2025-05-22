@@ -27,6 +27,7 @@ class SerialPrinterProduct(models.Model):
                 "Content-Type": "application/json",
                 "accept": "application/json"
             }
+
             auth_payload = {
                 "username": username,
                 "password": password
