@@ -17,7 +17,6 @@ class SerialPrinterProduct(models.Model):
     @api.model
     def sync_products_from_api(self):
         try:
-            # Paso 1: Autenticación
             auth_url = "https://api.toptex.io/v3/authenticate"
             api_key = "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe"
             username = "toes_bafaluydelreymarc"
@@ -28,7 +27,6 @@ class SerialPrinterProduct(models.Model):
                 "Content-Type": "application/json",
                 "accept": "application/json"
             }
-
             auth_payload = {
                 "username": username,
                 "password": password
@@ -41,10 +39,9 @@ class SerialPrinterProduct(models.Model):
 
             token = auth_response.json().get("token")
             if not token:
-                _logger.error("Token no recibido en la autenticación")
+                _logger.error("No se recibió token de autenticación.")
                 return
 
-            # Paso 2: Obtener productos
             products_url = "https://api.toptex.io/api/products"
             headers = {
                 "x-api-key": api_key,
@@ -53,22 +50,19 @@ class SerialPrinterProduct(models.Model):
             }
 
             response = requests.get(products_url, headers=headers)
-            if response.status_code != 200:
+            if response.status_code == 200:
+                products = response.json()
+                for product in products:
+                    self.env['serial.printer.product'].create({
+                        'name': product.get("label"),
+                        'reference': product.get("reference"),
+                        'external_id': product.get("id"),
+                        'description': product.get("description"),
+                        'image_url': product.get("image", {}).get("url", "")
+                    })
+                _logger.info("Productos importados correctamente.")
+            else:
                 _logger.error("Error al obtener productos: %s", response.text)
-                return
-
-            products = response.json()
-
-            for product in products:
-                self.env['serial.printer.product'].create({
-                    'name': product.get('label'),
-                    'reference': product.get('reference'),
-                    'external_id': product.get('id'),
-                    'description': product.get('description'),
-                    'image_url': product.get('image', {}).get('url', '')
-                })
-
-            _logger.info("Productos importados correctamente: %s", len(products))
 
         except Exception as e:
-            _logger.exception("Excepción al sincronizar productos: %s", e)
+            _logger.exception("Excepción durante la sincronización de productos: %s", e)
