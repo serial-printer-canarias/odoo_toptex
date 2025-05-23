@@ -1,30 +1,26 @@
-from odoo import models, fields, api
 import requests
-import logging
 from datetime import datetime, timedelta
 import pytz
-
-_logger = logging.getLogger(__name__)
-
+from odoo import models, fields, api
 
 class SerialPrinterProduct(models.Model):
-    _name = 'serial.printer.product'
-    _description = 'Producto sincronizado desde TopTex'
+    _name = "serial.printer.product"
+    _description = "Producto de Catálogo"
 
-    name = fields.Char(string="Nombre del producto")
-    reference = fields.Char(string="Referencia")
-    external_id = fields.Char(string="ID externo")
+    name = fields.Char(string="Nombre")
+    toptex_id = fields.Char(string="ID TopTex")
     description = fields.Text(string="Descripción")
-    image_url = fields.Char(string="URL de imagen")
+    price = fields.Float(string="Precio")
+    image_url = fields.Char(string="URL Imagen")
 
-    token = None
-    token_expiry = None
+    _token = None
+    _token_expiry = None
 
-    def _get_api_token(self):
+    def get_api_token(self):
         """Renueva el token si ha caducado"""
         now = datetime.utcnow().replace(tzinfo=pytz.UTC)
-        if self.token and self.token_expiry and now < self.token_expiry:
-            return self.token
+        if self._token and self._token_expiry and now < self._token_expiry:
+            return self._token
 
         api_key = "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe"
         username = "toes_bafaluydelreymarc"
@@ -36,54 +32,39 @@ class SerialPrinterProduct(models.Model):
             "accept": "application/json",
             "Content-Type": "application/json"
         }
-
         data = {
             "username": username,
             "password": password
         }
 
-        try:
-            response = requests.post(url, json=data, headers=headers)
-            if response.status_code == 200:
-                token_data = response.json()
-                self.token = token_data.get("token")
-                expires_in = token_data.get("expiresIn", 3600)
-                self.token_expiry = now + timedelta(seconds=expires_in)
-                _logger.info("Token renovado correctamente")
-                return self.token
-            else:
-                _logger.error(f"No se pudo obtener el token: {response.status_code} - {response.text}")
-        except Exception as e:
-            _logger.error(f"Excepción al obtener el token: {str(e)}")
-        return None
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 200:
+            token_data = response.json()
+            self._token = token_data.get("token")
+            expires_in = token_data.get("expires_in", 3600)
+            self._token_expiry = now + timedelta(seconds=expires_in)
+            return self._token
+        else:
+            raise Exception(f"Error al obtener token: {response.status_code} {response.text}")
 
     def sync_products_from_api(self):
-        token = self._get_api_token()
-        if not token:
-            _logger.error("No se pudo obtener el token. Cancelando sincronización.")
-            return
-
+        token = self.get_api_token()
         url = "https://api.toptex.io/v3/products"
         headers = {
             "Authorization": f"Bearer {token}",
             "accept": "application/json"
         }
 
-        try:
-            response = requests.get(url, headers=headers)
-            if response.status_code != 200:
-                _logger.error(f"Error al obtener productos: {response.status_code} - {response.text}")
-                return
-
-            products = response.json().get("data", [])
-            for item in products:
-                self.env['serial.printer.product'].create({
-                    'name': item.get('name'),
-                    'reference': item.get('reference'),
-                    'external_id': item.get('id'),
-                    'description': item.get('description'),
-                    'image_url': item.get('image_url'),
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            products_data = response.json().get("items", [])
+            for product in products_data:
+                self.env["serial.printer.product"].create({
+                    "name": product.get("name"),
+                    "toptex_id": product.get("id"),
+                    "description": product.get("description", ""),
+                    "price": product.get("price", 0.0),
+                    "image_url": product.get("image", {}).get("src", "")
                 })
-            _logger.info("Productos sincronizados correctamente")
-        except Exception as e:
-            _logger.error(f"Excepción durante la sincronización de productos: {str(e)}")
+        else:
+            raise Exception(f"Error al sincronizar productos: {response.status_code} {response.text}")
