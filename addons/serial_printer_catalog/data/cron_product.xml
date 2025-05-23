@@ -1,12 +1,11 @@
 <odoo>
     <record id="ir_cron_sync_products_toptex" model="ir.cron">
         <field name="name">Sincronizar productos desde API</field>
-        <field name="model_id" ref="serial_printer_catalog.model_serial_printer_product"/>
+        <field name="model_id" ref="model_serial_printer_product"/>
         <field name="state">code</field>
         <field name="code">model.sync_products_from_api()</field>
         <field name="interval_number">1</field>
         <field name="interval_type">hours</field>
-        <field name="numbercall">-1</field>
         <field name="doall" eval="False"/>
         <field name="active" eval="True"/>
     </record>
