@@ -6,18 +6,15 @@ _logger = logging.getLogger(__name__)
 
 class SerialPrinterVariant(models.Model):
     _name = 'serial.printer.variant'
-    _description = 'Variante del producto sincronizada desde la API'
+    _description = 'Variante sincronizada desde la API'
 
     name = fields.Char(string="Nombre de la variante")
-    reference = fields.Char(string="Referencia de variante")
-    external_id = fields.Char(string="ID externo")
-    size = fields.Char(string="Talla")
-    color = fields.Char(string="Color")
-    stock = fields.Integer(string="Stock")
+    toptex_id = fields.Char(string="ID TopTex")
 
     @api.model
     def sync_variants_from_api(self):
         try:
+            # Paso 1: autenticación
             auth_url = "https://api.toptex.io/v3/authenticate"
             api_key = "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe"
             username = "toes_bafaluydelreymarc"
@@ -44,6 +41,7 @@ class SerialPrinterVariant(models.Model):
                 _logger.error("No se recibió token de autenticación.")
                 return
 
+            # Paso 2: obtener variantes desde API
             variants_url = "https://api.toptex.io/api/variants"
             headers = {
                 "x-api-key": api_key,
@@ -57,11 +55,7 @@ class SerialPrinterVariant(models.Model):
                 for variant in variants:
                     self.env['serial.printer.variant'].create({
                         'name': variant.get("label"),
-                        'reference': variant.get("reference"),
-                        'external_id': variant.get("id"),
-                        'size': variant.get("size", {}).get("label", ""),
-                        'color': variant.get("color", {}).get("label", ""),
-                        'stock': variant.get("stock", 0)
+                        'toptex_id': variant.get("id")
                     })
                 _logger.info("Variantes importadas correctamente.")
             else:
