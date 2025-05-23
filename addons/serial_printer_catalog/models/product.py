@@ -20,14 +20,14 @@ class SerialPrinterProduct(models.Model):
     token_expiry = None
 
     def _get_api_token(self):
-        """Renueva el token si ha caducado o está a punto de caducar (menos de 10 min)."""
+        """Renueva el token si ha caducado o está por caducar"""
         now = datetime.utcnow().replace(tzinfo=pytz.UTC)
         if self.token and self.token_expiry and now < self.token_expiry - timedelta(minutes=10):
             return self.token
 
         api_key = "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe"
         username = "toes_bafaluydelreymarc"
-        password = "Bafarey12345."
+        password = "Bafarely12345."
         url = "https://api.toptex.io/v3/authenticate"
 
         headers = {
@@ -51,8 +51,9 @@ class SerialPrinterProduct(models.Model):
         expiry_str = data.get("hora de caducidad")
         if self.token and expiry_str:
             self.token_expiry = datetime.strptime(expiry_str, "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=pytz.UTC)
-        _logger.info("Token renovado correctamente. Expira en %s", self.token_expiry)
-        return self.token
+            _logger.info("Token renovado correctamente. Expira en %s", self.token_expiry)
+            return self.token
+        return None
 
     @api.model
     def sync_products_from_api(self):
