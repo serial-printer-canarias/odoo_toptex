@@ -22,14 +22,12 @@ class SerialPrinterProduct(models.Model):
     def _get_api_token(self):
         """Renueva el token si ha caducado o está a punto de caducar (menos de 10 min)."""
         now = datetime.utcnow().replace(tzinfo=pytz.UTC)
-
         if self.token and self.token_expiry and now < self.token_expiry - timedelta(minutes=10):
-            _logger.info("Token todavía válido, se reutiliza.")
             return self.token
 
-        api_key = "qh7SERVyz43xDDNaRoNs0aLXGnTfS0XdA0vg1Ze"
+        api_key = "qh7SERVyz43xDDNaRoNs0aLxGnTfSOXdDvgiZe"
         username = "toes_bafaluydelreymarc"
-        password = "Bafarely12345."
+        password = "Bafarey12345."
         url = "https://api.toptex.io/v3/authenticate"
 
         headers = {
@@ -44,7 +42,6 @@ class SerialPrinterProduct(models.Model):
         }
 
         response = requests.post(url, json=payload, headers=headers)
-
         if response.status_code != 200:
             _logger.error("Error al obtener token: %s", response.text)
             return None
@@ -58,18 +55,14 @@ class SerialPrinterProduct(models.Model):
             _logger.info("Token renovado correctamente. Expira en %s", self.token_expiry)
             return self.token
 
-        _logger.error("Respuesta sin token o sin expiración válida.")
         return None
 
     @api.model
     def sync_products_from_api(self):
         token = self._get_api_token()
-
         if not token:
             _logger.error("No se pudo obtener el token. Cancelando sincronización.")
             return
-
-        _logger.info("Token usado para autenticación: %s", token)
 
         url = "https://api.toptex.io/v3/products"
         headers = {
@@ -78,13 +71,11 @@ class SerialPrinterProduct(models.Model):
         }
 
         response = requests.get(url, headers=headers)
-
         if response.status_code != 200:
             _logger.error("Error al obtener productos: %s", response.text)
             return
 
         products = response.json().get("data", [])
-
         for item in products:
             self.env['serial.printer.product'].create({
                 'name': item.get('name'),
