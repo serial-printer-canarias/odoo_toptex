@@ -25,7 +25,6 @@ class SerialPrinterProduct(models.Model):
         }
         headers = {
             "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE",
-            "x-toptex-authorization": "APIKEY qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE",  # CABECERA EXTRA
             "Content-Type": "application/json"
         }
 
@@ -49,8 +48,7 @@ class SerialPrinterProduct(models.Model):
         url = "https://api.toptex.io/v3/products"
         headers = {
             "Authorization": f"Bearer {token}",
-            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE",
-            "x-toptex-authorization": f"Bearer {token}"  # EXTRA por si es requerido también aquí
+            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE"
         }
         params = {
             "usage_right": "b2b_b2c",
