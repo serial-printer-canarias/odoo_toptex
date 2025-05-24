@@ -13,12 +13,13 @@ class SerialPrinterProduct(models.Model):
     price = fields.Float(string="Precio")
     image_url = fields.Char(string="URL Imagen")
 
+    # Variables de clase (no campos de Odoo)
     _api_token = None
     _api_token_expiry = None
 
     @classmethod
     def get_api_token(cls):
-        """Renueva el token si ha caducado (usa variables de clase)"""
+        """Renueva el token si ha caducado (usa variables de clase, no campos del modelo)"""
         now = datetime.utcnow().replace(tzinfo=pytz.UTC)
         if cls._api_token and cls._api_token_expiry and now < cls._api_token_expiry:
             return cls._api_token
