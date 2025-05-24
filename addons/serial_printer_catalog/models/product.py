@@ -48,9 +48,8 @@ class SerialPrinterProduct(models.Model):
         else:
             raise Exception(f"Error al obtener token: {response.status_code} {response.text}")
 
-    @classmethod
-    def sync_products_from_api(cls):
-        token = cls.get_api_token()
+    def sync_products_from_api(self):
+        token = self.get_api_token()
         url = "https://api.toptex.io/v3/products"
         headers = {
             "Authorization": f"Bearer {token}",
@@ -61,7 +60,7 @@ class SerialPrinterProduct(models.Model):
         if response.status_code == 200:
             products_data = response.json().get("items", [])
             for product in products_data:
-                cls.env["serial.printer.product"].create({
+                self.env["serial.printer.product"].create({
                     "name": product.get("name"),
                     "toptex_id": product.get("id"),
                     "description": product.get("description", ""),
