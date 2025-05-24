@@ -1,71 +1,60 @@
 import requests
-from datetime import datetime, timedelta
-import pytz
-from odoo import models, fields
+from odoo import models, fields, api
+from datetime import datetime
 
 class SerialPrinterProduct(models.Model):
-    _name = "serial.printer.product"
-    _description = "Producto de Catálogo"
+    _name = 'serial.printer.product'
+    _description = 'Producto Catálogo'
 
-    name = fields.Char(string="Nombre")
-    toptex_id = fields.Char(string="ID TopTex")
-    description = fields.Text(string="Descripción")
-    price = fields.Float(string="Precio")
-    image_url = fields.Char(string="URL Imagen")
-
-    _api_token = None
-    _api_token_expiry = None
-
-    @classmethod
-    def get_api_token(cls):
-        """Renueva el token si ha caducado (usa variables de clase)"""
-        now = datetime.utcnow().replace(tzinfo=pytz.UTC)
-        if cls._api_token and cls._api_token_expiry and now < cls._api_token_expiry:
-            return cls._api_token
-
-        api_key = "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe"
-        username = "toes_bafaluydelreymarc"
-        password = "Bafarey12345."
-        url = "https://api.toptex.io/v3/authenticate"
-
-        headers = {
-            "x-api-key": api_key,
-            "accept": "application/json",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "username": username,
-            "password": password
-        }
-
-        response = requests.post(url, headers=headers, json=data)
-        if response.status_code == 200:
-            token_data = response.json()
-            cls._api_token = token_data.get("token")
-            expires_in = token_data.get("expires_in", 3600)
-            cls._api_token_expiry = now + timedelta(seconds=expires_in)
-            return cls._api_token
-        else:
-            raise Exception(f"Error al obtener token: {response.status_code} {response.text}")
+    name = fields.Char(string='Nombre')
+    toptex_id = fields.Char(string='TopTex ID')
+    reference = fields.Char(string='Referencia')
+    description = fields.Text(string='Descripción')
+    brand = fields.Char(string='Marca')
+    gender = fields.Char(string='Género')
+    created_at = fields.Datetime(string='Fecha creación')
+    updated_at = fields.Datetime(string='Fecha modificación')
 
     def sync_products_from_api(self):
-        token = self.get_api_token()
+        token = "eyJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3MTY0NzI2NjYsImV4cCI6MTcxNjQ3NzI2Nn0.oVg-nHt2ZHR3kK-6f1F1JqOqUvZkHUc0d0mD5b9dv6A"
+
         url = "https://api.toptex.io/v3/products"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "accept": "application/json"
+        params = {
+            "usage_right": "b2b_b2c",  # Obligatorio
+            "lang": "es",              # Recomendado
+            "display_prices": "1"      # Opcional, pero útil
         }
 
-        response = requests.get(url, headers=headers)
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE"
+        }
+
+        response = requests.get(url, headers=headers, params=params)
+
         if response.status_code == 200:
-            products_data = response.json().get("items", [])
-            for product in products_data:
-                self.env["serial.printer.product"].create({
-                    "name": product.get("name"),
-                    "toptex_id": product.get("id"),
-                    "description": product.get("description", ""),
-                    "price": product.get("price", 0.0),
-                    "image_url": product.get("image", {}).get("src", "")
-                })
+            products = response.json()
+            for product in products:
+                self.create_or_update_product(product)
         else:
-            raise Exception(f"Error al sincronizar productos: {response.status_code} {response.text}")
+            raise Exception(f"Error al conectar con la API: {response.status_code} - {response.text}")
+
+    def create_or_update_product(self, product_data):
+        toptex_id = product_data.get("id")
+        existing = self.search([('toptex_id', '=', toptex_id)], limit=1)
+
+        values = {
+            "name": product_data.get("name"),
+            "toptex_id": toptex_id,
+            "reference": product_data.get("reference"),
+            "description": product_data.get("description"),
+            "brand": product_data.get("brand"),
+            "gender": product_data.get("gender"),
+            "created_at": product_data.get("createdAt"),
+            "updated_at": product_data.get("updatedAt"),
+        }
+
+        if existing:
+            existing.write(values)
+        else:
+            self.create(values)
