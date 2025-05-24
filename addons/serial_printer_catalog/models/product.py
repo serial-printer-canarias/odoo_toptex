@@ -32,28 +32,24 @@ class SerialPrinterProduct(models.Model):
             response = requests.post(url, json=payload, headers=headers)
             if response.status_code == 200:
                 data = response.json()
-                token = data.get("token")
-                if token:
-                    return token
-                else:
-                    _logger.warning("La respuesta no contiene token.")
+                return data.get("token")
             else:
-                _logger.warning(f"Fallo al obtener token: {response.status_code} - {response.text}")
+                _logger.warning(f"Login fallido: {response.status_code} - {response.text}")
         except Exception as e:
-            _logger.warning(f"Excepción al obtener token: {e}")
-
+            _logger.warning(f"Error de login: {e}")
         return None
 
     def sync_products_from_api(self):
         token = self.get_token()
         if not token:
-            _logger.warning("No se pudo obtener un token válido. Abortando sincronización.")
+            _logger.warning("Token no disponible. Abortando sincronización.")
             return
 
         url = "https://api.toptex.io/v3/products"
         headers = {
             "Authorization": f"Bearer {token}",
-            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE"
+            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE",
+            "x-toptex-authorization": f"Bearer {token}"  # Extra header por si la API lo requiere
         }
         params = {
             "usage_right": "b2b_b2c",
@@ -69,9 +65,9 @@ class SerialPrinterProduct(models.Model):
                     self.create_or_update_product(product)
                 _logger.info("Productos sincronizados correctamente.")
             else:
-                _logger.warning(f"Fallo al obtener productos: {response.status_code} - {response.text}")
+                _logger.warning(f"Fallo API productos: {response.status_code} - {response.text}")
         except Exception as e:
-            _logger.warning(f"Excepción al sincronizar productos: {e}")
+            _logger.warning(f"Error al obtener productos: {e}")
 
     def create_or_update_product(self, product_data):
         toptex_id = product_data.get("id")
