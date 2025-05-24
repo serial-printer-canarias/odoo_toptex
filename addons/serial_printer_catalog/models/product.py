@@ -1,5 +1,8 @@
 import requests
-from odoo import models, fields, api
+from odoo import models, fields
+import logging
+
+_logger = logging.getLogger(__name__)
 
 class SerialPrinterProduct(models.Model):
     _name = 'serial.printer.product'
@@ -14,10 +17,42 @@ class SerialPrinterProduct(models.Model):
     created_at = fields.Datetime(string='Fecha creación')
     updated_at = fields.Datetime(string='Fecha modificación')
 
+    def get_token(self):
+        url = "https://api.toptex.io/auth/login"
+        payload = {
+            "username": "toes_bafaluydelreymarc",
+            "password": "Bafarey12345."
+        }
+        headers = {
+            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE",
+            "Content-Type": "application/json"
+        }
+
+        try:
+            response = requests.post(url, json=payload, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                token = data.get("token")
+                if token:
+                    return token
+                else:
+                    _logger.warning("La respuesta no contiene token.")
+            else:
+                _logger.warning(f"Fallo al obtener token: {response.status_code} - {response.text}")
+        except Exception as e:
+            _logger.warning(f"Excepción al obtener token: {e}")
+
+        return None
+
     def sync_products_from_api(self):
+        token = self.get_token()
+        if not token:
+            _logger.warning("No se pudo obtener un token válido. Abortando sincronización.")
+            return
+
         url = "https://api.toptex.io/v3/products"
         headers = {
-            "Authorization": f"Bearer {self.env['serial.printer.token'].get_token()}",
+            "Authorization": f"Bearer {token}",
             "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE"
         }
         params = {
@@ -26,14 +61,17 @@ class SerialPrinterProduct(models.Model):
             "display_prices": "1"
         }
 
-        response = requests.get(url, headers=headers, params=params)
-
-        if response.status_code == 200:
-            products = response.json()
-            for product in products:
-                self.create_or_update_product(product)
-        else:
-            _logger.error(f"TopTex API error: {response.status_code} - {response.text}")
+        try:
+            response = requests.get(url, headers=headers, params=params)
+            if response.status_code == 200:
+                products = response.json()
+                for product in products:
+                    self.create_or_update_product(product)
+                _logger.info("Productos sincronizados correctamente.")
+            else:
+                _logger.warning(f"Fallo al obtener productos: {response.status_code} - {response.text}")
+        except Exception as e:
+            _logger.warning(f"Excepción al sincronizar productos: {e}")
 
     def create_or_update_product(self, product_data):
         toptex_id = product_data.get("id")
