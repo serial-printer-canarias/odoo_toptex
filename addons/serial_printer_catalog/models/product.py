@@ -13,13 +13,12 @@ class SerialPrinterProduct(models.Model):
     price = fields.Float(string="Precio")
     image_url = fields.Char(string="URL Imagen")
 
-    # Variables de clase (no campos de Odoo)
     _api_token = None
     _api_token_expiry = None
 
     @classmethod
     def get_api_token(cls):
-        """Renueva el token si ha caducado (usa variables de clase, no campos del modelo)"""
+        """Renueva el token si ha caducado (usa variables de clase)"""
         now = datetime.utcnow().replace(tzinfo=pytz.UTC)
         if cls._api_token and cls._api_token_expiry and now < cls._api_token_expiry:
             return cls._api_token
@@ -49,8 +48,9 @@ class SerialPrinterProduct(models.Model):
         else:
             raise Exception(f"Error al obtener token: {response.status_code} {response.text}")
 
-    def sync_products_from_api(self):
-        token = self.get_api_token()
+    @classmethod
+    def sync_products_from_api(cls):
+        token = cls.get_api_token()
         url = "https://api.toptex.io/v3/products"
         headers = {
             "Authorization": f"Bearer {token}",
@@ -61,7 +61,7 @@ class SerialPrinterProduct(models.Model):
         if response.status_code == 200:
             products_data = response.json().get("items", [])
             for product in products_data:
-                self.env["serial.printer.product"].create({
+                cls.env["serial.printer.product"].create({
                     "name": product.get("name"),
                     "toptex_id": product.get("id"),
                     "description": product.get("description", ""),
