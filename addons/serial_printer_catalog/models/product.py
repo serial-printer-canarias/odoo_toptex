@@ -1,7 +1,7 @@
 import requests
 from datetime import datetime, timedelta
 import pytz
-from odoo import models, fields, api
+from odoo import models, fields
 
 class SerialPrinterProduct(models.Model):
     _name = "serial.printer.product"
@@ -13,14 +13,15 @@ class SerialPrinterProduct(models.Model):
     price = fields.Float(string="Precio")
     image_url = fields.Char(string="URL Imagen")
 
-    _token = None
-    _token_expiry = None
+    _api_token = None
+    _api_token_expiry = None
 
-    def get_api_token(self):
-        """Renueva el token si ha caducado"""
+    @classmethod
+    def get_api_token(cls):
+        """Renueva el token si ha caducado (usa variables de clase)"""
         now = datetime.utcnow().replace(tzinfo=pytz.UTC)
-        if self._token and self._token_expiry and now < self._token_expiry:
-            return self._token
+        if cls._api_token and cls._api_token_expiry and now < cls._api_token_expiry:
+            return cls._api_token
 
         api_key = "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe"
         username = "toes_bafaluydelreymarc"
@@ -40,10 +41,10 @@ class SerialPrinterProduct(models.Model):
         response = requests.post(url, headers=headers, json=data)
         if response.status_code == 200:
             token_data = response.json()
-            self._token = token_data.get("token")
+            cls._api_token = token_data.get("token")
             expires_in = token_data.get("expires_in", 3600)
-            self._token_expiry = now + timedelta(seconds=expires_in)
-            return self._token
+            cls._api_token_expiry = now + timedelta(seconds=expires_in)
+            return cls._api_token
         else:
             raise Exception(f"Error al obtener token: {response.status_code} {response.text}")
 
