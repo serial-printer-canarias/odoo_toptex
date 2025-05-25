@@ -21,7 +21,6 @@
         'views/attribute_views.xml',
         'views/variant_views.xml',
         'views/product_views.xml',
-        'views/image_views.xml',
         'views/prices_views.xml',
 
         'data/cron_brand.xml',
