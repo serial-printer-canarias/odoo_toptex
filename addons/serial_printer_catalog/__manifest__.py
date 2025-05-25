@@ -3,37 +3,31 @@
     'version': '1.0',
     'summary': 'Sincronización con API TopTex',
     'sequence': 10,
-    'description': "Importa productos, variantes, marcas, precios e imágenes desde la API de TopTex",
+    'description': "Importa productos, variantes, marcas, atributos e imágenes desde la API.",
     'category': 'Sales',
     'author': 'Serial Printer',
     'license': 'LGPL-3',
     'depends': ['base', 'product', 'sale'],
     'data': [
-        # Menús
         'views/menu_root.xml',
         'views/menu_brand.xml',
         'views/menu_attribute.xml',
         'views/menu_variant.xml',
         'views/menu_product.xml',
-        'views/menu_prices.xml',
         'views/token_views.xml',
 
-        # Vistas de modelos
         'views/brand_views.xml',
         'views/attribute_views.xml',
         'views/variant_views.xml',
         'views/product_views.xml',
-        'views/prices_views.xml',
 
-        # Crons
         'data/cron_brand.xml',
         'data/cron_attribute.xml',
         'data/cron_variant.xml',
         'data/cron_product.xml',
         'data/cron_stock.xml',
         'data/cron_image.xml',
-        'data/cron_prices.xml',
-        'data/cron_token.xml',  # <<< ESTE FALTABA
+        'data/cron_token.xml',
     ],
     'installable': True,
     'application': True,
