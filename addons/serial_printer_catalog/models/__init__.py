@@ -1,3 +1,4 @@
+from . import token
 from . import brand
 from . import attribute
 from . import product
