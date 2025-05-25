@@ -1,40 +1,44 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <record id="view_serial_printer_token_form" model="ir.ui.view">
-        <field name="name">serial.printer.token.form</field>
-        <field name="model">serial.printer.token</field>
-        <field name="arch" type="xml">
-            <form string="Token API">
-                <group>
-                    <field name="username"/>
-                    <field name="password" password="True"/>
-                    <field name="token"/>
-                    <field name="expiry_time"/>
-                </group>
-            </form>
-        </field>
-    </record>
-
     <record id="view_serial_printer_token_list" model="ir.ui.view">
         <field name="name">serial.printer.token.list</field>
         <field name="model">serial.printer.token</field>
         <field name="arch" type="xml">
             <list string="Tokens">
-                <field name="username"/>
                 <field name="token"/>
                 <field name="expiry_time"/>
+                <field name="username"/>
+                <field name="password"/>
             </list>
         </field>
     </record>
 
-    <record id="action_serial_printer_token" model="ir.actions.act_window">
-        <field name="name">Token API</field>
-        <field name="res_model">serial.printer.token</field>
-        <field name="view_mode">list,form</field>
+    <record id="view_serial_printer_token_form" model="ir.ui.view">
+        <field name="name">serial.printer.token.form</field>
+        <field name="model">serial.printer.token</field>
+        <field name="arch" type="xml">
+            <form string="Token">
+                <group>
+                    <field name="token"/>
+                    <field name="expiry_time"/>
+                    <field name="username"/>
+                    <field name="password"/>
+                </group>
+            </form>
+        </field>
     </record>
 
-    <menuitem id="menu_token_root" name="Token API"
-              parent="serial_printer_catalog.menu_root"
-              action="action_serial_printer_token"
-              sequence="80"/>
+    <record id="action_serial_printer_token" model="ir.actions.act_window">
+        <field name="name">Tokens API</field>
+        <field name="res_model">serial.printer.token</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p>Desde aquí puedes ver y actualizar los tokens de la API.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_serial_printer_token"
+              name="Tokens API"
+              parent="menu_serial_printer_catalog"
+              action="action_serial_printer_token"/>
 </odoo>
