@@ -14,7 +14,6 @@
         'views/menu_attribute.xml',
         'views/menu_variant.xml',
         'views/menu_product.xml',
-        'views/menu_image.xml',
         'views/menu_prices.xml',
         'views/token_views.xml',
 
