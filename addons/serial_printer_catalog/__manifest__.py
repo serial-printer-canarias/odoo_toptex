@@ -14,7 +14,7 @@
         'views/menu_brands.xml',
         'views/brand_views.xml',
 
-        'views/menu_attributes.xml',
+        'views/menu_attribute.xml',
         'views/attribute_views.xml',
 
         'views/menu_products.xml',
