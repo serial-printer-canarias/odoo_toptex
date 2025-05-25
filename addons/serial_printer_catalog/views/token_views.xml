@@ -1,6 +1,22 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <record id="view_serial_printer_token_list" model="ir.ui.view">
+    <record id="view_form_token" model="ir.ui.view">
+        <field name="name">serial.printer.token.form</field>
+        <field name="model">serial.printer.token</field>
+        <field name="arch" type="xml">
+            <form string="Token">
+                <sheet>
+                    <group>
+                        <field name="token"/>
+                        <field name="expiry_time"/>
+                        <field name="username"/>
+                        <field name="password"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_tree_token" model="ir.ui.view">
         <field name="name">serial.printer.token.list</field>
         <field name="model">serial.printer.token</field>
         <field name="arch" type="xml">
@@ -8,34 +24,19 @@
                 <field name="token"/>
                 <field name="expiry_time"/>
                 <field name="username"/>
-                <field name="password"/>
             </list>
         </field>
     </record>
 
-    <record id="view_serial_printer_token_form" model="ir.ui.view">
-        <field name="name">serial.printer.token.form</field>
-        <field name="model">serial.printer.token</field>
-        <field name="arch" type="xml">
-            <form string="Token">
-                <group>
-                    <field name="token"/>
-                    <field name="expiry_time"/>
-                    <field name="username"/>
-                    <field name="password"/>
-                </group>
-            </form>
-        </field>
-    </record>
-
-    <record id="action_serial_printer_token" model="ir.actions.act_window">
-        <field name="name">Tokens API</field>
+    <record id="action_token" model="ir.actions.act_window">
+        <field name="name">Tokens</field>
         <field name="res_model">serial.printer.token</field>
         <field name="view_mode">list,form</field>
     </record>
 
-    <menuitem id="menu_serial_printer_token"
-              name="Tokens API"
-              parent="menu_serial_printer_catalog"
-              action="action_serial_printer_token"/>
+    <menuitem id="menu_token"
+              name="Tokens"
+              parent="menu_root_catalog"
+              sequence="80"
+              action="action_token"/>
 </odoo>
