@@ -1,7 +1,7 @@
+from odoo import models, fields
 import requests
 from datetime import datetime, timedelta
 import pytz
-from odoo import models, fields
 
 class SerialPrinterToken(models.Model):
     _name = 'serial.printer.token'
@@ -39,7 +39,6 @@ class SerialPrinterToken(models.Model):
         token_data = response.json()
         token = token_data.get('token')
         expires_in = token_data.get('expires_in', 3600)
-
         expiry_time = now + timedelta(seconds=expires_in)
 
         self.create({
