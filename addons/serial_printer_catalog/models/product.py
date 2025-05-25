@@ -17,30 +17,13 @@ class SerialPrinterProduct(models.Model):
     created_at = fields.Datetime(string='Fecha creación')
     updated_at = fields.Datetime(string='Fecha modificación')
 
-    def get_token(self):
-        url = "https://api.toptex.io/auth/login"
-        payload = {
-            "username": "toes_bafaluydelreymarc",
-            "password": "Bafarey12345."
-        }
-        headers = {
-            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE",
-            "Content-Type": "application/json"
-        }
-
-        try:
-            response = requests.post(url, json=payload, headers=headers)
-            if response.status_code == 200:
-                data = response.json()
-                return data.get("token")
-            else:
-                _logger.warning(f"Login fallido: {response.status_code} - {response.text}")
-        except Exception as e:
-            _logger.warning(f"Error de login: {e}")
-        return None
-
     def sync_products_from_api(self):
-        token = self.get_token()
+        try:
+            token = self.env['serial.printer.token'].get_token()
+        except Exception as e:
+            _logger.error(f"No se pudo obtener el token: {e}")
+            return
+
         if not token:
             _logger.warning("Token no disponible. Abortando sincronización.")
             return
@@ -48,7 +31,7 @@ class SerialPrinterProduct(models.Model):
         url = "https://api.toptex.io/v3/products"
         headers = {
             "Authorization": f"Bearer {token}",
-            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE"
+            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4b0vgiZe"
         }
         params = {
             "usage_right": "b2b_b2c",
@@ -64,7 +47,7 @@ class SerialPrinterProduct(models.Model):
                     self.create_or_update_product(product)
                 _logger.info("Productos sincronizados correctamente.")
             else:
-                _logger.warning(f"Fallo API productos: {response.status_code} - {response.text}")
+                _logger.warning(f"Fallo al obtener productos: {response.status_code} - {response.text}")
         except Exception as e:
             _logger.warning(f"Error al obtener productos: {e}")
 
