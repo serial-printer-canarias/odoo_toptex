@@ -3,11 +3,11 @@
     'version': '1.0',
     'summary': 'Sincronización con API TopTex',
     'sequence': 10,
-    'description': "Importa productos, variantes, imágenes y precios desde la API de TopTex",
+    'description': "Importa productos, variantes, marcas, precios e imágenes desde la API de TopTex.",
     'category': 'Sales',
     'author': 'Serial Printer',
     'license': 'LGPL-3',
-    'depends': ['base', 'product', 'sale', 'stock'],
+    'depends': ['base', 'product', 'sale'],
     'data': [
         'views/menu_root.xml',
         'views/menu_brand.xml',
