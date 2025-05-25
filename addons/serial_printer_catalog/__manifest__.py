@@ -7,6 +7,7 @@
     "depends": ["base", "product", "sale"],
     "data": [
         "views/menu_root.xml",
+        'views/token_views.xml',
         "views/brand_views.xml",
         "views/menu_brands.xml",
         "views/attribute_views.xml",
