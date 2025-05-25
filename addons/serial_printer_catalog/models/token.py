@@ -1,66 +1,52 @@
 import requests
 from datetime import datetime, timedelta
 import pytz
-from odoo import models, fields, api
+from odoo import models, fields
 
 class SerialPrinterToken(models.Model):
     _name = 'serial.printer.token'
-    _description = 'Token de autenticación API TopTex'
+    _description = 'Token de autenticación API'
     _rec_name = 'token'
 
     token = fields.Text(string='Token')
-    expiry_time = fields.Datetime(string='Expira')
+    expiry_time = fields.Datetime(string='Expira en')
     username = fields.Char(string='Usuario')
     password = fields.Char(string='Contraseña')
 
     def get_token(self):
-        token_record = self.search([], limit=1, order="id desc")
+        token_record = self.search([], limit=1, order='create_date desc')
         now = datetime.now(pytz.utc)
 
-        if token_record and token_record.token and token_record.expiry_time and token_record.expiry_time > now + timedelta(minutes=5):
+        if token_record and token_record.token and token_record.expiry_time > now:
             return token_record.token
 
-        # Si no hay token válido, obtener uno nuevo
         username = token_record.username if token_record else 'toes_bafaluydelreymarc'
         password = token_record.password if token_record else 'Bafarey12345.'
-        api_key = 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4b0vgiZe'
+        api_key = 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgidvgiZe'
 
         url = 'https://api.toptex.io/v3/token'
-
         headers = {
             'x-api-key': api_key,
             'Content-Type': 'application/json'
         }
-
-        payload = {
+        body = {
             'username': username,
             'password': password
         }
 
-        response = requests.post(url, json=payload, headers=headers)
+        response = requests.post(url, json=body, headers=headers)
+        response.raise_for_status()
+        token_data = response.json()
+        token = token_data.get('token')
+        expires_in = token_data.get('expires_in', 3600)
 
-        if response.status_code == 200:
-            data = response.json()
-            token = data.get('token')
-            expiry_str = data.get('expiry_time')
-            expiry = datetime.strptime(expiry_str, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=pytz.utc)
+        expiry_time = now + timedelta(seconds=expires_in)
 
-            if token:
-                # Crear o actualizar el token
-                if token_record:
-                    token_record.write({
-                        'token': token,
-                        'expiry_time': expiry,
-                    })
-                else:
-                    self.create({
-                        'username': username,
-                        'password': password,
-                        'token': token,
-                        'expiry_time': expiry,
-                    })
-                return token
-            else:
-                raise Exception("Token no recibido correctamente")
+        self.create({
+            'token': token,
+            'expiry_time': expiry_time,
+            'username': username,
+            'password': password,
+        })
 
-        raise Exception(f"Error al obtener token: {response.status_code} - {response.text}")
+        return token
