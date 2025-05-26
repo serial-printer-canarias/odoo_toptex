@@ -1,80 +1,48 @@
 import requests
 from odoo import models, fields, api
+from datetime import datetime
+import pytz
 
 class SerialPrinterProduct(models.Model):
     _name = 'serial.printer.product'
-    _description = 'Producto importado desde API TopTex'
+    _description = 'Productos desde la API TopTex'
 
-    name = fields.Char(string='Nombre')
-    toptex_id = fields.Char(string='ID TopTex')
-    description = fields.Text(string='Descripción')
+    name = fields.Char(string="Nombre")
+    reference = fields.Char(string="Referencia")
+    toptex_id = fields.Char(string="TopTex ID")
+    price = fields.Float(string="Precio")
+    stock = fields.Integer(string="Stock")
 
     @api.model
     def sync_products_from_api(self):
-        # Buscar el token más reciente
-        token_obj = self.env['serial.printer.token'].search([], order='create_date desc', limit=1)
-        if not token_obj or not token_obj.token:
-            _logger = self.env['ir.logging']
-            _logger.create({
-                'name': 'Sincronizar productos desde API',
-                'type': 'server',
-                'level': 'WARNING',
-                'message': 'Token no disponible',
-                'path': __file__,
-                'func': 'sync_products_from_api',
-                'line': 16,
-            })
-            return
+        token = self.env['serial.printer.token'].get_valid_token()
+        if not token:
+            raise ValueError("Token de API no encontrado. Asegúrate de generar uno válido.")
 
-        token = token_obj.token
-        url = 'https://api.toptex.io/v2/products'
-
+        url = "https://api.toptex.io/v3/products"
         headers = {
             'Authorization': f'Bearer {token}',
-            'x-api-key': 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE',
+            'x-api-key': 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE'
         }
 
-        try:
-            response = requests.get(url, headers=headers, timeout=30)
-            response.raise_for_status()
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
             data = response.json()
-
-            if not data:
-                self.env['ir.logging'].create({
-                    'name': 'Sincronizar productos desde API',
-                    'type': 'server',
-                    'level': 'WARNING',
-                    'message': 'Respuesta vacía de la API',
-                    'path': __file__,
-                    'func': 'sync_products_from_api',
-                    'line': 34,
-                })
-                return
-
             for item in data:
-                self.env['serial.printer.product'].create({
-                    'name': item.get('name', 'Sin nombre'),
-                    'toptex_id': item.get('id'),
-                    'description': item.get('description', ''),
-                })
+                self.create_or_update_product(item)
+        else:
+            raise ValueError(f"Error en la llamada a la API: {response.status_code} - {response.text}")
 
-        except requests.exceptions.HTTPError as http_err:
-            self.env['ir.logging'].create({
-                'name': 'Sincronizar productos desde API',
-                'type': 'server',
-                'level': 'ERROR',
-                'message': f'Error HTTP: {http_err}',
-                'path': __file__,
-                'func': 'sync_products_from_api',
-                'line': 51,
-            })
-        except Exception as e:
-            self.env['ir.logging'].create({
-                'name': 'Sincronizar productos desde API',
-                'type': 'server',
-                'level': 'ERROR',
-                'message': f'Error inesperado: {e}',
-                'path': __file__,
-                'func': 'sync_products_from_api',
-                'line': 59,
-            })
+    def create_or_update_product(self, item):
+        product = self.search([('toptex_id', '=', item.get('id'))], limit=1)
+        values = {
+            'name': item.get('name'),
+            'reference': item.get('reference'),
+            'toptex_id': item.get('id'),
+            'price': item.get('price', {}).get('sell', 0.0),
+            'stock': item.get('stock', 0),
+        }
+        if product:
+            product.write(values)
+        else:
+            self.create(values)
