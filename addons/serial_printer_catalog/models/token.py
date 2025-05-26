@@ -1,51 +1,48 @@
-from odoo import models, fields
 import requests
 from datetime import datetime, timedelta
 import pytz
+from odoo import models, fields, api
 
 class SerialPrinterToken(models.Model):
     _name = 'serial.printer.token'
-    _description = 'Token de autenticación API'
-    _rec_name = 'token'
+    _description = 'Token de autenticación API TopTex'
+    _rec_name = 'username'
 
-    token = fields.Text(string='Token')
+    token = fields.Char(string='Token')
     expiry_time = fields.Datetime(string='Expira en')
     username = fields.Char(string='Usuario')
     password = fields.Char(string='Contraseña')
 
-    def get_token(self):
-        token_record = self.search([], limit=1, order='create_date desc')
-        now = datetime.now(pytz.utc)
+    def get_valid_token(self):
+        """ Devuelve un token válido desde la base de datos o solicita uno nuevo si ha expirado """
+        record = self.search([], limit=1)
+        now = datetime.now(pytz.timezone('Europe/Madrid'))
 
-        if token_record and token_record.token and token_record.expiry_time > now:
-            return token_record.token
+        if record and record.token and record.expiry_time and record.expiry_time > now:
+            return record.token
 
-        username = token_record.username if token_record else 'toes_bafaluydelreymarc'
-        password = token_record.password if token_record else 'Bafarey12345.'
-        api_key = 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgidvgiZe'
-
-        url = 'https://api.toptex.io/v3/token'
+        # Si no hay token válido, solicitar uno nuevo
+        url = 'https://api.toptex.io/auth'
         headers = {
-            'x-api-key': api_key,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'x-api-key': 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgidvgiZe'
         }
-        body = {
-            'username': username,
-            'password': password
+        data = {
+            'username': record.username,
+            'password': record.password
         }
 
-        response = requests.post(url, json=body, headers=headers)
-        response.raise_for_status()
-        token_data = response.json()
-        token = token_data.get('token')
-        expires_in = token_data.get('expires_in', 3600)
-        expiry_time = now + timedelta(seconds=expires_in)
+        response = requests.post(url, json=data, headers=headers)
+        if response.status_code == 200:
+            token_data = response.json()
+            new_token = token_data.get('token')
+            expiry_minutes = 60
+            expiry_time = now + timedelta(minutes=expiry_minutes)
 
-        self.create({
-            'token': token,
-            'expiry_time': expiry_time,
-            'username': username,
-            'password': password,
-        })
-
-        return token
+            record.write({
+                'token': new_token,
+                'expiry_time': expiry_time
+            })
+            return new_token
+        else:
+            raise Exception(f"Error al obtener token: {response.text}")
