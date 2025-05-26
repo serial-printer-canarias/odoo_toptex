@@ -18,15 +18,15 @@
         </field>
     </record>
 
-    <record id="view_tree_token" model="ir.ui.view">
+    <record id="view_list_token" model="ir.ui.view">
         <field name="name">serial.printer.token.list</field>
         <field name="model">serial.printer.token</field>
         <field name="arch" type="xml">
-            <tree string="Tokens">
+            <list string="Tokens">
                 <field name="token"/>
                 <field name="expiry_time"/>
                 <field name="username"/>
-            </tree>
+            </list>
         </field>
     </record>
 
