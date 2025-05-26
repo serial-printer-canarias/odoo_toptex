@@ -1,4 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+
     <record id="view_form_token" model="ir.ui.view">
         <field name="name">serial.printer.token.form</field>
         <field name="model">serial.printer.token</field>
@@ -20,11 +22,11 @@
         <field name="name">serial.printer.token.list</field>
         <field name="model">serial.printer.token</field>
         <field name="arch" type="xml">
-            <list string="Tokens">
+            <tree string="Tokens">
                 <field name="token"/>
                 <field name="expiry_time"/>
                 <field name="username"/>
-            </list>
+            </tree>
         </field>
     </record>
 
@@ -36,7 +38,8 @@
 
     <menuitem id="menu_token"
               name="Tokens"
-              parent="menu_root_catalog"
+              parent="menu_serial_printer_root"
               sequence="80"
               action="action_token"/>
+
 </odoo>
