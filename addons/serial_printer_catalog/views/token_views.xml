@@ -1,42 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
     <record id="view_form_token" model="ir.ui.view">
         <field name="name">serial.printer.token.form</field>
         <field name="model">serial.printer.token</field>
         <field name="arch" type="xml">
-            <form string="Token">
-                <sheet>
-                    <group>
-                        <field name="token"/>
-                        <field name="expiry_time"/>
-                        <field name="username"/>
-                        <field name="password"/>
-                    </group>
-                </sheet>
+            <form string="Configuración API Token">
+                <group>
+                    <field name="api_key"/>
+                    <field name="username"/>
+                    <field name="password" password="True"/>
+                    <field name="token"/>
+                    <field name="token_expiration"/>
+                </group>
             </form>
         </field>
     </record>
 
-    <record id="view_tree_token" model="ir.ui.view">
+    <record id="view_list_token" model="ir.ui.view">
         <field name="name">serial.printer.token.list</field>
         <field name="model">serial.printer.token</field>
         <field name="arch" type="xml">
-            <list string="Tokens">
-                <field name="token"/>
-                <field name="expiry_time"/>
+            <list string="Tokens API">
                 <field name="username"/>
+                <field name="token"/>
+                <field name="token_expiration"/>
             </list>
         </field>
     </record>
 
     <record id="action_token" model="ir.actions.act_window">
-        <field name="name">Tokens</field>
+        <field name="name">Token API</field>
         <field name="res_model">serial.printer.token</field>
         <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p>Configura tu acceso a la API de TopTex aquí.</p>
+        </field>
     </record>
 
     <menuitem id="menu_token"
-              name="Tokens"
-              parent="menu_serial_printer_root"
-              sequence="80"
-              action="action_token"/>
+              name="Token API"
+              parent="menu_serial_printer_catalog_root"
+              action="action_token"
+              sequence="60"/>
 </odoo>
