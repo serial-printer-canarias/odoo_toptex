@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
   <record id="ir_cron_sync_products_toptex" model="ir.cron">
     <field name="name">Sincronizar productos TopTex</field>
@@ -6,7 +7,6 @@
     <field name="code">model.sync_products_from_api()</field>
     <field name="interval_number">3</field>
     <field name="interval_type">hours</field>
-    <field name="numbercall">-1</field>
     <field name="active">True</field>
   </record>
 </odoo>
