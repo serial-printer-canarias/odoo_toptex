@@ -1,4 +1,3 @@
-# models/token.py
 import requests
 from datetime import datetime, timedelta
 from odoo import models, fields, api
@@ -6,38 +5,48 @@ from odoo.exceptions import UserError
 
 class SerialPrinterToken(models.Model):
     _name = 'serial.printer.token'
-    _description = 'Token de Autenticación TopTex'
+    _description = 'Token de autenticación para API de TopTex'
 
+    api_key = fields.Char(string='API Key', required=True)
+    username = fields.Char(string='Usuario', required=True)
+    password = fields.Char(string='Contraseña', required=True)
     token = fields.Text(string='Token')
-    expiration = fields.Datetime(string='Fecha de expiración')
-    api_user = fields.Char(string='Usuario API', default='toes_bafaluydelreymarc')
-    api_password = fields.Char(string='Contraseña API', default='Bafarey12345.')
-    api_key = fields.Char(string='API Key', default='qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizEdvgiZe')
+    token_expiration = fields.Datetime(string='Expiración del Token')
 
     def get_valid_token(self):
         self.ensure_one()
-        now = datetime.now()
-        if self.token and self.expiration and self.expiration > now + timedelta(minutes=5):
+        if self.token and self.token_expiration and self.token_expiration > fields.Datetime.now():
             return self.token
+        else:
+            return self.generate_token()
 
-        url = 'https://api.toptex.io/auth'
+    def generate_token(self):
+        self.ensure_one()
+
+        url = 'https://api.toptex.io/v3/authenticate'
         headers = {
             'x-api-key': self.api_key,
             'Content-Type': 'application/json'
         }
         payload = {
-            'username': self.api_user,
-            'password': self.api_password
+            'username': self.username,
+            'password': self.password
         }
 
-        response = requests.post(url, headers=headers, json=payload)
-        if response.status_code == 200:
-            token_data = response.json()
-            token = token_data.get('token')
-            if not token:
-                raise UserError('La respuesta de autenticación no contiene token.')
-            self.token = token
-            self.expiration = now + timedelta(hours=1)
-            return token
-        else:
-            raise UserError(f'Error al obtener token: {response.text}')
+        try:
+            response = requests.post(url, json=payload, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                access_token = data.get('access_token')
+                expires_in = data.get('expires_in')
+
+                if access_token and expires_in:
+                    self.token = access_token
+                    self.token_expiration = datetime.now() + timedelta(seconds=int(expires_in))
+                    return self.token
+                else:
+                    raise UserError('Respuesta inválida de la API: faltan datos del token.')
+            else:
+                raise UserError(f'Error al obtener token: {response.status_code} - {response.text}')
+        except Exception as e:
+            raise UserError(f'Error al conectar con la API de TopTex: {str(e)}')
