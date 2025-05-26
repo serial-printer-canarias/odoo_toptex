@@ -11,6 +11,21 @@
         </field>
     </record>
 
+    <record id="view_serial_printer_attribute_form" model="ir.ui.view">
+        <field name="name">serial.printer.attribute.form</field>
+        <field name="model">serial.printer.attribute</field>
+        <field name="arch" type="xml">
+            <form string="Atributo API">
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="toptex_id"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
     <record id="action_serial_printer_attribute_list" model="ir.actions.act_window">
         <field name="name">Atributos</field>
         <field name="res_model">serial.printer.attribute</field>
