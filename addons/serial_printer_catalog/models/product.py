@@ -1,48 +1,56 @@
 import requests
-from odoo import models, fields, api
-from datetime import datetime
-import pytz
+from odoo import models, fields, _
+from odoo.exceptions import UserError
+
 
 class SerialPrinterProduct(models.Model):
     _name = 'serial.printer.product'
-    _description = 'Productos desde la API TopTex'
+    _description = 'Producto desde API TopTex'
 
     name = fields.Char(string="Nombre")
-    reference = fields.Char(string="Referencia")
-    toptex_id = fields.Char(string="TopTex ID")
-    price = fields.Float(string="Precio")
-    stock = fields.Integer(string="Stock")
+    toptex_id = fields.Char(string="ID TopTex")
+    product_sku = fields.Char(string="SKU")
+    brand = fields.Char(string="Marca")
+    type = fields.Char(string="Tipo")
+    list_price = fields.Float(string="Precio Venta")
+    standard_price = fields.Float(string="Precio Coste")
 
-    @api.model
+    def get_token(self):
+        token_obj = self.env['serial.printer.token'].search([], limit=1)
+        if not token_obj or not token_obj.token:
+            raise UserError(_("Token de API no encontrado. Asegúrate de generar uno válido."))
+        return token_obj.token
+
     def sync_products_from_api(self):
-        token = self.env['serial.printer.token'].get_valid_token()
-        if not token:
-            raise ValueError("Token de API no encontrado. Asegúrate de generar uno válido.")
-
-        url = "https://api.toptex.io/v3/products"
+        token = self.get_token()
         headers = {
-            'Authorization': f'Bearer {token}',
-            'x-api-key': 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizE'
+            "Authorization": f"Bearer {token}",
+            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgidvgiZe"
         }
+        url = "https://api.toptex.io/v3/products"
 
         response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            data = response.json()
-            for item in data:
-                self.create_or_update_product(item)
-        else:
-            raise ValueError(f"Error en la llamada a la API: {response.status_code} - {response.text}")
+        if response.status_code != 200:
+            raise UserError(f"Error al conectar con API de TopTex: {response.status_code} - {response.text}")
 
-    def create_or_update_product(self, item):
-        product = self.search([('toptex_id', '=', item.get('id'))], limit=1)
+        products = response.json()
+        for product in products:
+            self.create_or_update_product(product)
+
+    def create_or_update_product(self, product_data):
+        existing = self.search([('toptex_id', '=', product_data.get('id'))], limit=1)
+
         values = {
-            'name': item.get('name'),
-            'reference': item.get('reference'),
-            'toptex_id': item.get('id'),
-            'price': item.get('price', {}).get('sell', 0.0),
-            'stock': item.get('stock', 0),
+            'name': product_data.get('name'),
+            'toptex_id': product_data.get('id'),
+            'product_sku': product_data.get('sku'),
+            'brand': product_data.get('brand', {}).get('name'),
+            'type': product_data.get('type'),
+            'list_price': product_data.get('price', {}).get('price_with_tax', 0.0),
+            'standard_price': product_data.get('price', {}).get('price_without_tax', 0.0),
         }
-        if product:
-            product.write(values)
+
+        if existing:
+            existing.write(values)
         else:
             self.create(values)
