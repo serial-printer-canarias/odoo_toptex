@@ -1,6 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-
     <record id="view_form_token" model="ir.ui.view">
         <field name="name">serial.printer.token.form</field>
         <field name="model">serial.printer.token</field>
@@ -18,7 +16,7 @@
         </field>
     </record>
 
-    <record id="view_list_token" model="ir.ui.view">
+    <record id="view_tree_token" model="ir.ui.view">
         <field name="name">serial.printer.token.list</field>
         <field name="model">serial.printer.token</field>
         <field name="arch" type="xml">
@@ -41,5 +39,4 @@
               parent="menu_serial_printer_root"
               sequence="80"
               action="action_token"/>
-
 </odoo>
