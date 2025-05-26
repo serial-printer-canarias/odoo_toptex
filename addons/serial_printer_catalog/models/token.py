@@ -1,54 +1,43 @@
 # models/token.py
-
 import requests
 from datetime import datetime, timedelta
 from odoo import models, fields, api
-import pytz
+from odoo.exceptions import UserError
 
 class SerialPrinterToken(models.Model):
     _name = 'serial.printer.token'
-    _description = 'Token de Autenticación API TopTex'
+    _description = 'Token de Autenticación TopTex'
 
     token = fields.Text(string='Token')
-    expiry_time = fields.Datetime(string='Caducidad')
-    username = fields.Char(string='Usuario')
-    password = fields.Char(string='Contraseña')
+    expiration = fields.Datetime(string='Fecha de expiración')
+    api_user = fields.Char(string='Usuario API', default='toes_bafaluydelreymarc')
+    api_password = fields.Char(string='Contraseña API', default='Bafarey12345.')
+    api_key = fields.Char(string='API Key', default='qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizEdvgiZe')
 
     def get_valid_token(self):
-        """Retorna un token válido o genera uno nuevo si caducó."""
-        record = self.search([], limit=1, order="expiry_time desc")
-        now = datetime.now(pytz.utc)
+        self.ensure_one()
+        now = datetime.now()
+        if self.token and self.expiration and self.expiration > now + timedelta(minutes=5):
+            return self.token
 
-        if record and record.token and record.expiry_time > now:
-            return record.token
-        else:
-            return self.generate_new_token()
-
-    def generate_new_token(self):
-        """Genera un nuevo token desde la API de TopTex y lo guarda."""
-        url = "https://api.toptex.io/v3/login"
-        record = self.search([], limit=1, order="expiry_time desc")
-
-        if not record or not record.username or not record.password:
-            raise ValueError("Credenciales de API no configuradas.")
-
-        headers = {"x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgizEdvgiZe"}
+        url = 'https://api.toptex.io/auth'
+        headers = {
+            'x-api-key': self.api_key,
+            'Content-Type': 'application/json'
+        }
         payload = {
-            "username": record.username,
-            "password": record.password
+            'username': self.api_user,
+            'password': self.api_password
         }
 
-        response = requests.post(url, json=payload, headers=headers)
+        response = requests.post(url, headers=headers, json=payload)
         if response.status_code == 200:
             token_data = response.json()
-            token = token_data.get("token")
-            expiry = datetime.now(pytz.utc) + timedelta(hours=1)
-
-            record.write({
-                'token': token,
-                'expiry_time': expiry,
-            })
-
+            token = token_data.get('token')
+            if not token:
+                raise UserError('La respuesta de autenticación no contiene token.')
+            self.token = token
+            self.expiration = now + timedelta(hours=1)
             return token
         else:
-            raise ValueError("Error al obtener token: " + response.text)
+            raise UserError(f'Error al obtener token: {response.text}')
