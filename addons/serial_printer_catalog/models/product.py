@@ -7,50 +7,61 @@ class SerialPrinterProduct(models.Model):
     _name = 'serial.printer.product'
     _description = 'Producto del catálogo'
 
-    name = fields.Char(string="Nombre")
-    toptex_id = fields.Char(string="ID TopTex")
-    reference = fields.Char(string="Referencia")
-    description = fields.Text(string="Descripción")
-    image = fields.Binary(string="Imagen")
+    name = fields.Char(string='Nombre')
+    toptex_id = fields.Char(string='ID TopTex')
+    reference = fields.Char(string='Referencia')
+    description = fields.Text(string='Descripción')
+    image = fields.Binary(string='Imagen')
+
+    def _get_toptex_credentials(self):
+        config = self.env['ir.config_parameter'].sudo()
+        return {
+            'api_key': config.get_param('toptex_api_key'),
+            'username': config.get_param('toptex_username'),
+            'password': config.get_param('toptex_password'),
+        }
 
     def _generate_token(self):
-        url = "https://api.toptex.io/v3/authenticate"
-        headers = {"x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe"}
+        creds = self._get_toptex_credentials()
+        url = 'https://api.toptex.io/v3/authenticate'
+        headers = {'x-api-key': creds['api_key']}
         data = {
-            "username": "toes_bafaluydeleraymarc",
-            "password": "Bafarey12345."
+            'username': creds['username'],
+            'password': creds['password'],
         }
 
         response = requests.post(url, headers=headers, json=data)
         if response.status_code == 200:
-            return response.json().get("token")
+            return response.json().get('token')
         else:
             raise UserError(f"Error al generar token: {response.status_code} - {response.text}")
 
     @api.model
     def sync_products_from_api(self):
+        creds = self._get_toptex_credentials()
         token = self._generate_token()
-        url = "https://api.toptex.io/v3/catalog/all"
+
+        url = 'https://api.toptex.io/v3/catalog/all'
         headers = {
-            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe",
-            "x-toptex-authorization": token,
-            "accept": "application/json"
+            'x-api-key': creds['api_key'],
+            'x-toptex-authorization': token,
+            'Accept': 'application/json',
         }
 
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
             catalog = response.json()
-            for product_data in catalog.get("items", []):
+            for product_data in catalog.get('items', []):
                 self.create_or_update_product(product_data)
         else:
             raise UserError(f"Error al obtener catálogo: {response.status_code} - {response.text}")
 
     def create_or_update_product(self, product_data):
-        toptex_id = product_data.get("id")
+        toptex_id = product_data.get('id')
         product = self.search([('toptex_id', '=', toptex_id)], limit=1)
 
         image_binary = False
-        image_url = product_data.get("main_picture_url")
+        image_url = product_data.get('main_picture_url')
         if image_url:
             try:
                 img_response = requests.get(image_url)
@@ -60,10 +71,10 @@ class SerialPrinterProduct(models.Model):
                 pass
 
         values = {
-            'name': product_data.get("name", ""),
+            'name': product_data.get('name', ''),
             'toptex_id': toptex_id,
-            'reference': product_data.get("reference", ""),
-            'description': product_data.get("description", ""),
+            'reference': product_data.get('reference', ''),
+            'description': product_data.get('description', ''),
             'image': image_binary,
         }
 
