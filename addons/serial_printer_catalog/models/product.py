@@ -1,62 +1,56 @@
 import requests
+import base64
 from odoo import models, fields, api
 from odoo.exceptions import UserError
-import base64
 
 class SerialPrinterProduct(models.Model):
     _name = 'serial.printer.product'
     _description = 'Producto del catálogo'
 
-    name = fields.Char(string="Nombre")
-    toptex_id = fields.Char(string="ID TopTex")
-    reference = fields.Char(string="Referencia")
-    description = fields.Text(string="Descripción")
-    image = fields.Binary(string="Imagen")
+    name = fields.Char(string='Nombre')
+    toptex_id = fields.Char(string='ID TopTex')
+    reference = fields.Char(string='Referencia')
+    description = fields.Text(string='Descripción')
+    image = fields.Binary(string='Imagen')
+
+    def _get_toptex_credential(self, key):
+        param = self.env['ir.config_parameter'].sudo()
+        value = param.get_param(key)
+        if not value:
+            raise UserError(f'Falta el parámetro de configuración: {key}')
+        return value
 
     def _generate_token(self):
-        IrConfig = self.env['ir.config_parameter'].sudo()
-        api_key = IrConfig.get_param('toptex_api_key')
-        username = IrConfig.get_param('toptex_username')
-        password = IrConfig.get_param('toptex_password')
-
-        if not all([api_key, username, password]):
-            raise UserError(f"Faltan parámetros de configuración:\n"
-                            f"api_key={bool(api_key)}, username={bool(username)}, password={bool(password)}")
-
         url = 'https://api.toptex.io/v3/authenticate'
-        headers = {'x-api-key': api_key}
-        data = {
-            'username': username,
-            'password': password
+        headers = {
+            'x-api-key': self._get_toptex_credential('toptex_api_key')
         }
-
+        data = {
+            'username': self._get_toptex_credential('toptex_username'),
+            'password': self._get_toptex_credential('toptex_password')
+        }
         response = requests.post(url, headers=headers, json=data)
         if response.status_code == 200:
             return response.json().get('token')
         else:
-            raise UserError(f"Error al generar token: {response.status_code} - {response.text}")
+            raise UserError(f'Error al generar token {response.status_code} - {response.text}')
 
     @api.model
     def sync_products_from_api(self):
         token = self._generate_token()
-
-        IrConfig = self.env['ir.config_parameter'].sudo()
-        api_key = IrConfig.get_param('toptex_api_key')
-
         url = 'https://api.toptex.io/v3/products?usage_right=b2b_b2c'
         headers = {
-            'x-api-key': api_key,
+            'x-api-key': self._get_toptex_credential('toptex_api_key'),
             'x-toptex-authorization': token,
-            'Accept': 'application/json',
+            'Accept': 'application/json'
         }
-
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
             catalog = response.json()
             for product_data in catalog.get('items', []):
                 self.create_or_update_product(product_data)
         else:
-            raise UserError(f"Error al obtener catálogo: {response.status_code} - {response.text}")
+            raise UserError(f'Error al obtener catálogo: {response.status_code} - {response.text}')
 
     def create_or_update_product(self, product_data):
         toptex_id = product_data.get('id')
