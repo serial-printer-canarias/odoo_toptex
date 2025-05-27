@@ -33,7 +33,7 @@ class SerialPrinterProduct(models.Model):
         url = 'https://api.toptex.io/v3/products'
         headers = {
             'Authorization': f'Bearer {token}',
-            'x-api-key': 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgidvgiZe'
+            'x-api-key': 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe'
         }
 
         response = requests.get(url, headers=headers)
