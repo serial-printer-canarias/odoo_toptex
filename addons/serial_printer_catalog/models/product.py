@@ -1,7 +1,7 @@
 import requests
 from odoo import models, fields, api
 from odoo.exceptions import UserError
-
+import base64
 
 class SerialPrinterProduct(models.Model):
     _name = 'serial.printer.product'
@@ -11,20 +11,17 @@ class SerialPrinterProduct(models.Model):
     toptex_id = fields.Char(string='ID TopTex')
     reference = fields.Char(string='Referencia')
     description = fields.Text(string='Descripción')
+    image = fields.Binary(string='Imagen')
 
     def _generate_token(self):
         url = 'https://api.toptex.io/v3/authenticate'
-        headers = {
-            'x-api-key': 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe',
-            'Content-Type': 'application/json'
-        }
+        headers = {'x-api-key': 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe'}
         data = {
             'username': 'toes_bafaluydelreymarc',
             'password': 'Bafarey12345.'
         }
 
         response = requests.post(url, headers=headers, json=data)
-        print("Respuesta al generar token:", response.status_code, response.text)
         if response.status_code == 200:
             return response.json().get('token')
         else:
@@ -34,29 +31,41 @@ class SerialPrinterProduct(models.Model):
     def sync_products_from_api(self):
         token = self._generate_token()
 
-        url = 'https://api.toptex.io/v3/products'
+        url = 'https://api.toptex.io/v3/catalog/all'
         headers = {
-            'Authorization': f'Bearer {token}',
-            'x-api-key': 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe'
+            'x-api-key': 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe',
+            'x-toptex-authorization': token,
+            'accept': 'application/json'
         }
 
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
-            data = response.json()
-            for product in data.get('items', []):
-                self.create_or_update_product(product)
+            catalog = response.json()
+            for product_data in catalog.get('items', []):
+                self.create_or_update_product(product_data)
         else:
-            raise UserError(f"Error al obtener productos: {response.status_code} - {response.text}")
+            raise UserError(f"Error al obtener catálogo: {response.status_code} - {response.text}")
 
     def create_or_update_product(self, product_data):
         toptex_id = product_data.get('id')
         product = self.search([('toptex_id', '=', toptex_id)], limit=1)
+
+        image_binary = False
+        image_url = product_data.get('main_picture_url')
+        if image_url:
+            try:
+                img_response = requests.get(image_url)
+                if img_response.status_code == 200:
+                    image_binary = base64.b64encode(img_response.content)
+            except Exception:
+                pass
 
         values = {
             'name': product_data.get('name', ''),
             'toptex_id': toptex_id,
             'reference': product_data.get('reference', ''),
             'description': product_data.get('description', ''),
+            'image': image_binary,
         }
 
         if product:
