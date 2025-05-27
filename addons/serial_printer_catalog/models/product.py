@@ -1,6 +1,6 @@
+import requests
 from odoo import models, fields, api
 from odoo.exceptions import UserError
-import requests
 import base64
 
 class SerialPrinterProduct(models.Model):
@@ -19,11 +19,12 @@ class SerialPrinterProduct(models.Model):
         username = IrConfig.get_param('toptex_username')
         password = IrConfig.get_param('toptex_password')
 
-        url = "https://api.toptex.io/v3/authenticate"
-        headers = {
-            'x-api-key': api_key,
-            'Content-Type': 'application/json'
-        }
+        if not all([api_key, username, password]):
+            raise UserError(f"Faltan parámetros de configuración:\n"
+                            f"api_key={bool(api_key)}, username={bool(username)}, password={bool(password)}")
+
+        url = 'https://api.toptex.io/v3/authenticate'
+        headers = {'x-api-key': api_key}
         data = {
             'username': username,
             'password': password
@@ -42,11 +43,11 @@ class SerialPrinterProduct(models.Model):
         IrConfig = self.env['ir.config_parameter'].sudo()
         api_key = IrConfig.get_param('toptex_api_key')
 
-        url = "https://api.toptex.io/v3/products?usage_right=b2b_b2c"
+        url = 'https://api.toptex.io/v3/products?usage_right=b2b_b2c'
         headers = {
             'x-api-key': api_key,
             'x-toptex-authorization': token,
-            'Accept': 'application/json'
+            'Accept': 'application/json',
         }
 
         response = requests.get(url, headers=headers)
