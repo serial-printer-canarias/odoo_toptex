@@ -14,13 +14,17 @@ class SerialPrinterProduct(models.Model):
 
     def _generate_token(self):
         url = 'https://api.toptex.io/v3/authenticate'
-        headers = {'x-api-key': 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe'}
+        headers = {
+            'x-api-key': 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe',
+            'Content-Type': 'application/json'
+        }
         data = {
             'username': 'toes_bafaluydelreymarc',
             'password': 'Bafarey12345.'
         }
 
         response = requests.post(url, headers=headers, json=data)
+        print("Respuesta al generar token:", response.status_code, response.text)
         if response.status_code == 200:
             return response.json().get('token')
         else:
