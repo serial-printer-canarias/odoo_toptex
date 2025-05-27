@@ -1,7 +1,8 @@
-import requests
 from odoo import models, fields, api
 from odoo.exceptions import UserError
+import requests
 import base64
+
 
 class SerialPrinterProduct(models.Model):
     _name = 'serial.printer.product'
@@ -14,14 +15,20 @@ class SerialPrinterProduct(models.Model):
     image = fields.Binary(string="Imagen")
 
     def _generate_token(self):
+        api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key') or ''
+        username = self.env['ir.config_parameter'].sudo().get_param('toptex_username') or ''
+        password = self.env['ir.config_parameter'].sudo().get_param('toptex_password') or ''
+
         url = 'https://api.toptex.io/v3/authenticate'
         headers = {
-            'x-api-key': self.env['ir.config_parameter'].sudo().get_param('toptex_api_key'),
+            'x-api-key': api_key,
+            'Content-Type': 'application/json',
         }
         data = {
-            "username": self.env['ir.config_parameter'].sudo().get_param('toptex_username'),
-            "password": self.env['ir.config_parameter'].sudo().get_param('toptex_password'),
+            'username': username,
+            'password': password,
         }
+
         response = requests.post(url, headers=headers, json=data)
         if response.status_code == 200:
             return response.json().get('token')
@@ -31,12 +38,15 @@ class SerialPrinterProduct(models.Model):
     @api.model
     def sync_products_from_api(self):
         token = self._generate_token()
-        url = 'https://api.toptex.io/v3/catalog/all?usage_right=b2b_b2c'
+        api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key') or ''
+
+        url = 'https://api.toptex.io/v3/products?usage_right=b2b_b2c'
         headers = {
-            'x-api-key': self.env['ir.config_parameter'].sudo().get_param('toptex_api_key'),
+            'x-api-key': api_key,
             'x-toptex-authorization': token,
             'Accept': 'application/json',
         }
+
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
             catalog = response.json()
