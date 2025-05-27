@@ -15,10 +15,10 @@ class SerialPrinterProduct(models.Model):
 
     def _generate_token(self):
         url = "https://api.toptex.io/v3/authenticate"
-        headers = {"x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4b0vgiZe"}
+        headers = {"x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe"}
         data = {
             "username": "toes_bafaluydeleraymarc",
-            "password": "Bafarely12345"
+            "password": "Bafarey12345."
         }
 
         response = requests.post(url, headers=headers, json=data)
@@ -32,7 +32,7 @@ class SerialPrinterProduct(models.Model):
         token = self._generate_token()
         url = "https://api.toptex.io/v3/catalog/all"
         headers = {
-            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4b0vgiZe",
+            "x-api-key": "qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe",
             "x-toptex-authorization": token,
             "accept": "application/json"
         }
