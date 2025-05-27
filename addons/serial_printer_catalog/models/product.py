@@ -2,6 +2,7 @@ import requests
 from odoo import models, fields, api
 from odoo.exceptions import UserError
 
+
 class SerialPrinterProduct(models.Model):
     _name = 'serial.printer.product'
     _description = 'Producto del catálogo'
@@ -11,22 +12,31 @@ class SerialPrinterProduct(models.Model):
     reference = fields.Char(string='Referencia')
     description = fields.Text(string='Descripción')
 
+    def _generate_token(self):
+        url = 'https://api.toptex.io/v3/authenticate'
+        headers = {'x-api-key': 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgidvgiZe'}
+        data = {
+            'username': 'toes_bafaluydelreymarc',
+            'password': 'Bafarey12345.'
+        }
+
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 200:
+            return response.json().get('token')
+        else:
+            raise UserError(f"Error al generar token: {response.status_code} - {response.text}")
+
     @api.model
     def sync_products_from_api(self):
-        token_record = self.env['serial.printer.token'].search([], limit=1)
-        if not token_record:
-            raise UserError("Token de API no encontrado. Asegúrate de generar uno válido.")
-        
-        token = token_record.get_valid_token()
+        token = self._generate_token()
 
         url = 'https://api.toptex.io/v3/products'
         headers = {
             'Authorization': f'Bearer {token}',
-            'x-api-key': token_record.api_key
+            'x-api-key': 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgidvgiZe'
         }
 
         response = requests.get(url, headers=headers)
-
         if response.status_code == 200:
             data = response.json()
             for product in data.get('items', []):
