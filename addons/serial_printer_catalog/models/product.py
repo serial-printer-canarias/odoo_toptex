@@ -14,7 +14,7 @@ class SerialPrinterProduct(models.Model):
 
     def _generate_token(self):
         url = 'https://api.toptex.io/v3/authenticate'
-        headers = {'x-api-key': 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgidvgiZe'}
+        headers = {'x-api-key': 'qh7SERVyz43xDDNaRoNs0aLxGnTtfSOX4bOvgiZe'}
         data = {
             'username': 'toes_bafaluydelreymarc',
             'password': 'Bafarey12345.'
