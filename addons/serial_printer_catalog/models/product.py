@@ -3,7 +3,6 @@ from odoo.exceptions import UserError
 import requests
 import base64
 
-
 class SerialPrinterProduct(models.Model):
     _name = 'serial.printer.product'
     _description = 'Producto del catálogo'
@@ -15,18 +14,19 @@ class SerialPrinterProduct(models.Model):
     image = fields.Binary(string="Imagen")
 
     def _generate_token(self):
-        api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key') or ''
-        username = self.env['ir.config_parameter'].sudo().get_param('toptex_username') or ''
-        password = self.env['ir.config_parameter'].sudo().get_param('toptex_password') or ''
+        IrConfig = self.env['ir.config_parameter'].sudo()
+        api_key = IrConfig.get_param('toptex_api_key')
+        username = IrConfig.get_param('toptex_username')
+        password = IrConfig.get_param('toptex_password')
 
-        url = 'https://api.toptex.io/v3/authenticate'
+        url = "https://api.toptex.io/v3/authenticate"
         headers = {
             'x-api-key': api_key,
-            'Content-Type': 'application/json',
+            'Content-Type': 'application/json'
         }
         data = {
             'username': username,
-            'password': password,
+            'password': password
         }
 
         response = requests.post(url, headers=headers, json=data)
@@ -38,13 +38,15 @@ class SerialPrinterProduct(models.Model):
     @api.model
     def sync_products_from_api(self):
         token = self._generate_token()
-        api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key') or ''
 
-        url = 'https://api.toptex.io/v3/products?usage_right=b2b_b2c'
+        IrConfig = self.env['ir.config_parameter'].sudo()
+        api_key = IrConfig.get_param('toptex_api_key')
+
+        url = "https://api.toptex.io/v3/products?usage_right=b2b_b2c"
         headers = {
             'x-api-key': api_key,
             'x-toptex-authorization': token,
-            'Accept': 'application/json',
+            'Accept': 'application/json'
         }
 
         response = requests.get(url, headers=headers)
