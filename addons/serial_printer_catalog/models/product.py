@@ -49,7 +49,7 @@ class SerialPrinterProduct(models.Model):
         proxy_url = self._get_toptex_credential('toptex_proxy_url')
         token = self._generate_token()
 
-        url = "https://api.toptex.com/v3/products?usage_right=b2b_uniquement&result_in_file=1"
+        url = "https://api.toptex.com/v3/products/all?usage_right=b2b_uniquement&result_in_file=1"
         headers = {
             "x-api-key": self._get_toptex_credential('toptex_api_key'),
             "x-toptex-authorization": token,
