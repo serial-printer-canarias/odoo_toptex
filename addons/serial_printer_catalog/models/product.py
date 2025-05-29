@@ -2,9 +2,10 @@ import requests
 from odoo import models, fields
 from odoo.exceptions import UserError
 
+
 class SerialPrinterProduct(models.Model):
     _name = 'serial.printer.product'
-    _description = 'Producto sincronizado desde TopTex'
+    _description = 'Producto importado desde TopTex'
 
     name = fields.Char(string='Nombre')
     toptex_id = fields.Char(string='ID TopTex')
@@ -17,12 +18,14 @@ class SerialPrinterProduct(models.Model):
 
     def _generate_token(self):
         proxy_url = self._get_toptex_credential("toptex_proxy_url")
-        token_url = "https://api.toptex.com/v2/oauth/token"
+        token_url = "https://api.toptex.com/v3/oauth/token"
+
         headers = {
             "x-api-key": self._get_toptex_credential("toptex_api_key"),
             "Accept": "application/json",
-            "Accept-Encoding": "identity",
+            "Accept-Encoding": "identity",  # Para evitar errores de gzip
         }
+
         data = {
             "username": self._get_toptex_credential("toptex_username"),
             "password": self._get_toptex_credential("toptex_password"),
@@ -38,18 +41,21 @@ class SerialPrinterProduct(models.Model):
         if response.status_code == 200:
             return response.json().get("token")
         else:
-            raise UserError(f"Error al generar token ({response.status_code}): {response.text}")
+            raise UserError(f"Error al generar token: {response.text}")
 
     def sync_products_from_api(self):
         proxy_url = self._get_toptex_credential("toptex_proxy_url")
-        catalog_url = "https://api.toptex.com/v3/products/all?usage_right=b2b_uniquement&result_in_file=1"
+        catalog_url = (
+            "https://api.toptex.com/v3/products/all"
+            "?usage_right=b2b_uniquement&result_in_file=1"
+        )
         token = self._generate_token()
 
         headers = {
             "x-api-key": self._get_toptex_credential("toptex_api_key"),
             "x-toptex-authorization": token,
             "Accept": "application/json",
-            "Accept-Encoding": "identity",
+            "Accept-Encoding": "identity",  # Para evitar gzip
         }
 
         response = requests.get(
@@ -63,17 +69,14 @@ class SerialPrinterProduct(models.Model):
             for product_data in catalog.get("items", []):
                 self._create_or_update_product(product_data)
         else:
-            raise UserError(f"Error al obtener catálogo ({response.status_code}): {response.text}")
+            raise UserError(f"Error al obtener catálogo: {response.text}")
 
     def _create_or_update_product(self, product_data):
         toptex_id = product_data.get("id")
-        name = product_data.get("name", {}).get("default", "Sin nombre")
+        name = product_data.get("label")
 
-        existing_product = self.search([("toptex_id", "=", toptex_id)], limit=1)
-        if existing_product:
-            existing_product.write({"name": name})
+        product = self.search([("toptex_id", "=", toptex_id)], limit=1)
+        if product:
+            product.write({"name": name})
         else:
-            self.create({
-                "toptex_id": toptex_id,
-                "name": name,
-            })
+            self.create({"name": name, "toptex_id": toptex_id})
