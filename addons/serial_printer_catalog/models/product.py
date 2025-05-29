@@ -1,38 +1,38 @@
 import requests
-from odoo import models, fields, api
+from odoo import models, fields
 from odoo.exceptions import UserError
 
 class SerialPrinterProduct(models.Model):
     _name = 'serial.printer.product'
-    _description = 'Producto de TopTex importado'
+    _description = 'Producto sincronizado desde TopTex'
 
-    name = fields.Char(string="Nombre")
-    toptex_id = fields.Char(string="ID TopTex", index=True)
+    name = fields.Char(string='Nombre')
+    toptex_id = fields.Char(string='ID TopTex')
 
     def _get_toptex_credential(self, key):
         param = self.env['ir.config_parameter'].sudo().get_param(key)
         if not param:
-            raise UserError(f"Parámetro del sistema '{key}' no encontrado.")
+            raise UserError(f"Parámetro del sistema no encontrado: {key}")
         return param
 
     def _generate_token(self):
-        url = self._get_toptex_credential('toptex_proxy_url')
-        target = "https://api.toptex.com/v2/oauth/token"
-
+        proxy_url = self._get_toptex_credential("toptex_proxy_url")
+        token_url = "https://api.toptex.com/v2/oauth/token"
         headers = {
             "x-api-key": self._get_toptex_credential("toptex_api_key"),
-            "Content-Type": "application/json"
+            "Accept": "application/json",
+            "Accept-Encoding": "identity",
         }
         data = {
             "username": self._get_toptex_credential("toptex_username"),
-            "password": self._get_toptex_credential("toptex_password")
+            "password": self._get_toptex_credential("toptex_password"),
         }
 
         response = requests.post(
-            url,
-            params={"url": target},
+            proxy_url,
+            params={"url": token_url},
+            headers=headers,
             json=data,
-            headers=headers
         )
 
         if response.status_code == 200:
@@ -40,7 +40,6 @@ class SerialPrinterProduct(models.Model):
         else:
             raise UserError(f"Error al generar token ({response.status_code}): {response.text}")
 
-    @api.model
     def sync_products_from_api(self):
         proxy_url = self._get_toptex_credential("toptex_proxy_url")
         catalog_url = "https://api.toptex.com/v3/products/all?usage_right=b2b_uniquement&result_in_file=1"
@@ -50,13 +49,13 @@ class SerialPrinterProduct(models.Model):
             "x-api-key": self._get_toptex_credential("toptex_api_key"),
             "x-toptex-authorization": token,
             "Accept": "application/json",
-            "Accept-Encoding": "identity"
+            "Accept-Encoding": "identity",
         }
 
         response = requests.get(
             proxy_url,
             params={"url": catalog_url},
-            headers=headers
+            headers=headers,
         )
 
         if response.status_code == 200:
@@ -70,11 +69,11 @@ class SerialPrinterProduct(models.Model):
         toptex_id = product_data.get("id")
         name = product_data.get("name", {}).get("default", "Sin nombre")
 
-        product = self.search([("toptex_id", "=", toptex_id)], limit=1)
-        if product:
-            product.write({"name": name})
+        existing_product = self.search([("toptex_id", "=", toptex_id)], limit=1)
+        if existing_product:
+            existing_product.write({"name": name})
         else:
             self.create({
                 "toptex_id": toptex_id,
-                "name": name
+                "name": name,
             })
