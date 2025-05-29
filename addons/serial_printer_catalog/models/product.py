@@ -64,14 +64,13 @@ class SerialPrinterProduct(models.Model):
 
         if response.status_code == 200:
             catalog = response.json()
-            for product_data in catalog.get('items', []):
-                self._create_or_update_product(product_data)
+            self._create_or_update_product(catalog)
         else:
             raise UserError(f"Error al obtener catálogo: {response.text}")
 
     def _create_or_update_product(self, product_data):
-        toptex_id = product_data.get('id')
-        name = product_data.get('label')
+        toptex_id = product_data.get('catalogReference')
+        name = product_data.get('catalogReference')
 
         product = self.search([('toptex_id', '=', toptex_id)], limit=1)
         if product:
