@@ -1,92 +1,93 @@
-import json
 import requests
-from odoo import models, fields
+import base64
+import os
+
+from odoo import models, fields, api
 from odoo.exceptions import UserError
 
-class ProductTemplate(models.Model):
-    _inherit = 'product.template'
+class SerialPrinterProduct(models.Model):
+    _name = 'serial_printer_product'
+    _description = 'Producto del catálogo'
 
-    toptex_id = fields.Char("TopTex ID")
+    name = fields.Char(string='Nombre')
+    toptex_id = fields.Char(string='ID TopTex')
+    reference = fields.Char(string='Referencia')
+    description = fields.Text(string='Descripción')
+    image = fields.Binary(string='Imagen')
 
-class ProductImporter(models.Model):
-    _name = 'serial_printer.product_importer'
-    _description = 'Importador de productos TopTex'
-
-    def _get_toptex_credentials(self):
-        proxy_url = self.env['ir.config_parameter'].sudo().get_param('toptex_proxy_url')
-        username = self.env['ir.config_parameter'].sudo().get_param('toptex_username')
-        password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
-        api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key')
-
-        if not all([proxy_url, username, password, api_key]):
-            raise UserError("Falta algún parámetro de configuración (proxy_url, username, password, api_key).")
-
-        return proxy_url, username, password, api_key
+    def _get_toptex_credential(self, key):
+        param = self.env['ir.config_parameter'].sudo().get_param(key)
+        if not param:
+            raise UserError(f'Falta el parámetro de configuración: {key}')
+        return param
 
     def _generate_token(self):
-        proxy_url, username, password, api_key = self._get_toptex_credentials()
-        auth_url = "https://api.toptex.com/v3/token"
+        proxy_url = self._get_toptex_credential('toptex_proxy_url')
+        auth_url = "https://api.toptex.io/v3/authenticate"
         headers = {
-            "x-api-key": api_key,
-            "Content-Type": "application/json",
+            "x-api-key": self._get_toptex_credential('toptex_api_key'),
             "Accept-Encoding": "identity",
             "Accept": "application/json",
         }
-        data = {"username": username, "password": password}
-
+        data = {
+            "username": self._get_toptex_credential('toptex_username'),
+            "password": self._get_toptex_credential('toptex_password'),
+        }
         response = requests.post(
             proxy_url,
             params={"url": auth_url},
             headers=headers,
             json=data
         )
+        if response.status_code == 200:
+            return response.json().get('token')
+        else:
+            raise UserError(f'Error al generar token ({response.status_code}): {response.text}')
 
-        if response.status_code != 200:
-            raise UserError(f"Error al obtener token: {response.status_code} - {response.text}")
+    @api.model
+    def sync_products_from_api(self):
+        proxy_url = self._get_toptex_credential('toptex_proxy_url')
+        token = self._generate_token()
 
-        return response.json().get("token")
-
-    def _fetch_all_products(self, token):
-        proxy_url, _, _, api_key = self._get_toptex_credentials()
-        products_url = "https://api.toptex.com/v3/products?usage_right=b2b_uniquement&result_in_file=1"
-
+        url = "https://api.toptex.com/v3/products?usage_right=b2b_uniquement&result_in_file=1"
         headers = {
-            "x-api-key": api_key,
+            "x-api-key": self._get_toptex_credential('toptex_api_key'),
             "x-toptex-authorization": token,
             "Accept-Encoding": "identity",
-            "Accept": "application/json",
+            "Accept": "application/json"
         }
 
-        response = requests.get(
-            proxy_url,
-            params={"url": products_url},
-            headers=headers
-        )
+        response = requests.get(proxy_url, params={"url": url}, headers=headers)
+        if response.status_code == 200:
+            catalog = response.json().get('items', [])
+            for product_data in catalog:
+                self._create_or_update_product(product_data)
+        else:
+            raise UserError(f'Error al obtener catálogo ({response.status_code}): {response.text}')
 
-        if response.status_code != 200:
-            raise UserError(f"Error al obtener productos: {response.status_code} - {response.text}")
+    def _create_or_update_product(self, product_data):
+        toptex_id = product_data.get('id')
+        product = self.search([('toptex_id', '=', toptex_id)], limit=1)
 
-        return response.json().get("items", [])
+        image_binary = False
+        image_url = product_data.get('main_picture_url')
+        if image_url:
+            try:
+                img_response = requests.get(image_url)
+                if img_response.status_code == 200:
+                    image_binary = base64.b64encode(img_response.content)
+            except Exception:
+                pass
 
-    def sync_products_from_api(self):
-        token = self._generate_token()
-        products = self._fetch_all_products(token)
+        values = {
+            'name': product_data.get('name', ''),
+            'toptex_id': toptex_id,
+            'reference': product_data.get('reference'),
+            'description': product_data.get('description', ''),
+            'image': image_binary,
+        }
 
-        for product in products:
-            ref = product.get("sku")
-            name = product.get("label")
-            if not ref or not name:
-                continue
-
-            existing = self.env['product.template'].search([('default_code', '=', ref)], limit=1)
-            if existing:
-                existing.write({
-                    'name': name,
-                })
-            else:
-                self.env['product.template'].create({
-                    'name': name,
-                    'default_code': ref,
-                    'type': 'product',
-                    'toptex_id': str(product.get("id")),
-                })
+        if product:
+            product.write(values)
+        else:
+            self.create(values)
