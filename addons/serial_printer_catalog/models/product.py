@@ -1,61 +1,64 @@
+# -*- coding: utf-8 -*-
 import requests
-from odoo import models, api, _
+from odoo import models, fields
 from odoo.exceptions import UserError
 
-class SerialPrinterProduct(models.Model):
-    _name = 'serial.printer.product'
-    _description = 'Producto importado de TopTex'
+class ProductTemplate(models.Model):
+    _inherit = 'product.template'
 
-    @api.model
-    def sync_products_from_api(self):
-        # Parámetros de sistema
-        api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key')
-        username = self.env['ir.config_parameter'].sudo().get_param('toptex_username')
-        password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
+    toptex_id = fields.Char(string='ID TopTex')
 
-        if not api_key or not username or not password:
-            raise UserError("Faltan credenciales en los parámetros del sistema.")
+    def _get_toptex_credential(self, key):
+        param = self.env['ir.config_parameter'].sudo().get_param(key)
+        if not param:
+            raise UserError(f"Parámetro del sistema '{key}' no configurado")
+        return param
 
-        # URLs correctas
-        auth_url = 'https://api.toptex.io/v3/authenticate'
-        product_url = 'https://api.toptex.io/v3/products?catalog_reference=ns300&usage_right=b2b_uniquement'
-
-        # Headers para token
-        auth_headers = {
-            "x-api-key": api_key,
+    def _generate_token(self):
+        proxy_url = self._get_toptex_credential('toptex_proxy_url')
+        token_url = "https://api.toptex.io/v3/authenticate"
+        headers = {
+            "x-api-key": self._get_toptex_credential('toptex_api_key'),
             "Accept": "application/json",
-            "Accept-Encoding": "identity"
+            "Accept-Encoding": "identity",
         }
-
-        # Solicita el token
-        auth_payload = {
-            "username": username,
-            "password": password
+        data = {
+            "username": self._get_toptex_credential('toptex_username'),
+            "password": self._get_toptex_credential('toptex_password'),
         }
+        response = requests.post(
+            proxy_url,
+            params={"url": token_url},
+            headers=headers,
+            json=data,
+        )
+        if response.status_code == 200:
+            return response.json().get("token")
+        raise UserError(f"Error al generar token TopTex: {response.text}")
 
-        auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
-        if auth_response.status_code != 200:
-            raise UserError(f"Error al generar token TopTex: {auth_response.text}")
-
-        token = auth_response.json().get("token")
-        if not token:
-            raise UserError("Token vacío o inválido")
-
-        # Headers para productos
-        product_headers = {
-            "x-api-key": api_key,
+    def sync_toptex_product(self):
+        proxy_url = self._get_toptex_credential('toptex_proxy_url')
+        token = self._generate_token()
+        product_url = (
+            "https://api.toptex.io/v3/products?"
+            "catalog_reference=ns300&usage_right=b2b_uniquement"
+        )
+        headers = {
+            "x-api-key": self._get_toptex_credential('toptex_api_key'),
             "x-toptex-authorization": token,
             "Accept": "application/json",
-            "Accept-Encoding": "identity"
+            "Accept-Encoding": "identity",
         }
-
-        # Solicita el producto ns300
-        response = requests.get(product_url, headers=product_headers)
+        response = requests.get(
+            proxy_url,
+            params={"url": product_url},
+            headers=headers,
+        )
         if response.status_code != 200:
-            raise UserError(f"Error al obtener producto: {response.text}")
+            raise UserError(f"Error al obtener datos de producto TopTex: {response.text}")
 
         result = response.json()
-        if not isinstance(result, list) or not result:
+        if not result or not isinstance(result, list):
             raise UserError("Respuesta inválida o vacía de TopTex")
 
         for product in result:
@@ -68,4 +71,5 @@ class SerialPrinterProduct(models.Model):
                         'name': name,
                         'default_code': reference,
                         'type': 'product',
+                        'toptex_id': product.get("productReference", ""),
                     })
