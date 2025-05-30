@@ -1,18 +1,15 @@
 {
-    'name': 'Catálogo Serial Printer',
+    'name': 'Catálogo TopTex',
     'version': '1.0.0',
     'category': 'Sales',
-    'summary': 'Catálogo con productos sincronizados desde TopTex',
-    'description': 'Módulo para importar productos de TopTex y mostrarlos en Odoo como catálogo',
+    'summary': 'Importación de productos TopTex',
+    'description': 'Crea productos desde la API de TopTex en el modelo estándar de Sales.',
     'author': 'Serial Printer',
     'depends': ['base', 'product'],
     'data': [
-        'views/menu_root.xml',
-        'views/menu_product.xml',
-        'views/product_views.xml',
-        'data/cron_product.xml',
+        'data/cron_product.xml',  # Esto sí lo dejamos si quieres mantener la acción programada
     ],
     'installable': True,
-    'application': True,
+    'application': False,
     'auto_install': False,
 }
