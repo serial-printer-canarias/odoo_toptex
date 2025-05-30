@@ -1,74 +1,58 @@
 import requests
-from odoo import models, fields, api, _
+from odoo import models, fields, api
 from odoo.exceptions import UserError
 
-class ProductSync(models.TransientModel):
-    _name = 'product.sync.toptex'
-    _description = 'Sincronizar producto desde TopTex'
+class ProductSync(models.Model):
+    _inherit = 'product.template'
 
     @api.model
-    def _get_toptex_credential(self, key):
-        param = self.env['ir.config_parameter'].sudo().get_param(key)
-        if not param:
-            raise UserError(_("Falta el parámetro de sistema: %s") % key)
-        return param
+    def sync_toptex_product(self):
+        # Parámetros del sistema
+        api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key')
+        username = self.env['ir.config_parameter'].sudo().get_param('toptex_username')
+        password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
 
-    @api.model
-    def sync_ns300_toptex(self):
-        # 1. Obtener credenciales desde parámetros del sistema
-        api_key = self._get_toptex_credential('toptex_api_key')
-        username = self._get_toptex_credential('toptex_username')
-        password = self._get_toptex_credential('toptex_password')
+        if not api_key or not username or not password:
+            raise UserError("Faltan parámetros del sistema (API key, usuario o contraseña)")
 
-        # 2. Autenticación para obtener token
-        auth_url = "https://api.toptex.io/v3/authenticate"
-        auth_headers = {
+        # Paso 1: Obtener el token
+        token_url = 'https://api.toptex.io/v3/authenticate'
+        headers = {
             "x-api-key": api_key,
             "Accept": "application/json",
-            "Accept-Encoding": "identity"
+            "Accept-Encoding": "identity",
         }
         payload = {
             "username": username,
-            "password": password
+            "password": password,
         }
 
-        response = requests.post(auth_url, json=payload, headers=auth_headers)
+        response = requests.post(token_url, json=payload, headers=headers)
         if response.status_code != 200:
-            raise UserError("Error al autenticar con TopTex: %s" % response.text)
+            raise UserError(f"Error al generar token: {response.text}")
+        token = response.json().get("token")
 
-        token = response.json().get('token')
-        if not token:
-            raise UserError("Token vacío recibido desde TopTex.")
-
-        # 3. Obtener producto NS300
+        # Paso 2: Llamar a producto específico (NS300)
         product_url = "https://api.toptex.io/v3/products?catalog_reference=ns300&usage_right=b2b_uniquement"
-        headers = {
-            "x-api-key": api_key,
-            "x-toptex-authorization": token,
-            "Accept": "application/json",
-            "Accept-Encoding": "identity"
-        }
+        headers["x-toptex-authorization"] = token
 
-        res = requests.get(product_url, headers=headers)
-        if res.status_code != 200:
-            raise UserError("Error al obtener producto NS300: %s" % res.text)
+        product_response = requests.get(product_url, headers=headers)
+        if product_response.status_code != 200:
+            raise UserError(f"Error al obtener producto: {product_response.text}")
 
-        data = res.json()
-        if not data or not isinstance(data, list):
+        result = product_response.json()
+        if not isinstance(result, list) or not result:
             raise UserError("Respuesta inválida o vacía de TopTex")
 
-        for item in data:
-            name = item.get("label")
-            reference = item.get("catalogReference")
-
-            if not name or not reference:
-                continue
-
-            # Verificar si ya existe
-            existing = self.env['product.template'].search([('default_code', '=', reference)])
-            if not existing:
-                self.env['product.template'].create({
-                    'name': name,
-                    'default_code': reference,
-                    'type': 'product'
-                })
+        # Paso 3: Crear producto si no existe
+        for product in result:
+            name = product.get("label")
+            reference = product.get("catalogReference")
+            if name and reference:
+                existing = self.env['product.template'].search([('default_code', '=', reference)], limit=1)
+                if not existing:
+                    self.env['product.template'].create({
+                        'name': name,
+                        'default_code': reference,
+                        'type': 'product',
+                    })
