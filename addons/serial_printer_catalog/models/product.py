@@ -1,57 +1,46 @@
-# -*- coding: utf-8 -*-
 import requests
-from odoo import models, fields
+from odoo import models, fields, api
 from odoo.exceptions import UserError
 
-class ProductTemplate(models.Model):
+class SerialPrinterProduct(models.Model):
     _inherit = 'product.template'
 
-    toptex_id = fields.Char(string='ID TopTex')
+    toptex_id = fields.Char(string="TopTex ID")
 
     def _get_toptex_credential(self, key):
         param = self.env['ir.config_parameter'].sudo().get_param(key)
         if not param:
-            raise UserError(f"Parámetro del sistema '{key}' no configurado")
+            raise UserError(f"Parámetro del sistema '{key}' no está configurado")
         return param
 
-    def _generate_token(self):
-        proxy_url = self._get_toptex_credential('toptex_proxy_url')
-        token_url = "https://api.toptex.io/v3/authenticate"
+    def sync_toptex_product(self):
+        api_key = self._get_toptex_credential('toptex_api_key')
+        username = self._get_toptex_credential('toptex_username')
+        password = self._get_toptex_credential('toptex_password')
+
+        auth_url = "https://api.toptex.io/v3/authenticate"
         headers = {
-            "x-api-key": self._get_toptex_credential('toptex_api_key'),
+            "x-api-key": api_key,
             "Accept": "application/json",
-            "Accept-Encoding": "identity",
+            "Accept-Encoding": "identity"
         }
         data = {
-            "username": self._get_toptex_credential('toptex_username'),
-            "password": self._get_toptex_credential('toptex_password'),
+            "username": username,
+            "password": password
         }
-        response = requests.post(
-            token_url,
-            headers=headers,
-            json=data,
-        )
-        if response.status_code == 200:
-            return response.json().get("token")
-        raise UserError(f"Error al generar token TopTex: {response.text}")
 
-    def sync_toptex_product(self):
-        proxy_url = self._get_toptex_credential('toptex_proxy_url')
-        token = self._generate_token()
-        product_url = (
-            "https://api.toptex.io/v3/products?"
-            "catalog_reference=ns300&usage_right=b2b_uniquement"
-        )
-        headers = {
-            "x-api-key": self._get_toptex_credential('toptex_api_key'),
-            "x-toptex-authorization": token,
-            "Accept": "application/json",
-            "Accept-Encoding": "identity",
-        }
-        response = requests.get(
-            product_url,
-            headers=headers,
-        )
+        token_response = requests.post(auth_url, json=data, headers=headers)
+        if token_response.status_code != 200:
+            raise UserError(f"Error al generar token TopTex: {token_response.text}")
+
+        token = token_response.json().get("token")
+        if not token:
+            raise UserError("Token no recibido desde TopTex")
+
+        product_url = "https://api.toptex.io/v3/products?catalog_reference=ns300&usage_right=b2b_uniquement"
+        headers["x-toptex-authorization"] = token
+
+        response = requests.get(product_url, headers=headers)
         if response.status_code != 200:
             raise UserError(f"Error al obtener datos de producto TopTex: {response.text}")
 
@@ -69,5 +58,5 @@ class ProductTemplate(models.Model):
                         'name': name,
                         'default_code': reference,
                         'type': 'product',
-                        'toptex_id': product.get("productReference", ""),
+                        'toptex_id': str(product.get("id"))
                     })
