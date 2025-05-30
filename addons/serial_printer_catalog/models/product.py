@@ -1,68 +1,81 @@
 import requests
-from odoo import models, fields, api, _
+from odoo import models, fields
 from odoo.exceptions import UserError
 
 class SerialPrinterProduct(models.Model):
     _name = 'serial.printer.product'
-    _description = 'Producto importado desde TopTex'
+    _description = 'Producto sincronizado desde TopTex'
 
-    name = fields.Char('Nombre del producto')
-    reference = fields.Char('Referencia')
-    description = fields.Text('Descripción')
+    name = fields.Char(string='Nombre')
+    toptex_id = fields.Char(string='ID TopTex')
+    reference = fields.Char(string='Referencia')
 
-    @api.model
-    def sync_product_from_toptex(self):
-        # Leer parámetros del sistema
-        proxy_url = self.env['ir.config_parameter'].sudo().get_param('toptex_proxy_url')
-        api_user = self.env['ir.config_parameter'].sudo().get_param('toptex_username')
-        api_password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
-        api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key')
+    def _get_toptex_credential(self, key):
+        param = self.env['ir.config_parameter'].sudo().get_param(key)
+        if not param:
+            raise UserError(f"Parámetro del sistema '{key}' no configurado")
+        return param
 
-        if not proxy_url or not api_user or not api_password or not api_key:
-            raise UserError("Faltan parámetros del sistema (proxy_url, username, password o api_key).")
+    def _generate_token(self):
+        proxy_url = self._get_toptex_credential('toptex_proxy_url')
+        token_url = "https://api.toptex.io/v3/authenticate"
+        headers = {
+            "x-api-key": self._get_toptex_credential('toptex_api_key'),
+            "Accept": "application/json",
+            "Accept-Encoding": "identity",
+        }
+        data = {
+            "username": self._get_toptex_credential('toptex_username'),
+            "password": self._get_toptex_credential('toptex_password'),
+        }
 
-        # Obtener token
-        token_response = requests.post(
-            f"{proxy_url}/v3/authenticate",
-            json={"login": api_user, "password": api_password},
-            headers={"x-toptex-apikey": api_key}
+        response = requests.post(
+            proxy_url,
+            params={"url": token_url},
+            headers=headers,
+            json=data,
         )
-        if token_response.status_code != 200:
-            raise UserError(f"Error al obtener token: {token_response.text}")
-        token = token_response.json().get('token')
-        if not token:
-            raise UserError("Token no recibido desde la API de TopTex.")
 
-        # Llamada al producto NS300
-        product_response = requests.get(
-            f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_uniquement",
-            headers={
-                "x-toptex-apikey": api_key,
-                "x-toptex-authorization": token,
-                "Accept-Encoding": "identity"
-            }
-        )
-        if product_response.status_code != 200:
-            raise UserError(f"Error al obtener producto: {product_response.text}")
-
-        product_data = product_response.json()
-        if not product_data or not isinstance(product_data, list):
-            raise UserError("No se recibió un listado de productos válido.")
-
-        product_info = product_data[0]
-        name = product_info.get('name')
-        reference = product_info.get('reference')
-        description = product_info.get('description', {}).get('full', '')
-
-        if not reference:
-            raise UserError("Referencia del producto no encontrada.")
-
-        existing_product = self.env['serial.printer.product'].search([('reference', '=', reference)], limit=1)
-        if existing_product:
-            existing_product.write({'name': name, 'description': description})
+        if response.status_code == 200:
+            return response.json().get("token")
         else:
-            self.create({
-                'name': name,
-                'reference': reference,
-                'description': description,
-            })
+            raise UserError(f"Error al generar token TopTex: {response.text}")
+
+    def sync_products_from_api(self):
+        proxy_url = self._get_toptex_credential('toptex_proxy_url')
+        token = self._generate_token()
+
+        product_url = "https://api.toptex.io/v3/products?catalog_reference=ns300&usage_right=b2b_uniquement"
+        headers = {
+            "x-api-key": self._get_toptex_credential('toptex_api_key'),
+            "x-toptex-authorization": token,
+            "Accept": "application/json",
+            "Accept-Encoding": "identity",
+        }
+
+        response = requests.get(
+            proxy_url,
+            params={"url": product_url},
+            headers=headers,
+        )
+
+        if response.status_code != 200:
+            raise UserError(f"Error al obtener datos de producto TopTex: {response.text}")
+
+        result = response.json()
+        if not result or not isinstance(result, list):
+            raise UserError("Respuesta inválida o vacía de TopTex")
+
+        for product in result:
+            name = product.get("label")
+            reference = product.get("catalogReference")
+            toptex_id = product.get("id")
+
+            if name and reference and toptex_id:
+                existing = self.env['serial.printer.product'].search([('reference', '=', reference)])
+                if not existing:
+                    self.env['serial.printer.product'].create({
+                        'name': name,
+                        'toptex_id': toptex_id,
+                        'reference': reference,
+                    })
