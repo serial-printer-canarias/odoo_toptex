@@ -27,8 +27,7 @@ class ProductTemplate(models.Model):
             "password": self._get_toptex_credential('toptex_password'),
         }
         response = requests.post(
-            proxy_url,
-            params={"url": token_url},
+            token_url,
             headers=headers,
             json=data,
         )
@@ -50,8 +49,7 @@ class ProductTemplate(models.Model):
             "Accept-Encoding": "identity",
         }
         response = requests.get(
-            proxy_url,
-            params={"url": product_url},
+            product_url,
             headers=headers,
         )
         if response.status_code != 200:
