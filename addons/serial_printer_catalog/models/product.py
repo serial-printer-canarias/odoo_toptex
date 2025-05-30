@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
-from odoo import models, fields, _
-from odoo.exceptions import UserError
+# Proxy para acceder a la API de TopTex desde Odoo SH
+# Última versión estable: 2025-05-30
+
 import requests
+from odoo import models, fields
+from odoo.exceptions import UserError
 
 class SerialPrinterProduct(models.Model):
     _name = 'serial.printer.product'
-    _description = 'Sincronizador de productos TopTex'
+    _description = 'Productos TopTex en Odoo'
 
     name = fields.Char(string="Nombre")
     toptex_id = fields.Char(string="ID TopTex")
@@ -18,7 +21,7 @@ class SerialPrinterProduct(models.Model):
 
     def _generate_token(self):
         proxy_url = self._get_toptex_credential('toptex_proxy_url')
-        token_url = 'https://api.toptex.io/v3/authenticate'
+        token_url = "https://api.toptex.io/v3/authenticate"
         headers = {
             "x-api-key": self._get_toptex_credential('toptex_api_key'),
             "Accept": "application/json",
@@ -28,18 +31,20 @@ class SerialPrinterProduct(models.Model):
             "username": self._get_toptex_credential('toptex_username'),
             "password": self._get_toptex_credential('toptex_password'),
         }
+
         response = requests.post(
             proxy_url,
             params={"url": token_url},
             headers=headers,
             json=data,
         )
+
         if response.status_code == 200:
             return response.json().get("token")
         else:
             raise UserError(f"Error al generar token TopTex: {response.text}")
 
-    def sync_toptex_product(self):
+    def sync_products_from_api(self):
         proxy_url = self._get_toptex_credential('toptex_proxy_url')
         token = self._generate_token()
 
@@ -56,30 +61,23 @@ class SerialPrinterProduct(models.Model):
             params={"url": product_url},
             headers=headers,
         )
+
         if response.status_code != 200:
-            raise UserError(f"Error al obtener producto: {response.text}")
+            raise UserError(f"Error al obtener datos de producto TopTex: {response.text}")
 
         result = response.json()
-        items = result.get("items", [])
+        if not result or not isinstance(result, list):
+            raise UserError("Respuesta inválida o vacía de TopTex")
 
-        if not items:
-            raise UserError("No se recibió ningún producto del API")
+        for product in result:
+            name = product.get("label")
+            reference = product.get("catalogReference")
 
-        for item in items:
-            values = {
-                "name": item.get("name", "Producto TopTex"),
-                "default_code": item.get("reference", ""),
-                "list_price": item.get("price", 0.0),
-                "type": "product",
-            }
-
-            # Verificar categoría si está disponible
-            categ_name = item.get("category")
-            if categ_name:
-                categ = self.env["product.category"].search([("name", "=", categ_name)], limit=1)
-                if not categ:
-                    categ = self.env["product.category"].create({"name": categ_name})
-                values["categ_id"] = categ.id
-
-            # Crear producto
-            self.env["product.template"].create(values)
+            if name and reference:
+                existing = self.env['product.template'].search([('default_code', '=', reference)])
+                if not existing:
+                    self.env['product.template'].create({
+                        'name': name,
+                        'default_code': reference,
+                        'type': 'product',
+                    })
