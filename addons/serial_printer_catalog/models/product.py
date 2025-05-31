@@ -6,13 +6,14 @@ class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     def sync_products_from_api(self):
-        # Parámetros del sistema
+        # Obtener parámetros del sistema
+        proxy_url = self.env['ir.config_parameter'].sudo().get_param('toptex_proxy_url')
         api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key')
         username = self.env['ir.config_parameter'].sudo().get_param('toptex_username')
         password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
 
-        # Autenticación directa
-        auth_url = "https://api.toptex.io/v3/authenticate"
+        # URL autenticación a través del proxy
+        auth_url = f"{proxy_url}/v3/authenticate"
         auth_data = {
             "username": username,
             "password": password,
@@ -26,8 +27,8 @@ class ProductTemplate(models.Model):
         except Exception as e:
             raise UserError(f"Error al obtener el token de TopTex: {e}")
 
-        # Llamada directa al producto NS300
-        product_url = "https://api.toptex.io/v3/products?catalog_reference=ns300&usage_right=b2b_uniquement"
+        # Llamada al producto NS300 usando el proxy
+        product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_uniquement"
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
@@ -39,7 +40,7 @@ class ProductTemplate(models.Model):
             response.raise_for_status()
             product_data = response.json()
 
-            # Crear producto básico (adapta si hace falta)
+            # Crear producto en Odoo
             self.create({
                 'name': product_data.get('name', 'NS300'),
                 'default_code': product_data.get('reference'),
