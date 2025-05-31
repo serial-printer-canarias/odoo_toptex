@@ -7,7 +7,7 @@
     'author': 'Serial Printer',
     'depends': ['base', 'product'],
     'data': [
-        # 'data/cron_product.xml',  ← puedes activarlo luego si quieres
+        'data/cron_product.xml',  
     ],
     'installable': True,
     'application': False,
