@@ -1,58 +1,55 @@
 import requests
-from odoo import models, fields, api
-from odoo.exceptions import UserError
+from odoo import models, api
 
-class ProductSync(models.Model):
+class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     @api.model
-    def sync_toptex_product(self):
+    def sync_ns300_from_toptex(self):
         # Parámetros del sistema
-        api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key')
-        username = self.env['ir.config_parameter'].sudo().get_param('toptex_username')
-        password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
+        proxy_url = self.env['ir.config_parameter'].sudo().get_param('toptex_proxy_url')
+        catalog_ref = "ns300"
 
-        if not api_key or not username or not password:
-            raise UserError("Faltan parámetros del sistema (API key, usuario o contraseña)")
+        if not proxy_url:
+            raise ValueError("Falta la URL del proxy en parámetros del sistema")
 
-        # Paso 1: Obtener el token
-        token_url = 'https://api.toptex.io/v3/authenticate'
+        # URL final de llamada
+        url = f"{proxy_url}/v3/products?catalog_reference={catalog_ref}"
+
         headers = {
-            "x-api-key": api_key,
-            "Accept": "application/json",
-            "Accept-Encoding": "identity",
-        }
-        payload = {
-            "username": username,
-            "password": password,
+            'Accept': 'application/json',
+            'Accept-Encoding': 'identity',
         }
 
-        response = requests.post(token_url, json=payload, headers=headers)
-        if response.status_code != 200:
-            raise UserError(f"Error al generar token: {response.text}")
-        token = response.json().get("token")
+        try:
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+            data = response.json()
 
-        # Paso 2: Llamar a producto específico (NS300)
-        product_url = "https://api.toptex.io/v3/products?catalog_reference=ns300&usage_right=b2b_uniquement"
-        headers["x-toptex-authorization"] = token
+            # Extraer información básica del producto
+            product_data = data.get("data")
+            if not product_data:
+                raise ValueError("No se encontró el producto NS300 en la respuesta")
 
-        product_response = requests.get(product_url, headers=headers)
-        if product_response.status_code != 200:
-            raise UserError(f"Error al obtener producto: {product_response.text}")
+            name = product_data.get('name')
+            default_code = product_data.get('reference')
 
-        result = product_response.json()
-        if not isinstance(result, list) or not result:
-            raise UserError("Respuesta inválida o vacía de TopTex")
+            if not name or not default_code:
+                raise ValueError("Faltan datos clave en la respuesta de la API")
 
-        # Paso 3: Crear producto si no existe
-        for product in result:
-            name = product.get("label")
-            reference = product.get("catalogReference")
-            if name and reference:
-                existing = self.env['product.template'].search([('default_code', '=', reference)], limit=1)
-                if not existing:
-                    self.env['product.template'].create({
-                        'name': name,
-                        'default_code': reference,
-                        'type': 'product',
-                    })
+            # Verificar si el producto ya existe
+            existing = self.search([('default_code', '=', default_code)], limit=1)
+            if existing:
+                return  # Ya está creado
+
+            # Crear el producto
+            self.create({
+                'name': name,
+                'default_code': default_code,
+                'type': 'product',
+                'sale_ok': True,
+                'purchase_ok': False,
+            })
+
+        except Exception as e:
+            raise ValueError(f"Error al sincronizar producto desde TopTex: {e}")
