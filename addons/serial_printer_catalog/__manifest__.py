@@ -1,13 +1,13 @@
 {
-    'name': 'Importación producto TopTex NS300',
+    'name': 'Catálogo TopTex',
     'version': '1.0.0',
     'category': 'Sales',
-    'summary': 'Crea el producto NS300 desde TopTex',
-    'description': 'Llama a la API de TopTex y crea el producto NS300 directamente en Sales',
+    'summary': 'Importación de productos TopTex (NS300)',
+    'description': 'Crea productos desde TopTex directamente en Sales',
     'author': 'Serial Printer',
-    'depends': ['base', 'product', 'sale'],
+    'depends': ['base', 'product'],
     'data': [
-        'data/cron_product.xml',
+        # 'data/cron_product.xml',  ← puedes activarlo luego si quieres
     ],
     'installable': True,
     'application': False,
