@@ -1,71 +1,72 @@
 import requests
-from odoo import models, api
+from odoo import models, api, fields, tools
+from odoo.exceptions import UserError
+import logging
 
-class ProductTemplate(models.Model):
+_logger = logging.getLogger(__name__)
+
+class ProductSync(models.Model):
     _inherit = 'product.template'
 
     @api.model
     def sync_products_from_api(self):
-        def get_param(key):
-            return self.env['ir.config_parameter'].sudo().get_param(key)
-
-        # Obtener credenciales
-        username = get_param("toptex_username")
-        password = get_param("toptex_password")
-        api_key = get_param("toptex_api_key")
+        # Recuperar credenciales de parámetros del sistema
+        config = self.env['ir.config_parameter'].sudo()
+        username = config.get_param('toptex_username')
+        password = config.get_param('toptex_password')
+        api_key = config.get_param('toptex_api_key')
 
         if not username or not password or not api_key:
-            raise ValueError("Faltan credenciales en parámetros del sistema.")
+            raise UserError("❌ Faltan parámetros en el sistema (username, password o api_key)")
 
         # Paso 1: Obtener token
-        auth_url = "https://api.toptex.io/v3/authenticate"
-        headers = {
-            "x-api-key": api_key,
-            "Accept": "application/json",
-            "Accept-Encoding": "identity"
-        }
-        data = {
-            "username": username,
-            "password": password
-        }
+        try:
+            response = requests.post(
+                "https://api.toptex.io/v3/authenticate",
+                json={"username": username, "password": password},
+                headers={"x-api-key": api_key, "Content-Type": "application/json"},
+                timeout=30
+            )
+            response.raise_for_status()
+            token = response.json().get("access_token")
+            if not token:
+                raise UserError("❌ No se recibió token de autenticación.")
+        except Exception as e:
+            raise UserError(f"❌ Error autenticando con TopTex: {str(e)}")
 
-        response = requests.post(auth_url, headers=headers, json=data)
-        if response.status_code != 200:
-            raise ValueError(f"Error al obtener token: {response.status_code} – {response.text}")
+        # Paso 2: Llamar al producto NS300
+        try:
+            headers = {
+                "x-api-key": api_key,
+                "Authorization": f"Bearer {token}"
+            }
+            url = "https://api.toptex.io/v3/products?catalog_reference=ns300&usage_right=b2b_uniquement"
+            res = requests.get(url, headers=headers, timeout=30)
+            res.raise_for_status()
+            data = res.json()
+        except Exception as e:
+            raise UserError(f"❌ Error obteniendo el producto NS300: {str(e)}")
 
-        token = response.json().get("token")
-        if not token:
-            raise ValueError("No se recibió token válido desde TopTex")
+        if not isinstance(data, list) or not data:
+            raise UserError(f"❌ Respuesta vacía o inesperada de TopTex: {data}")
 
-        # Paso 2: Obtener datos del producto NS300
-        catalog_url = "https://api.toptex.io/v3/products?catalog_reference=ns300&usage_right=b2b_uniquement"
-        catalog_headers = {
-            "x-api-key": api_key,
-            "x-toptex-authorization": token,
-            "Accept": "application/json",
-            "Accept-Encoding": "identity"
-        }
+        for product in data:
+            ref = product.get("reference")
+            label = product.get("label")
 
-        product_response = requests.get(catalog_url, headers=catalog_headers)
-        if product_response.status_code != 200:
-            raise ValueError(f"Error al obtener producto: {product_response.status_code} – {product_response.text}")
-
-        product_data = product_response.json()
-        if not isinstance(product_data, list) or not product_data:
-            raise ValueError("Respuesta de TopTex vacía o inválida")
-
-        # Crear producto en Odoo
-        for product in product_data:
-            name = product.get("label")
-            reference = product.get("catalogReference")
-
-            if not name or not reference:
+            if not ref or not label:
+                _logger.warning("⚠️ Producto sin referencia o nombre, se omite.")
                 continue
 
-            existing = self.env['product.template'].search([('default_code', '=', reference)], limit=1)
-            if not existing:
-                self.env['product.template'].create({
-                    "name": name,
-                    "default_code": reference,
-                    "type": "product",
-                })
+            existing = self.search([('default_code', '=', ref)], limit=1)
+            if existing:
+                _logger.info(f"🔄 Producto {ref} ya existe, se omite.")
+                continue
+
+            self.create({
+                'name': label,
+                'default_code': ref,
+                'type': 'product',
+                'detailed_type': 'product',
+            })
+            _logger.info(f"✅ Producto {ref} creado correctamente.")
