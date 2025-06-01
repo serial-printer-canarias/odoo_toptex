@@ -1,55 +1,45 @@
 import requests
-from odoo import models, api, _
+from odoo import models, tools
 from odoo.exceptions import UserError
-import logging
 
-_logger = logging.getLogger(__name__)
-
-class ProductSync(models.Model):
+class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
-    @api.model
-    def sync_products_from_api(self):
-        config = self.env['ir.config_parameter'].sudo()
-        api_key = config.get_param('toptex_api_key')
-        token = config.get_param('toptex_token')  # Pegado manual desde Postman
+    def sync_product_from_api(self):
+        # Leer el token manual desde el sistema
+        token = self.env['ir.config_parameter'].sudo().get_param('toptex_token')
+        if not token:
+            raise UserError("⚠️ Falta el token de TopTex en los parámetros del sistema ('toptex_token').")
 
-        if not api_key or not token:
-            raise UserError("❌ Faltan parámetros del sistema: api_key o token")
+        token = token.strip()  # Quitar espacios y saltos de línea
 
+        # URL del producto NS300
         url = "https://api.toptex.io/v3/products?catalog_reference=ns300&usage_right=b2b_uniquement"
+
         headers = {
-            "x-api-key": api_key,
-            "Authorization": f"Bearer {token}"
+            "x-toptex-authorization": token,
+            "x-api-key": "",  # vacío porque no se usa en esta prueba
+            "Accept": "application/json"
         }
 
         try:
-            res = requests.get(url, headers=headers, timeout=30)
-            res.raise_for_status()
-            data = res.json()
-        except Exception as e:
-            raise UserError(f"❌ Error al obtener producto NS300: {str(e)}")
+            response = requests.get(url, headers=headers)
+            if response.status_code != 200:
+                raise UserError(f"❌ Error al obtener producto NS300: {response.status_code} - {response.text}")
 
-        if not isinstance(data, list) or not data:
-            raise UserError(f"❌ Respuesta vacía o inesperada de TopTex: {data}")
+            data = response.json()
+            if not data:
+                raise UserError("⚠️ La API devolvió una respuesta vacía.")
 
-        for product in data:
-            ref = product.get("reference")
-            label = product.get("label")
-
-            if not ref or not label:
-                _logger.warning("⚠️ Producto sin referencia o nombre, se omite.")
-                continue
-
-            existing = self.search([('default_code', '=', ref)], limit=1)
-            if existing:
-                _logger.info(f"🔄 Producto {ref} ya existe, se omite.")
-                continue
-
-            self.create({
-                'name': label,
-                'default_code': ref,
+            # Crear producto si todo va bien
+            product_data = data[0]  # el primer producto encontrado
+            self.env['product.template'].create({
+                'name': product_data.get('name', 'Producto NS300'),
+                'default_code': product_data.get('catalog_reference', 'NS300'),
                 'type': 'product',
-                'detailed_type': 'product',
+                'sale_ok': True,
+                'purchase_ok': True,
             })
-            _logger.info(f"✅ Producto {ref} creado correctamente.")
+
+        except Exception as e:
+            raise UserError(f"❌ Excepción al conectar con TopTex: {str(e)}")
