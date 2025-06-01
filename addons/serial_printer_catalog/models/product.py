@@ -1,7 +1,6 @@
 import requests
 from odoo import models, api
 
-
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
@@ -32,13 +31,13 @@ class ProductTemplate(models.Model):
 
         response = requests.post(auth_url, headers=headers, json=data)
         if response.status_code != 200:
-            raise ValueError(f"Error al obtener token: {response.status_code} - {response.text}")
+            raise ValueError(f"Error al obtener token: {response.status_code} – {response.text}")
 
         token = response.json().get("token")
         if not token:
             raise ValueError("No se recibió token válido desde TopTex")
 
-        # Paso 2: Obtener producto NS300 (de prueba)
+        # Paso 2: Obtener datos del producto NS300
         catalog_url = "https://api.toptex.io/v3/products?catalog_reference=ns300&usage_right=b2b_uniquement"
         catalog_headers = {
             "x-api-key": api_key,
@@ -49,13 +48,13 @@ class ProductTemplate(models.Model):
 
         product_response = requests.get(catalog_url, headers=catalog_headers)
         if product_response.status_code != 200:
-            raise ValueError(f"Error al obtener producto: {product_response.status_code} - {product_response.text}")
+            raise ValueError(f"Error al obtener producto: {product_response.status_code} – {product_response.text}")
 
         product_data = product_response.json()
         if not isinstance(product_data, list) or not product_data:
             raise ValueError("Respuesta de TopTex vacía o inválida")
 
-        # Crear productos en Odoo
+        # Crear producto en Odoo
         for product in product_data:
             name = product.get("label")
             reference = product.get("catalogReference")
