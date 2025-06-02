@@ -6,7 +6,7 @@ from odoo.exceptions import UserError
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
-    def sync_products_from_api(self):
+    def sync_product_from_api(self):
         # Leer parámetros del sistema
         config = self.env['ir.config_parameter'].sudo()
         proxy_url = config.get_param('toptex_proxy_url')
