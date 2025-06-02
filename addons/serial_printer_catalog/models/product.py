@@ -12,11 +12,11 @@ class ProductTemplate(models.Model):
         password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
         api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key')
 
-        # Validar parámetros
+        # Validar que todos los parámetros están configurados
         if not proxy_url or not username or not password or not api_key:
-            raise UserError("❌ Faltan parámetros del sistema: toptex_proxy_url, username, password o api_key.")
+            raise UserError("❌ Faltan parámetros del sistema: proxy_url, username, password o api_key.")
 
-        # Generar token desde el proxy
+        # URL de autenticación del proxy
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_data = {
             "username": username,
@@ -30,14 +30,14 @@ class ProductTemplate(models.Model):
         try:
             auth_response = requests.post(auth_url, json=auth_data, headers=auth_headers)
             if auth_response.status_code != 200:
-                raise UserError(f"❌ Error en autenticación: {auth_response.status_code} → {auth_response.text}")
+                raise UserError(f"❌ Error de autenticación: {auth_response.status_code} → {auth_response.text}")
             token = auth_response.json().get("token")
             if not token:
                 raise UserError("❌ No se recibió token de autenticación.")
         except Exception as e:
             raise UserError(f"❌ Excepción al autenticar: {str(e)}")
 
-        # Obtener producto desde el proxy
+        # Hacer la petición al proxy con token
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_uniquement"
         headers = {
             "x-toptex-authorization": token,
@@ -49,21 +49,19 @@ class ProductTemplate(models.Model):
             response = requests.get(product_url, headers=headers)
             if response.status_code != 200:
                 raise UserError(f"❌ Error al obtener producto: {response.status_code} → {response.text}")
-
             data = response.json()
             if not data:
-                raise UserError("⚠️ La respuesta está vacía o no contiene productos.")
+                raise UserError("❌ La respuesta está vacía o no contiene productos.")
 
-            # Aquí accedemos al primer producto del JSON
-            first_key = next(iter(data))
-            product_data = data[first_key]
+            product_data = data.get("NS300")
+            if not isinstance(product_data, dict):
+                raise UserError(f"⚠️ Respuesta inesperada de la API: {product_data}")
 
-            # Crear producto en Odoo
+            # Crear el producto básico
             self.env['product.template'].create({
                 'name': product_data.get('catalogReference', 'NS300'),
                 'sale_ok': True,
                 'purchase_ok': True,
-                # Aquí puedes seguir mapeando más campos de product_data
             })
 
         except Exception as e:
