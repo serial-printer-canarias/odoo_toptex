@@ -6,7 +6,7 @@ class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     @api.model
-    def sync_products_from_api(self):
+    def sync_product_from_api(self):
         # Recuperar credenciales desde parámetros del sistema
         ir_config = self.env['ir.config_parameter'].sudo()
         api_key = ir_config.get_param('toptex_api_key')
