@@ -1,132 +1,112 @@
 import requests
-from odoo import models
+from odoo import models, fields, api, _
 from odoo.exceptions import UserError
-
 
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
-    def sync_product_from_api(self):
-        # Leer parámetros del sistema
-        config = self.env['ir.config_parameter'].sudo()
-        proxy_url = config.get_param('toptex_proxy_url')
-        username = config.get_param('toptex_username')
-        password = config.get_param('toptex_password')
-        api_key = config.get_param('toptex_api_key')
+    @api.model
+    def sync_products_from_api(self):
+        # Recuperar credenciales desde parámetros del sistema
+        ir_config = self.env['ir.config_parameter'].sudo()
+        api_key = ir_config.get_param('toptex_api_key')
+        username = ir_config.get_param('toptex_username')
+        password = ir_config.get_param('toptex_password')
+        proxy_url = ir_config.get_param('toptex_proxy_url')
 
-        if not proxy_url or not username or not password or not api_key:
-            raise UserError("❌ Faltan parámetros de sistema (proxy_url, username, password, api_key)")
+        if not all([api_key, username, password, proxy_url]):
+            raise UserError("Faltan parámetros del sistema para conectar con la API de TopTex.")
 
-        # Generar token
+        # Paso 1: obtener token
         auth_url = f"{proxy_url}/v3/authenticate"
-        auth_data = {
-            "username": username,
-            "password": password
-        }
-        auth_headers = {
-            "x-api-key": api_key,
-            "Content-Type": "application/json"
-        }
+        auth_payload = {"username": username, "password": password}
+        auth_headers = {"x-api-key": api_key}
 
-        try:
-            auth_response = requests.post(auth_url, json=auth_data, headers=auth_headers)
-            if auth_response.status_code != 200:
-                raise UserError(f"❌ Error autenticando: {auth_response.text}")
-            token = auth_response.json().get("token")
-            if not token:
-                raise UserError("❌ No se recibió token de autenticación.")
-        except Exception as e:
-            raise UserError(f"❌ Error durante la autenticación: {str(e)}")
+        auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
+        if auth_response.status_code != 200:
+            raise UserError("Error al autenticar con la API de TopTex.")
+        token = auth_response.json().get("token")
 
-        # Llamada al producto NS300
-        catalog_ref = "NS300"
-        product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_ref}&usage_right=b2b_uniquement"
+        if not token:
+            raise UserError("No se recibió token de autenticación de TopTex.")
+
+        # Paso 2: llamar al catálogo filtrado por catalog_reference = NS300
+        catalog_url = f"{proxy_url}/v3/products/all?usage_right=b2b_uniquement&result_in_file=0"
         headers = {
-            "x-toptex-authorization": token,
             "x-api-key": api_key,
-            "Accept": "application/json"
+            "x-toptex-authorization": token
         }
 
-        try:
-            response = requests.get(product_url, headers=headers)
-            if response.status_code != 200:
-                raise UserError(f"❌ Error obteniendo producto: {response.status_code} → {response.text}")
-            data = response.json()
-            if not data or catalog_ref not in data:
-                raise UserError(f"⚠️ No se encontró el producto {catalog_ref} en la respuesta.")
+        response = requests.get(catalog_url, headers=headers)
+        if response.status_code != 200:
+            raise UserError("No se pudo recuperar el catálogo desde la API de TopTex.")
+        
+        data = response.json()
+        if not isinstance(data, list):
+            raise UserError("Respuesta inesperada de la API (no es lista).")
 
-            product_data = data[catalog_ref]
-            variants = product_data.get("skus", [])
-            if not variants:
-                raise UserError("⚠️ No se encontraron variantes en el producto.")
+        # Filtrar solo productos NS300
+        ns300_variants = [prod for prod in data if prod.get('catalogReference') == 'NS300']
 
-            # Crear atributos si no existen
-            attribute_model = self.env['product.attribute']
-            attribute_value_model = self.env['product.attribute.value']
-            attr_color = attribute_model.search([('name', '=', 'Color')], limit=1)
-            if not attr_color:
-                attr_color = attribute_model.create({'name': 'Color'})
-            attr_size = attribute_model.search([('name', '=', 'Talla')], limit=1)
-            if not attr_size:
-                attr_size = attribute_model.create({'name': 'Talla'})
+        if not ns300_variants:
+            raise UserError("No se encontró el producto NS300 en la respuesta.")
 
-            # Crear template base
-            template = self.env['product.template'].create({
-                'name': product_data.get('name', catalog_ref),
-                'sale_ok': True,
-                'purchase_ok': True,
-                'type': 'product',
-                'default_code': catalog_ref,
-                'attribute_line_ids': [(0, 0, {
-                    'attribute_id': attr_color.id,
-                    'value_ids': [(6, 0, [])],
-                }), (0, 0, {
-                    'attribute_id': attr_size.id,
-                    'value_ids': [(6, 0, [])],
-                })]
-            })
+        # Crear atributos
+        color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
+        if not color_attr:
+            color_attr = self.env['product.attribute'].create({'name': 'Color'})
 
-            # Añadir variantes
-            created_variants = []
-            for variant in variants:
-                color = variant.get("color", {}).get("label", "N/A")
-                size = variant.get("size", {}).get("label", "N/A")
-                sku = variant.get("sku")
-                price = variant.get("price", {}).get("value", 0.0)
+        size_attr = self.env['product.attribute'].search([('name', '=', 'Size')], limit=1)
+        if not size_attr:
+            size_attr = self.env['product.attribute'].create({'name': 'Size'})
 
-                if not sku or not color or not size:
-                    continue
+        # Agrupar por combinación de color y talla
+        variants = []
+        for item in ns300_variants:
+            attributes = item.get("attributes", {})
+            color_name = attributes.get("color", {}).get("name", "Undefined")
+            size_name = attributes.get("size", {}).get("name", "Undefined")
+            sku = item.get("sku")
 
-                # Crear valores si no existen
-                val_color = attribute_value_model.search([('name', '=', color), ('attribute_id', '=', attr_color.id)], limit=1)
-                if not val_color:
-                    val_color = attribute_value_model.create({'name': color, 'attribute_id': attr_color.id})
-                val_size = attribute_value_model.search([('name', '=', size), ('attribute_id', '=', attr_size.id)], limit=1)
-                if not val_size:
-                    val_size = attribute_value_model.create({'name': size, 'attribute_id': attr_size.id})
-
-                # Añadir valor al template si no está
-                if val_color not in template.attribute_line_ids.filtered(lambda l: l.attribute_id == attr_color).value_ids:
-                    template.attribute_line_ids.filtered(lambda l: l.attribute_id == attr_color).write({
-                        'value_ids': [(4, val_color.id)]
-                    })
-                if val_size not in template.attribute_line_ids.filtered(lambda l: l.attribute_id == attr_size).value_ids:
-                    template.attribute_line_ids.filtered(lambda l: l.attribute_id == attr_size).write({
-                        'value_ids': [(4, val_size.id)]
-                    })
-
-                created_variants.append({
-                    'sku': sku,
-                    'color': color,
-                    'size': size,
-                    'price': price
+            # Crear valores si no existen
+            color_val = self.env['product.attribute.value'].search([('name', '=', color_name), ('attribute_id', '=', color_attr.id)], limit=1)
+            if not color_val:
+                color_val = self.env['product.attribute.value'].create({
+                    'name': color_name,
+                    'attribute_id': color_attr.id
                 })
 
-            return {
-                'status': 'ok',
-                'template': template.name,
-                'variants': created_variants
-            }
+            size_val = self.env['product.attribute.value'].search([('name', '=', size_name), ('attribute_id', '=', size_attr.id)], limit=1)
+            if not size_val:
+                size_val = self.env['product.attribute.value'].create({
+                    'name': size_name,
+                    'attribute_id': size_attr.id
+                })
 
-        except Exception as e:
-            raise UserError(f"❌ Excepción al procesar producto: {str(e)}")
+            variants.append((color_val, size_val, sku))
+
+        # Crear template si no existe
+        product_name = ns300_variants[0].get("name", {}).get("es", "NS300")
+        existing_template = self.env['product.template'].search([('name', '=', product_name)], limit=1)
+
+        if not existing_template:
+            existing_template = self.env['product.template'].create({
+                'name': product_name,
+                'type': 'product',
+                'sale_ok': True,
+                'purchase_ok': True,
+                'attribute_line_ids': [
+                    (0, 0, {'attribute_id': color_attr.id, 'value_ids': [(6, 0, [v[0].id for v in variants])] }),
+                    (0, 0, {'attribute_id': size_attr.id, 'value_ids': [(6, 0, [v[1].id for v in variants])] })
+                ]
+            })
+
+        # Asignar los SKU a cada combinación
+        for variant in existing_template.product_variant_ids:
+            color = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id == color_attr)
+            size = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id == size_attr)
+
+            for v_color, v_size, sku in variants:
+                if v_color.name == color.name and v_size.name == size.name:
+                    variant.default_code = sku
+                    break
