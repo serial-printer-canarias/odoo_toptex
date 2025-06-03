@@ -1,69 +1,81 @@
-import logging
 import requests
-from odoo import models
+import logging
+from odoo import models, api
 
 _logger = logging.getLogger(__name__)
 
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
+    @api.model
     def sync_product_from_api(self):
-        # Cargar parámetros de sistema
-        IrConfig = self.env['ir.config_parameter'].sudo()
-        api_key = IrConfig.get_param('toptex_api_key')
-        username = IrConfig.get_param('toptex_username')
-        password = IrConfig.get_param('toptex_password')
-        proxy_url = IrConfig.get_param('toptex_proxy_url')
+        # Recuperar parámetros del sistema
+        ir_config = self.env['ir.config_parameter'].sudo()
+        username = ir_config.get_param('toptex_username')
+        password = ir_config.get_param('toptex_password')
+        api_key = ir_config.get_param('toptex_api_key')
+        proxy_url = ir_config.get_param('toptex_proxy_url')
 
-        if not all([api_key, username, password, proxy_url]):
-            raise Exception("Faltan parámetros en la configuración del sistema.")
-
-        # Autenticación
+        # Obtener el token de autenticación
         auth_url = f"{proxy_url}/v3/authenticate"
-        auth_headers = {'x-api-key': api_key}
-        auth_data = {"username": username, "password": password}
-        auth_response = requests.post(auth_url, headers=auth_headers, json=auth_data)
-        if auth_response.status_code != 200:
-            raise Exception("Error de autenticación con la API de TopTex.")
-        token = auth_response.json().get("token")
-
-        # Petición del producto
-        catalog_url = f"{proxy_url}/v3/products?sku=NS300.68558_68494&usage_right=b2b_uniquement"
-        headers = {
-            'x-api-key': api_key,
-            'x-toptex-authorization': token
+        auth_data = {
+            "username": username,
+            "password": password
         }
-        response = requests.get(catalog_url, headers=headers)
+        auth_headers = {
+            "x-api-key": api_key,
+            "Content-Type": "application/json"
+        }
 
+        auth_response = requests.post(auth_url, json=auth_data, headers=auth_headers)
+        if auth_response.status_code != 200:
+            raise Exception("Error al obtener el token de autenticación.")
+
+        token = auth_response.json().get("token")
+        if not token:
+            raise Exception("Token no encontrado en la respuesta de autenticación.")
+
+        # Petición al catálogo por SKU específico
+        sku = "NS300.68558_68494"
+        catalog_url = f"{proxy_url}/v3/products?sku={sku}&usage_right=b2b_uniquement"
+        catalog_headers = {
+            "x-api-key": api_key,
+            "x-toptex-authorization": token,
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive"
+        }
+
+        response = requests.get(catalog_url, headers=catalog_headers)
         if response.status_code != 200:
-            raise Exception(f"Error al obtener datos: {response.status_code}")
+            raise Exception("Error al obtener datos del catálogo.")
 
         try:
             data = response.json()
         except Exception:
             raise Exception("No se pudo convertir la respuesta a JSON.")
 
-        # Logs para depuración
+        # Log del tipo y contenido para depurar
         _logger.info("Tipo de dato devuelto por la API: %s", type(data))
         _logger.info("Contenido recibido: %s", data)
 
-        # Interpretar correctamente el contenido
+        # Interpretación del contenido
         if isinstance(data, dict):
-            if "products" in data:
-                productos = data["products"]
-            else:
-                productos = [data]  # Producto individual
+            productos = [data]
         elif isinstance(data, list):
+            if not data:
+                raise Exception("La API devolvió una lista vacía.")
             productos = data
         else:
-            raise Exception("Respuesta inesperada de la API de TopTex (no es un dict ni una list).")
+            raise Exception("Respuesta inesperada de la API de TopTex (no es un dict ni lista).")
 
-        if not productos:
-            raise Exception("La API devolvió una lista vacía.")
-
-        # Aquí puedes continuar con la lógica para crear productos en Odoo
-        for producto in productos:
-            _logger.info("Procesando producto: %s", producto.get("sku", "sin SKU"))
-            # Crear o actualizar en product.template...
-
-        return True
+        # Crear productos (solo nombre de prueba)
+        for prod in productos:
+            name = prod.get('catalogReference', 'Producto sin nombre')
+            if not self.env['product.template'].search([('name', '=', name)]):
+                self.env['product.template'].create({
+                    'name': name,
+                    'type': 'product',
+                })
+                _logger.info("Producto creado: %s", name)
+            else:
+                _logger.info("Producto ya existente: %s", name)
