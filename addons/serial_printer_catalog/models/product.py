@@ -41,7 +41,7 @@ class ProductTemplate(models.Model):
             raise UserError("Token no recibido desde la API.")
 
         # Petición de producto individual por SKU
-        sku = "NS300.68558_684948"  # SKU exacto a buscar
+        sku = "NS300.68558_68494"  # SKU exacto a buscar
         catalog_url = f"{proxy_url}/v3/products?sku={sku}&usage_right=b2b_uniquement"
         headers = {
             "x-api-key": api_key,
