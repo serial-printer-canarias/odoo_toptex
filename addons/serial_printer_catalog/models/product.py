@@ -1,71 +1,74 @@
-import json
-import logging
+# -*- coding: utf-8 -*-
 import requests
-
-from odoo import models
+import logging
+from odoo import models, fields, api
+from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
+    @api.model
     def sync_product_from_api(self):
-        # Recuperar parámetros del sistema
-        IrConfigParam = self.env['ir.config_parameter'].sudo()
-        proxy_url = IrConfigParam.get_param('toptex_proxy_url')
-        api_key = IrConfigParam.get_param('toptex_api_key')
-        auth_token = IrConfigParam.get_param('toptex_token')
+        # 1. Leer los parámetros del sistema
+        proxy_url = self.env['ir.config_parameter'].sudo().get_param('toptex_proxy_url')
+        api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key')
+        username = self.env['ir.config_parameter'].sudo().get_param('toptex_username')
+        password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
 
-        if not all([proxy_url, api_key, auth_token]):
-            raise Exception("Faltan parámetros de configuración (proxy_url, api_key o token).")
+        if not all([proxy_url, api_key, username, password]):
+            raise UserError("Faltan parámetros de configuración (proxy_url, api_key, username o password)")
 
-        # Construir la URL con un SKU válido y real (ajústalo si deseas otro producto)
-        catalog_url = f"{proxy_url}/v3/products?sku=NS300.68558_68494&usage_right=b2b_uniquement"
-
+        # 2. Generar token
+        auth_url = f"{proxy_url}/v3/authenticate"
+        auth_payload = {
+            "username": username,
+            "password": password
+        }
         headers = {
-            "x-api-key": api_key,
-            "x-toptex-authorization": auth_token,
-            "Accept-Encoding": "gzip, deflate, br",
-            "Connection": "keep-alive"
+            'x-api-key': api_key,
+            'Content-Type': 'application/json'
         }
 
-        # Hacemos la petición
-        response = requests.get(catalog_url, headers=headers)
+        auth_response = requests.post(auth_url, json=auth_payload, headers=headers)
+        if auth_response.status_code != 200:
+            raise UserError(f"Error autenticando con TopTex: {auth_response.text}")
+        token = auth_response.json().get('token')
+
+        # 3. Obtener producto NS300 con SKU corregido
+        sku = 'NS300.68558_68494'
+        product_url = f"{proxy_url}/v3/products/{sku}?usage_right=b2b_uniquement"
+        headers['Authorization'] = f'Bearer {token}'
+        response = requests.get(product_url, headers=headers)
 
         if response.status_code != 200:
-            raise Exception("Error al obtener datos de la API")
+            raise UserError(f"Error al obtener el producto: {response.text}")
 
-        try:
-            data = response.json()
-        except Exception:
-            raise Exception("No se pudo convertir la respuesta a JSON")
+        data = response.json()
+        _logger.info("JSON recibido desde TopTex:\n%s", data)
 
-        # Log para depuración
-        _logger.info("Tipo de dato devuelto por la API: %s", type(data))
-        _logger.info("Contenido recibido: %s", data)
+        # 4. Mapper TopTex -> Odoo
+        name = data.get('translatedName', {}).get('es') or data.get('translatedName', {}).get('en') or 'Producto sin nombre'
+        default_code = data.get('sku', sku)
+        list_price = data.get('price', {}).get('netPrice', 0.0)
+        description = data.get('translatedDescription', {}).get('es', '')
 
-        # Interpretamos el contenido correctamente
-        if isinstance(data, dict):
-            if "products" in data:
-                productos = data["products"]
-            else:
-                productos = [data]  # Es un producto único
-        elif isinstance(data, list):
-            productos = data
-        else:
-            raise Exception("Respuesta inesperada de la API: no es ni dict ni list")
+        # 5. Crear el producto si no existe
+        existing_product = self.env['product.template'].search([('default_code', '=', default_code)], limit=1)
+        if existing_product:
+            _logger.info(f"Producto ya existe: {default_code}")
+            return
 
-        if not productos:
-            raise Exception("La API devolvió una lista vacía.")
+        product_vals = {
+            'name': name,
+            'default_code': default_code,
+            'list_price': list_price,
+            'type': 'product',
+            'description': description,
+            'sale_ok': True,
+            'purchase_ok': True,
+        }
 
-        # Aquí puedes continuar creando productos en Odoo a partir de `productos`
-        for producto in productos:
-            nombre = producto.get('catalogReference', 'Sin nombre')
-            _logger.info("Creando producto: %s", nombre)
-
-            self.env['product.template'].create({
-                'name': nombre,
-                'type': 'product',
-                'sale_ok': True,
-                'purchase_ok': True,
-            })
+        new_product = self.env['product.template'].create(product_vals)
+        _logger.info(f"Producto creado correctamente: {new_product.name}")
