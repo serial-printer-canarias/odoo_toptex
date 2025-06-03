@@ -7,60 +7,64 @@ class ProductTemplate(models.Model):
 
     @api.model
     def sync_product_from_api(self):
-        # Obtener credenciales de parámetros del sistema
-        config = self.env['ir.config_parameter'].sudo()
-        api_key = config.get_param('toptex_api_key')
-        username = config.get_param('toptex_username')
-        password = config.get_param('toptex_password')
-        proxy_url = config.get_param('toptex_proxy_url')
+        # Recuperar credenciales desde parámetros del sistema
+        icp = self.env['ir.config_parameter'].sudo()
+        username = icp.get_param('toptex_username')
+        password = icp.get_param('toptex_password')
+        api_key = icp.get_param('toptex_api_key')
+        proxy_url = icp.get_param('toptex_proxy_url')
 
-        if not all([api_key, username, password, proxy_url]):
-            raise UserError("Faltan credenciales o URL del proxy en los parámetros del sistema.")
+        if not all([username, password, api_key, proxy_url]):
+            raise UserError("Faltan parámetros del sistema (usuario, contraseña, API key o proxy).")
 
-        # Paso 1: Autenticación
+        # Obtener token
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key}
 
-        auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
-        if auth_response.status_code != 200:
+        token_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
+        if token_response.status_code != 200:
             raise UserError("Error al autenticar con la API de TopTex.")
-        token = auth_response.json().get("token")
+
+        token = token_response.json().get("token")
         if not token:
             raise UserError("No se recibió token de autenticación.")
 
-        # Paso 2: Obtener un producto por SKU
+        # Llamada al producto por SKU
         sku = "NS300.68558_684948"
-        product_url = f"{proxy_url}/v3/products?sku={sku}&usage_right=b2b_uniquement"
+        catalog_url = f"{proxy_url}/v3/products?sku={sku}&usage_right=b2b_uniquement"
         headers = {
             "x-api-key": api_key,
             "x-toptex-authorization": token
         }
 
-        product_response = requests.get(product_url, headers=headers)
-        if product_response.status_code != 200:
+        response = requests.get(catalog_url, headers=headers)
+        if response.status_code != 200:
             raise UserError("No se pudo recuperar el producto desde la API de TopTex.")
 
-        data = product_response.json()
-        if not isinstance(data, dict):
-            raise UserError("Respuesta inesperada de la API de TopTex (no es un dict).")
+        try:
+            data = response.json()
+        except Exception:
+            raise UserError("La respuesta de la API no es JSON válido.")
 
-        # Crear el producto en Odoo
-        name = data.get("designation", {}).get("es") or data.get("designation", {}).get("en") or "Producto TopTex"
-        default_code = data.get("sku", sku)
-        description = data.get("description", {}).get("es") or data.get("description", {}).get("en") or ""
-
-        existing_product = self.env['product.template'].search([('default_code', '=', default_code)], limit=1)
-        if not existing_product:
-            self.env['product.template'].create({
-                'name': name,
-                'default_code': default_code,
-                'type': 'product',
-                'detailed_type': 'product',
-                'description_sale': description,
-            })
+        # Analizar tipo de respuesta
+        if isinstance(data, list):
+            if not data:
+                raise UserError("La API devolvió una lista vacía.")
+            product_data = data[0]
+        elif isinstance(data, dict):
+            product_data = data
         else:
-            existing_product.write({
-                'name': name,
-                'description_sale': description,
-            })
+            raise UserError("Respuesta inesperada de la API de TopTex (ni lista ni dict).")
+
+        # Confirmar que es el producto esperado
+        catalog_ref = product_data.get('catalogReference')
+        if not catalog_ref or catalog_ref.upper() != 'NS300':
+            raise UserError("No se encontró el producto NS300 en la respuesta.")
+
+        # Crear producto en Odoo
+        self.env['product.template'].create({
+            'name': product_data.get('designation', {}).get('es', 'NS300'),
+            'default_code': catalog_ref,
+            'type': 'product',
+        })
