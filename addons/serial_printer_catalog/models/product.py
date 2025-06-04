@@ -39,7 +39,7 @@ class ProductTemplate(models.Model):
         auth_data = {
             'username': username,
             'password': password,
-            'apiKey': api_key
+            'apiKey': api_key,
         }
         try:
             auth_response = requests.post(auth_url, json=auth_data)
