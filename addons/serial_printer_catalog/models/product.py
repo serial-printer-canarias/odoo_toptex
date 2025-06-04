@@ -1,6 +1,6 @@
 import requests
 import logging
-from odoo import models, fields
+from odoo import models
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
@@ -9,26 +9,25 @@ class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     def sync_product_from_api(self):
-        # Obtener parámetros del sistema
-        IrConfig = self.env['ir.config_parameter'].sudo()
-        username = IrConfig.get_param('toptex_username')
-        password = IrConfig.get_param('toptex_password')
-        api_key = IrConfig.get_param('toptex_api_key')
-        proxy_url = IrConfig.get_param('toptex_proxy_url')
+        # Obtener parámetros de configuración
+        config = self.env['ir.config_parameter'].sudo()
+        username = config.get_param('toptex_username')
+        password = config.get_param('toptex_password')
+        api_key = config.get_param('toptex_api_key')
+        proxy_url = config.get_param('toptex_proxy_url')
 
-        if not username or not password or not api_key or not proxy_url:
-            raise UserError("Faltan parámetros de configuración de la API de TopTex.")
+        if not all([username, password, api_key, proxy_url]):
+            raise UserError("Faltan parámetros de configuración para la API de TopTex.")
 
         # Autenticación y obtención del token
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {
             "username": username,
-            "password": password,
-            "apiKey": api_key
+            "password": password
         }
         auth_headers = {
-            "Content-Type": "application/json",
-            "Accept-Encoding": "gzip"
+            "x-api-key": api_key,
+            "Content-Type": "application/json"
         }
 
         auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
@@ -37,48 +36,60 @@ class ProductTemplate(models.Model):
 
         token = auth_response.json().get("token")
         if not token:
-            raise UserError("Token no recibido en la autenticación.")
+            raise UserError("No se recibió un token válido de TopTex.")
 
-        # SKU correcto
+        # Construir la URL del producto
         sku = "NS300.68558_68494"
-        product_url = f"{proxy_url}/v3/products/{sku}?usage_right=b2b_uniquement"
+        product_url = f"{proxy_url}/v3/products?sku={sku}&usage_right=b2b_uniquement"
         headers = {
-            "Authorization": f"Bearer {token}",
-            "Accept-Encoding": "gzip"
+            "x-api-key": api_key,
+            "x-toptex-authorization": token,
+            "Accept-Encoding": "gzip, deflate, br"
         }
 
+        _logger.info("URL solicitada: %s", product_url)
+
         response = requests.get(product_url, headers=headers)
-        _logger.info(f"URL llamada: {product_url}")
-        _logger.info(f"Status code: {response.status_code}")
-        _logger.info(f"Contenido recibido: {response.text}")
+        _logger.info("Código de estado: %s", response.status_code)
+        _logger.info("Contenido recibido: %s", response.text)
 
         if response.status_code != 200:
-            raise UserError(f"Error al obtener producto desde TopTex: {response.text}")
+            raise UserError(f"Error al obtener el producto: {response.text}")
 
         try:
-            product_data = response.json()
+            data = response.json()
         except Exception as e:
             raise UserError(f"No se pudo interpretar la respuesta JSON: {e}")
 
-        if not isinstance(product_data, dict):
-            raise UserError("La respuesta de la API no contiene un producto válido.")
+        if isinstance(data, dict):
+            productos = [data]
+        elif isinstance(data, list):
+            productos = data
+        else:
+            raise UserError("La API devolvió una estructura de datos inesperada.")
 
-        # Procesar datos para Odoo
-        name = product_data.get('translatedName', {}).get('es') or product_data.get('name') or "Producto sin nombre"
-        default_code = product_data.get('sku') or sku
-        list_price = product_data.get('price', {}).get('public') or 0.0
+        for producto in productos:
+            name = producto.get("translatedName", {}).get("es") or producto.get("catalogReference")
+            default_code = producto.get("sku")
+            list_price = producto.get("publicPrice", 0.0)
 
-        # Verificar si ya existe
-        existing = self.search([('default_code', '=', default_code)], limit=1)
-        if existing:
-            _logger.info(f"Producto con SKU {default_code} ya existe.")
-            return
+            if not name or not default_code:
+                _logger.warning("Producto ignorado por falta de campos obligatorios: %s", producto)
+                continue
 
-        # Crear producto
-        self.create({
-            'name': name,
-            'default_code': default_code,
-            'list_price': list_price,
-            'type': 'product',
-        })
-        _logger.info(f"Producto {name} creado correctamente.")
+            # Verificar si el producto ya existe
+            existing_product = self.env["product.template"].search([('default_code', '=', default_code)], limit=1)
+            if existing_product:
+                _logger.info("El producto con SKU %s ya existe.", default_code)
+                continue
+
+            # Crear el producto
+            self.env["product.template"].create({
+                "name": name,
+                "default_code": default_code,
+                "list_price": list_price,
+                "type": "product",
+                "sale_ok": True,
+                "purchase_ok": True,
+            })
+            _logger.info("Producto %s creado correctamente.", name)
