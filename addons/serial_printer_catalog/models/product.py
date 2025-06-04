@@ -1,7 +1,6 @@
 import json
 import logging
 import requests
-import base64
 from odoo import models
 
 _logger = logging.getLogger(__name__)
@@ -10,9 +9,23 @@ class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     def sync_product_from_api(self):
-        _logger.info("🔄 Iniciando sincronización con la API de TopTex...")
+        _logger.info("🔁 Iniciando sincronización con la API de TopTex...")
 
-        # Obtener parámetros del sistema
+        # Crear producto de prueba
+        try:
+            test_product = self.env['product.template'].create({
+                'name': 'Producto de Prueba',
+                'default_code': 'PRUEBA123',
+                'list_price': 12.34,
+                'type': 'product',
+                'sale_ok': True,
+                'purchase_ok': True,
+            })
+            _logger.info("✅ Producto de prueba creado correctamente: %s", test_product.name)
+        except Exception as e:
+            _logger.error("❌ Error al crear producto de prueba: %s", str(e))
+
+        # Obtener parámetros
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
@@ -20,21 +33,10 @@ class ProductTemplate(models.Model):
         proxy_url = icp.get_param('toptex_proxy_url')
 
         if not username or not password or not api_key or not proxy_url:
-            _logger.error("❌ Faltan credenciales en los parámetros del sistema.")
+            _logger.error("❌ Faltan credenciales en los parámetros del sistema")
             return
 
-        # Crear producto de prueba estático
-        self.env['product.template'].create({
-            'name': 'Producto de prueba',
-            'default_code': 'PRUEBA123',
-            'list_price': 1.00,
-            'type': 'product',
-            'uom_id': 1,
-            'uom_po_id': 1,
-        })
-        _logger.info("✅ Producto de prueba creado correctamente.")
-
-        # Paso 1: Obtener token
+        # Paso 1: Obtener el token
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {
             "username": username,
@@ -46,56 +48,57 @@ class ProductTemplate(models.Model):
             auth_response = requests.post(auth_url, json=auth_payload)
             auth_response.raise_for_status()
             token = auth_response.json().get("token")
-            _logger.info(f"🔑 Token recibido: {token}")
+            if not token:
+                _logger.error("❌ No se recibió token de autenticación")
+                return
+            _logger.info("🔐 Token obtenido correctamente")
         except Exception as e:
-            _logger.error(f"❌ Error al autenticar con TopTex: {str(e)}")
+            _logger.error("❌ Error al autenticar con TopTex: %s", str(e))
             return
 
-        # Paso 2: Obtener el producto NS300_68558_68494
+        # Paso 2: Obtener datos del producto
         sku = "NS300_68558_68494"
         product_url = f"{proxy_url}/v3/products?sku={sku}&usage_right=b2b_uniquement"
         headers = {
-            "Content-Type": "application/json",
-            "toptex-authorization": token
+            "toptex-authorization": token,
+            "api-key": api_key,
+            "Content-Type": "application/json"
         }
 
         try:
             response = requests.get(product_url, headers=headers)
             response.raise_for_status()
-            data = response.json()
-            _logger.info(f"📦 Contenido recibido desde TopTex: {json.dumps(data, indent=2)}")
+            product_data = response.json()
+            _logger.info("📦 JSON recibido de la API de TopTex: %s", json.dumps(product_data, indent=2))
         except Exception as e:
-            _logger.error(f"❌ Error al obtener el producto desde TopTex: {str(e)}")
+            _logger.error("❌ Error al obtener el producto desde TopTex: %s", str(e))
             return
 
-        # Validar que el JSON no esté vacío
-        if not data or isinstance(data, list) and len(data) == 0:
-            _logger.warning("⚠️ El JSON recibido está vacío o mal formado.")
+        if not isinstance(product_data, dict):
+            _logger.error("❌ Formato inesperado en la respuesta de la API: %s", type(product_data))
             return
 
-        # Paso 3: Mapear y crear producto NS300
+        # Paso 3: Mapear datos de TopTex a Odoo
         try:
-            product_name = data.get("designation", {}).get("es", "Sin nombre")
-            product_code = data.get("supplierReference", sku)
-            product_price = 8.60  # Valor ficticio, ajustar si se desea extraer real
+            name = product_data.get("designation", {}).get("es", "Producto sin nombre")
+            default_code = product_data.get("supplierReference", "")
+            description = product_data.get("description", {}).get("es", "")
+            list_price_raw = product_data.get("colors", [])[0].get("sizes", [])[0].get("publicUnitPrice", "")
+            list_price = float(list_price_raw.replace("€", "").replace(",", ".").strip()) if list_price_raw else 0.0
+            image_url = product_data.get("images", [])[0].get("url_image", "")
 
-            image_url = data.get("images", [])[0].get("url_image") if data.get("images") else None
-            image_base64 = None
-            if image_url:
-                img_response = requests.get(image_url)
-                if img_response.status_code == 200:
-                    image_base64 = base64.b64encode(img_response.content).decode("utf-8")
-
-            self.env['product.template'].create({
-                'name': product_name,
-                'default_code': product_code,
-                'list_price': product_price,
+            new_product = self.env['product.template'].create({
+                'name': name,
+                'default_code': default_code,
+                'list_price': list_price,
                 'type': 'product',
-                'uom_id': 1,
-                'uom_po_id': 1,
-                'image_1920': image_base64,
+                'sale_ok': True,
+                'purchase_ok': True,
+                'description': description,
+                'image_1920': requests.get(image_url).content if image_url else False,
             })
 
-            _logger.info(f"✅ Producto {product_code} creado correctamente en Odoo.")
+            _logger.info("✅ Producto NS300 creado correctamente: %s", new_product.name)
+
         except Exception as e:
-            _logger.error(f"❌ Error al crear el producto NS300: {str(e)}")
+            _logger.error("❌ Error al crear producto NS300 en Odoo: %s", str(e))
