@@ -1,6 +1,6 @@
 import requests
 import logging
-from odoo import models, api
+from odoo import models, fields, api
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
@@ -12,11 +12,13 @@ class ProductTemplate(models.Model):
     def sync_product_from_api(self):
         # Paso 1: Crear producto de prueba
         try:
-            test_product = self.create({
+            self.create({
                 'name': 'Producto de prueba',
                 'default_code': 'TEST001',
                 'type': 'consu',
                 'list_price': 9.99,
+                'standard_price': 5.00,
+                'description_sale': 'Este es un producto de prueba.',
                 'categ_id': self.env.ref('product.product_category_all').id
             })
             _logger.info("✅ Producto de prueba creado correctamente.")
@@ -24,7 +26,7 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al crear producto de prueba: {e}")
             return
 
-        # Paso 2: Leer parámetros del sistema
+        # Paso 2: Leer credenciales de parámetros del sistema
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
@@ -35,65 +37,65 @@ class ProductTemplate(models.Model):
             _logger.error("❌ Faltan credenciales o parámetros del sistema.")
             return
 
-        # Paso 3: Generar token desde la API
+        # Paso 3: Obtener token
         auth_url = f"{proxy_url}/v3/authenticate"
-        auth_payload = {
-            "username": username,
-            "password": password
-        }
-        auth_headers = {
-            "x-api-key": api_key,
-            "Content-Type": "application/json"
-        }
-
         try:
-            auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
+            auth_response = requests.post(
+                auth_url,
+                json={"username": username, "password": password},
+                headers={
+                    "x-api-key": api_key,
+                    "Content-Type": "application/json"
+                }
+            )
             if auth_response.status_code != 200:
-                raise UserError(f"Error autenticando en TopTex: {auth_response.text}")
-            token_data = auth_response.json()
-            token = token_data.get("token")
+                raise UserError(f"❌ Error autenticando: {auth_response.text}")
+            token = auth_response.json().get("token")
             if not token:
-                raise UserError("No se recibió un token válido de TopTex.")
-            _logger.info(f"🟢 Token recibido correctamente.")
+                raise UserError("❌ Token no recibido.")
+            _logger.info("🟢 Token recibido correctamente.")
         except Exception as e:
-            _logger.error(f"❌ Error autenticando con TopTex: {e}")
+            _logger.error(f"❌ Error al autenticar: {e}")
             return
 
-        # Paso 4: Obtener producto real desde la API
-        sku = "ns300_68558_68517"
+        # Paso 4: Obtener producto desde la API
+        sku = "NS300_68558_68517"
         product_url = f"{proxy_url}/v3/products?sku={sku}&usage_right=b2b_uniquement"
-        headers = {
-            "x-api-key": api_key,
-            "x-toptex-authorization": token,
-            "Accept-Encoding": "gzip, deflate, br"
-        }
-
         try:
-            response = requests.get(product_url, headers=headers)
-            if response.status_code != 200:
-                raise UserError(f"Error al obtener el producto: {response.text}")
-            data = response.json()
-            _logger.info(f"🟢 JSON recibido desde TopTex:\n{data}")
+            product_response = requests.get(
+                product_url,
+                headers={
+                    "x-api-key": api_key,
+                    "x-toptex-authorization": token,
+                    "Accept-Encoding": "gzip, deflate, br"
+                }
+            )
+            if product_response.status_code != 200:
+                raise UserError(f"❌ Error al obtener producto: {product_response.text}")
+            data = product_response.json()
+            _logger.info(f"🟢 JSON recibido:\n{data}")
         except Exception as e:
-            _logger.error(f"❌ Error al descargar o interpretar JSON: {e}")
+            _logger.error(f"❌ Error al obtener JSON del producto: {e}")
             return
 
         # Paso 5: Mapear y crear producto real
         try:
-            if isinstance(data, list):
-                data = data[0]
+            name = data.get('translatedName', {}).get('es', data.get('designation'))
+            default_code = data.get('sku', sku)
+            description = data.get('description', {}).get('es') or data.get('description', {}).get('en', '')
+            list_price = float(data.get('price', {}).get('salePrice', 0.0))
+            standard_price = float(data.get('price', {}).get('purchasePrice', 0.0))
 
-            product_name = data.get('translatedName', {}).get('es') or data.get('translatedName', {}).get('en') or 'Sin nombre'
-
-            mapped = {
-                'name': product_name,
-                'default_code': data.get('sku', ''),
+            product_vals = {
+                'name': name or 'Producto sin nombre',
+                'default_code': default_code,
                 'type': 'consu',
-                'list_price': 0.0,
+                'list_price': list_price,
+                'standard_price': standard_price,
+                'description_sale': description,
                 'categ_id': self.env.ref('product.product_category_all').id
             }
-
-            self.create(mapped)
-            _logger.info("✅ Producto real creado correctamente desde la API.")
+            self.create(product_vals)
+            _logger.info("✅ Producto real creado correctamente con datos reales.")
         except Exception as e:
-            _logger.error(f"❌ Error al crear producto real desde JSON: {e}")
+            _logger.error(f"❌ Error al crear producto desde JSON: {e}")
