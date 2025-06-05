@@ -1,6 +1,6 @@
 import requests
 import logging
-from odoo import models, fields, api
+from odoo import models, api
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # Paso 4: Obtener producto desde la API
+        # Paso 4: Obtener producto real desde la API
         sku = "ns300_68558_68517"
         product_url = f"{proxy_url}/v3/products?sku={sku}&usage_right=b2b_uniquement"
         headers = {
@@ -78,24 +78,21 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al descargar o interpretar JSON: {e}")
             return
 
-        # Paso 5: Mapear y crear producto real desde JSON
+        # Paso 5: Mapear y crear producto real
         try:
             if isinstance(data, list):
-                if not data:
-                    raise UserError("La lista de datos está vacía. No se puede crear el producto.")
-                product_data = data[0]
-            elif isinstance(data, dict):
-                product_data = data
-            else:
-                raise UserError("Formato de datos inesperado.")
+                data = data[0]
+
+            product_name = data.get('translatedName', {}).get('es') or data.get('translatedName', {}).get('en') or 'Sin nombre'
 
             mapped = {
-                'name': product_data['translatedName']['es'],
-                'default_code': product_data['sku'],
+                'name': product_name,
+                'default_code': data.get('sku', ''),
                 'type': 'consu',
                 'list_price': 0.0,
                 'categ_id': self.env.ref('product.product_category_all').id
             }
+
             self.create(mapped)
             _logger.info("✅ Producto real creado correctamente desde la API.")
         except Exception as e:
