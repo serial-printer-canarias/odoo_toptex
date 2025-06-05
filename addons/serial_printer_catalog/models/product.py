@@ -59,8 +59,8 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # Paso 4: Obtener producto desde la API
-        sku = "NS300.68558_68494"
+        # Paso 4: Obtener producto desde la API (SKU correcto)
+        sku = "ns300_68558_68517"
         product_url = f"{proxy_url}/v3/products?sku={sku}&usage_right=b2b_uniquement"
         headers = {
             "x-api-key": api_key,
@@ -78,15 +78,13 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al descargar o interpretar JSON: {e}")
             return
 
-        # ✅ Protección para evitar "list index out of range"
-        if isinstance(data, list):
-            if len(data) == 0:
-                _logger.error("❌ La lista de datos está vacía. No se puede crear el producto.")
-                return
-            data = data[0]
-
         # Paso 5: Mapear y crear producto real
         try:
+            if isinstance(data, list) and data:
+                data = data[0]
+            elif isinstance(data, list) and not data:
+                raise UserError("La lista de datos está vacía. No se puede crear el producto.")
+
             mapped = {
                 'name': data['translatedName']['es'],
                 'default_code': data['sku'],
