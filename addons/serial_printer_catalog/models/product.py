@@ -1,41 +1,43 @@
 import requests
 import logging
 from odoo import models, fields, api
-from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
+
 
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     @api.model
-    def sync_product_and_create_test(self):
-        # 1. Crear producto de prueba
+    def sync_product_from_api(self):
+        _logger.info("🔄 Iniciando sincronización con la API de TopTex...")
+
+        # Crear producto de prueba
         try:
             test_product = self.create({
                 'name': 'Producto de prueba',
                 'default_code': 'TEST001',
-                'type': 'product',
+                'type': 'consu',
                 'list_price': 9.99,
                 'categ_id': self.env.ref('product.product_category_all').id,
             })
-            _logger.info("✅ Producto de prueba creado correctamente.")
+            _logger.info("✅ Producto de prueba creado correctamente: %s", test_product.name)
         except Exception as e:
-            _logger.error(f"❌ Error al crear producto de prueba: {e}")
+            _logger.error("❌ Error al crear producto de prueba: %s", e)
             return
 
-        # 2. Obtener parámetros del sistema
+        # Obtener parámetros del sistema
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
         api_key = icp.get_param('toptex_api_key')
         proxy_url = icp.get_param('toptex_proxy_url')
 
-        if not all([username, password, api_key, proxy_url]):
-            _logger.error("❌ Faltan credenciales en los parámetros del sistema.")
+        if not username or not password or not api_key or not proxy_url:
+            _logger.error("❌ Faltan credenciales o configuración en los parámetros del sistema.")
             return
 
-        # 3. Obtener token desde el proxy
+        # Autenticación con la API
         auth_url = f"{proxy_url}/v3/authenticate"
         headers = {'Content-Type': 'application/json'}
         payload = {
@@ -54,39 +56,37 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # 4. Obtener datos del producto real por SKU
+        # Llamada a la API de TopTex para obtener el producto NS300.68558_68494
         sku = "NS300.68558_68494"
         product_url = f"{proxy_url}/v3/products?sku={sku}&usage_right=b2b_uniquement"
-        headers['toptex-authorization'] = access_token
+        product_headers = {
+            'Content-Type': 'application/json',
+            'x-toptex-authorization': access_token
+        }
 
         try:
-            product_response = requests.get(product_url, headers=headers)
+            product_response = requests.get(product_url, headers=product_headers)
             product_response.raise_for_status()
-            product_data = product_response.json()
-            _logger.info(f"📦 JSON recibido: {product_data}")
+            product_json = product_response.json()
+            _logger.info("🟢 JSON recibido desde TopTex: %s", product_json)
         except Exception as e:
-            _logger.error(f"❌ Error al obtener datos del producto desde TopTex: {e}")
+            _logger.error(f"❌ Error al obtener producto de la API: {e}")
             return
 
-        # 5. Mapper para convertir JSON en campos de Odoo
+        # Mapper del JSON → Odoo
         try:
-            if not isinstance(product_data, dict):
-                _logger.error("❌ La respuesta no es un objeto JSON válido (dict).")
-                return
-
-            name = product_data.get('translatedName', {}).get('es', 'Producto sin nombre')
-            default_code = product_data.get('sku', 'SIN-CODIGO')
-            price = product_data.get('publicPrice', 0.0)
-
-            mapped_data = {
+            name = product_json.get("translatedName", {}).get("es") or product_json.get("designation")
+            default_code = product_json.get("reference") or sku
+            list_price = 0.0
+            product_vals = {
                 'name': name,
                 'default_code': default_code,
-                'type': 'product',
-                'list_price': price,
+                'type': 'consu',
+                'list_price': list_price,
                 'categ_id': self.env.ref('product.product_category_all').id,
             }
 
-            self.create(mapped_data)
-            _logger.info(f"✅ Producto real creado: {default_code} - {name}")
+            created = self.create(product_vals)
+            _logger.info("✅ Producto real creado correctamente: %s", created.name)
         except Exception as e:
-            _logger.error(f"❌ Error al mapear o crear el producto real: {e}")
+            _logger.error(f"❌ Error al crear producto real desde JSON: {e}")
