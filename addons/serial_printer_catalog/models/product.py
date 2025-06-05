@@ -1,5 +1,6 @@
-import requests
+import json
 import logging
+import requests
 from odoo import models, fields, api
 from odoo.exceptions import UserError
 
@@ -10,92 +11,107 @@ class ProductTemplate(models.Model):
 
     @api.model
     def sync_product_from_api(self):
-        # Paso 1: Crear producto de prueba
-        try:
-            self.create({
-                'name': 'Producto de prueba',
-                'default_code': 'TEST001',
-                'type': 'consu',
-                'list_price': 9.99,
-                'standard_price': 5.00,
-                'description_sale': 'Este es un producto de prueba.',
-                'categ_id': self.env.ref('product.product_category_all').id
-            })
-            _logger.info("✅ Producto de prueba creado correctamente.")
-        except Exception as e:
-            _logger.error(f"❌ Error al crear producto de prueba: {e}")
-            return
+        # Obtener parámetros desde ir.config_parameter
+        base_url = self.env['ir.config_parameter'].sudo().get_param('toptex_proxy_url')
+        username = self.env['ir.config_parameter'].sudo().get_param('toptex_username')
+        password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
+        api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key')
 
-        # Paso 2: Leer credenciales de parámetros del sistema
-        icp = self.env['ir.config_parameter'].sudo()
-        username = icp.get_param('toptex_username')
-        password = icp.get_param('toptex_password')
-        api_key = icp.get_param('toptex_api_key')
-        proxy_url = icp.get_param('toptex_proxy_url')
+        if not all([base_url, username, password, api_key]):
+            raise UserError("❌ Faltan parámetros del sistema: proxy, username, password o API key.")
 
-        if not all([username, password, api_key, proxy_url]):
-            _logger.error("❌ Faltan credenciales o parámetros del sistema.")
-            return
+        # Autenticación
+        auth_url = f"{base_url}/v3/authenticate"
+        auth_data = {
+            "username": username,
+            "password": password,
+            "apiKey": api_key
+        }
+        auth_response = requests.post(auth_url, json=auth_data)
+        if auth_response.status_code != 200:
+            raise UserError(f"❌ Error autenticación: {auth_response.status_code} - {auth_response.text}")
+        token = auth_response.json().get('token')
+        _logger.info(f"🔐 Token recibido: {token}")
 
-        # Paso 3: Obtener token
-        auth_url = f"{proxy_url}/v3/authenticate"
-        try:
-            auth_response = requests.post(
-                auth_url,
-                json={"username": username, "password": password},
-                headers={
-                    "x-api-key": api_key,
-                    "Content-Type": "application/json"
-                }
-            )
-            if auth_response.status_code != 200:
-                raise UserError(f"❌ Error autenticando: {auth_response.text}")
-            token = auth_response.json().get("token")
-            if not token:
-                raise UserError("❌ Token no recibido.")
-            _logger.info("🟢 Token recibido correctamente.")
-        except Exception as e:
-            _logger.error(f"❌ Error al autenticar: {e}")
-            return
+        # Llamada al producto por catálogo
+        sku = "NS300"
+        headers = {
+            "toptex-authorization": token,
+            "Content-Type": "application/json"
+        }
+        product_url = f"{base_url}/v3/products/{sku}?usage_right=b2b_b2c"
+        _logger.info(f"📡 Llamando a: {product_url}")
+        response = requests.get(product_url, headers=headers)
 
-        # Paso 4: Obtener producto desde la API
-        sku = "NS300_68558_68517"
-        product_url = f"{proxy_url}/v3/products?sku={sku}&usage_right=b2b_uniquement"
-        try:
-            product_response = requests.get(
-                product_url,
-                headers={
-                    "x-api-key": api_key,
-                    "x-toptex-authorization": token,
-                    "Accept-Encoding": "gzip, deflate, br"
-                }
-            )
-            if product_response.status_code != 200:
-                raise UserError(f"❌ Error al obtener producto: {product_response.text}")
-            data = product_response.json()
-            _logger.info(f"🟢 JSON recibido:\n{data}")
-        except Exception as e:
-            _logger.error(f"❌ Error al obtener JSON del producto: {e}")
-            return
+        if response.status_code != 200:
+            raise UserError(f"❌ Error al obtener producto NS300: {response.status_code} - {response.text}")
 
-        # Paso 5: Mapear y crear producto real
-        try:
-            name = data.get('translatedName', {}).get('es', data.get('designation'))
-            default_code = data.get('sku', sku)
-            description = data.get('description', {}).get('es') or data.get('description', {}).get('en', '')
-            list_price = float(data.get('price', {}).get('salePrice', 0.0))
-            standard_price = float(data.get('price', {}).get('purchasePrice', 0.0))
+        data = response.json()
+        _logger.info(f"📦 JSON recibido:\n{json.dumps(data, indent=2)}")
 
-            product_vals = {
-                'name': name or 'Producto sin nombre',
-                'default_code': default_code,
-                'type': 'consu',
-                'list_price': list_price,
-                'standard_price': standard_price,
-                'description_sale': description,
-                'categ_id': self.env.ref('product.product_category_all').id
-            }
-            self.create(product_vals)
-            _logger.info("✅ Producto real creado correctamente con datos reales.")
-        except Exception as e:
-            _logger.error(f"❌ Error al crear producto desde JSON: {e}")
+        # Crear plantilla del producto
+        name = data.get("designation", {}).get("es", "Producto sin nombre")
+        description = data.get("description", {}).get("es", "")
+        list_price = 9.8  # Precio fijo para pruebas
+        template_vals = {
+            'name': name,
+            'default_code': data.get("catalogReference"),
+            'type': 'product',
+            'description_sale': description,
+            'list_price': list_price,
+            'standard_price': list_price,
+            'categ_id': self.env.ref("product.product_category_all").id,
+        }
+        product_template = self.create(template_vals)
+        _logger.info(f"✅ Plantilla creada: {product_template.name}")
+
+        # Crear atributos y valores si no existen
+        def get_or_create_attribute(name, value):
+            attr = self.env['product.attribute'].search([('name', '=', name)], limit=1)
+            if not attr:
+                attr = self.env['product.attribute'].create({'name': name})
+            val = self.env['product.attribute.value'].search([
+                ('name', '=', value),
+                ('attribute_id', '=', attr.id)
+            ], limit=1)
+            if not val:
+                val = self.env['product.attribute.value'].create({
+                    'name': value,
+                    'attribute_id': attr.id
+                })
+            return attr, val
+
+        get_or_create_attribute("Color", "Dummy")
+        get_or_create_attribute("Talla", "Dummy")
+        _logger.info("🎨 Atributos 'Color' y 'Talla' verificados o creados.")
+
+        # Crear variantes del producto
+        for color in data.get("colors", []):
+            color_name = color.get("colors", {}).get("es")
+            for size in color.get("sizes", []):
+                size_name = size.get("size")
+                sku = size.get("sku")
+                ean = size.get("ean")
+                price = size.get("publicUnitPrice", "9.8").replace(",", ".")
+
+                color_attr, color_val = get_or_create_attribute("Color", color_name)
+                size_attr, size_val = get_or_create_attribute("Talla", size_name)
+
+                self.env['product.product'].create({
+                    'product_tmpl_id': product_template.id,
+                    'default_code': sku,
+                    'barcode': ean,
+                    'lst_price': float(price),
+                    'attribute_value_ids': [(6, 0, [color_val.id, size_val.id])]
+                })
+                _logger.info(f"🧬 Variante creada: {color_name} / {size_name} - {sku}")
+
+        # Imagen principal
+        img_url = data.get("images", [])[0].get("url_image") if data.get("images") else None
+        if img_url:
+            try:
+                image_content = requests.get(img_url).content
+                product_template.image_1920 = image_content
+                _logger.info(f"🖼️ Imagen asignada desde: {img_url}")
+            except Exception as e:
+                _logger.warning(f"⚠️ No se pudo asignar imagen: {e}")
