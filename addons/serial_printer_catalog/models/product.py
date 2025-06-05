@@ -5,14 +5,15 @@ from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
+
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     @api.model
     def sync_product_from_api(self):
-        # Paso 1: Crear producto de prueba
+        # 1. Crear producto de prueba
         try:
-            test_product = self.create({
+            self.env['product.template'].create({
                 'name': 'Producto de prueba',
                 'default_code': 'TEST001',
                 'type': 'consu',
@@ -24,70 +25,67 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al crear producto de prueba: {e}")
             return
 
-        # Paso 2: Leer parámetros del sistema
+        # 2. Obtener parámetros
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
         api_key = icp.get_param('toptex_api_key')
         proxy_url = icp.get_param('toptex_proxy_url')
 
-        if not all([username, password, api_key, proxy_url]):
-            _logger.error("❌ Faltan credenciales o parámetros del sistema.")
+        if not username or not password or not api_key or not proxy_url:
+            _logger.error("❌ Faltan credenciales para autenticar con TopTex.")
             return
 
-        # Paso 3: Generar token desde la API
+        # 3. Generar token
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {
             "username": username,
-            "password": password
+            "password": password,
+            "apiKey": api_key
         }
-        auth_headers = {
-            "x-api-key": api_key,
-            "Content-Type": "application/json"
-        }
+        headers = {'Content-Type': 'application/json'}
 
         try:
-            auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
-            if auth_response.status_code != 200:
-                raise UserError(f"Error autenticando en TopTex: {auth_response.text}")
+            auth_response = requests.post(auth_url, json=auth_payload, headers=headers)
+            auth_response.raise_for_status()
             token_data = auth_response.json()
-            token = token_data.get("token")
-            if not token:
-                raise UserError("No se recibió un token válido de TopTex.")
-            _logger.info(f"🟢 Token recibido correctamente.")
+            access_token = token_data.get('accessToken')
+            _logger.info(f"🟢 Token recibido: {access_token}")
         except Exception as e:
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # Paso 4: Obtener producto desde la API
+        # 4. Obtener producto real por SKU
         sku = "NS300.68558_68494"
         product_url = f"{proxy_url}/v3/products?sku={sku}&usage_right=b2b_uniquement"
         headers = {
-            "x-api-key": api_key,
-            "x-toptex-authorization": token,
-            "Accept-Encoding": "gzip, deflate, br"
+            "x-toptex-authorization": access_token,
+            "Content-Type": "application/json"
         }
 
         try:
             response = requests.get(product_url, headers=headers)
-            if response.status_code != 200:
-                raise UserError(f"Error al obtener el producto: {response.text}")
+            response.raise_for_status()
             data = response.json()
-            _logger.info(f"🟢 JSON recibido desde TopTex:\n{data}")
+            _logger.info(f"🟢 JSON recibido desde TopTex.")
         except Exception as e:
-            _logger.error(f"❌ Error al descargar o interpretar JSON: {e}")
+            _logger.error(f"❌ Error al obtener producto desde la API: {e}")
             return
 
-        # Paso 5: Mapear y crear producto real
+        # 5. Mapear y crear producto real
         try:
+            # Asegura que data es un dict, no lista
+            if isinstance(data, list):
+                data = data[0]
+
             mapped = {
-                'name': data['translatedName']['es'],
-                'default_code': data['sku'],
+                'name': data.get('translatedName', {}).get('es') or data.get('designation', 'Sin nombre'),
+                'default_code': data.get('sku', sku),
                 'type': 'consu',
-                'list_price': 0.0,
-                'categ_id': self.env.ref('product.product_category_all').id
+                'list_price': 19.99,
+                'categ_id': self.env.ref('product.product_category_all').id,
             }
-            self.create(mapped)
-            _logger.info("✅ Producto real creado correctamente desde la API.")
+            self.env['product.template'].create(mapped)
+            _logger.info("✅ Producto real creado correctamente.")
         except Exception as e:
             _logger.error(f"❌ Error al crear producto real desde JSON: {e}")
