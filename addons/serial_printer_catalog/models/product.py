@@ -78,14 +78,18 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al descargar o interpretar JSON: {e}")
             return
 
+        # ✅ Protección para evitar "list index out of range"
+        if isinstance(data, list):
+            if len(data) == 0:
+                _logger.error("❌ La lista de datos está vacía. No se puede crear el producto.")
+                return
+            data = data[0]
+
         # Paso 5: Mapear y crear producto real
         try:
-            if isinstance(data, list):
-                data = data[0]
-
             mapped = {
-                'name': data.get('translatedName', {}).get('es') or data.get('designation', 'Sin nombre'),
-                'default_code': data.get('sku', 'SIN-SKU'),
+                'name': data['translatedName']['es'],
+                'default_code': data['sku'],
                 'type': 'consu',
                 'list_price': 0.0,
                 'categ_id': self.env.ref('product.product_category_all').id
