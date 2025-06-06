@@ -20,7 +20,7 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # 1. Autenticación con x-api-key
+        # 1. Autenticación con headers correctos
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {
             "username": username,
@@ -43,7 +43,7 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # 2. Llamada con catalog_reference (bloque modificado)
+        # 2. Llamada a producto por catalog_reference
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -70,21 +70,24 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # 3. Crear plantilla del producto
+        # 3. Crear plantilla con type 'consu'
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
         list_price = 9.8
 
-        product_template = self.create({
+        template_vals = {
             'name': name,
             'default_code': default_code,
-            'type': 'product',
+            'type': 'consu',  # 💡 Tipo correcto según Odoo para tu flujo
             'description_sale': description,
             'list_price': list_price,
             'standard_price': list_price,
             'categ_id': self.env.ref("product.product_category_all").id,
-        })
+        }
+
+        _logger.info(f"🛠️ Datos para crear plantilla: {template_vals}")
+        product_template = self.create(template_vals)
         _logger.info(f"✅ Plantilla creada: {product_template.name}")
 
         # 4. Crear atributos y valores
@@ -130,6 +133,6 @@ class ProductTemplate(models.Model):
             try:
                 image_content = requests.get(img_url).content
                 product_template.image_1920 = image_content
-                _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
+                _logger.info(f"🖼️ Imagen asignada desde: {img_url}")
             except Exception as e:
                 _logger.warning(f"⚠️ Error cargando imagen: {e}")
