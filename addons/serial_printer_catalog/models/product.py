@@ -20,16 +20,10 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # 1. Autenticación
+        # Autenticación
         auth_url = f"{proxy_url}/v3/authenticate"
-        auth_payload = {
-            "username": username,
-            "password": password
-        }
-        auth_headers = {
-            "x-api-key": api_key,
-            "Content-Type": "application/json"
-        }
+        auth_payload = {"username": username, "password": password}
+        auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
 
         try:
             auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
@@ -43,7 +37,7 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # 2. Llamada con catalog_reference
+        # Petición de producto por catalog_reference
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -57,20 +51,13 @@ class ProductTemplate(models.Model):
             if response.status_code != 200:
                 raise UserError(f"❌ Error al obtener el producto: {response.status_code} - {response.text}")
             data_list = response.json()
-
-            if isinstance(data_list, dict):
-                data = data_list
-            elif isinstance(data_list, list) and data_list:
-                data = data_list[0]
-            else:
-                raise UserError("⚠️ Respuesta vacía o malformada.")
-
+            data = data_list if isinstance(data_list, dict) else data_list[0] if data_list else {}
             _logger.info(f"📦 JSON interpretado:\n{json.dumps(data, indent=2)}")
         except Exception as e:
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # 3. Crear plantilla
+        # Crear plantilla
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
@@ -90,49 +77,57 @@ class ProductTemplate(models.Model):
         product_template = self.create(template_vals)
         _logger.info(f"✅ Plantilla creada: {product_template.name}")
 
-        # 4. Atributos y valores
-        def get_or_create_attribute(name, value):
-            attr = self.env['product.attribute'].search([('name', '=', name)], limit=1)
-            if not attr:
-                attr = self.env['product.attribute'].create({'name': name})
-            val = self.env['product.attribute.value'].search([
-                ('name', '=', value),
-                ('attribute_id', '=', attr.id)
-            ], limit=1)
-            if not val:
-                val = self.env['product.attribute.value'].create({
-                    'name': value,
-                    'attribute_id': attr.id
-                })
-            return attr, val
+        # Crear atributos y líneas de variantes
+        attribute_lines = []
 
-        # 5. Crear variantes (con control de precio)
         for color in data.get("colors", []):
             color_name = color.get("colors", {}).get("es")
             for size in color.get("sizes", []):
                 size_name = size.get("size")
-                sku = size.get("sku")
-                ean = size.get("ean")
-                price_str = size.get("publicUnitPrice", "9.8")
-                try:
-                    price = float(price_str.replace(",", "."))
-                except Exception:
-                    _logger.warning(f"⚠️ Precio inválido para {sku}: {price_str}")
-                    price = 0.0
 
-                color_attr, color_val = get_or_create_attribute("Color", color_name)
-                size_attr, size_val = get_or_create_attribute("Talla", size_name)
+                color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
+                if not color_attr:
+                    color_attr = self.env['product.attribute'].create({'name': 'Color'})
+                color_val = self.env['product.attribute.value'].search([
+                    ('name', '=', color_name), ('attribute_id', '=', color_attr.id)
+                ], limit=1)
+                if not color_val:
+                    color_val = self.env['product.attribute.value'].create({
+                        'name': color_name, 'attribute_id': color_attr.id
+                    })
 
-                self.env['product.product'].create({
-                    'product_tmpl_id': product_template.id,
-                    'default_code': sku,
-                    'barcode': ean,
-                    'lst_price': price,
-                    'attribute_value_ids': [(6, 0, [color_val.id, size_val.id])]
-                })
-                _logger.info(f"🧬 Variante: {color_name} / {size_name} - {sku} - {price}€")
+                size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1)
+                if not size_attr:
+                    size_attr = self.env['product.attribute'].create({'name': 'Talla'})
+                size_val = self.env['product.attribute.value'].search([
+                    ('name', '=', size_name), ('attribute_id', '=', size_attr.id)
+                ], limit=1)
+                if not size_val:
+                    size_val = self.env['product.attribute.value'].create({
+                        'name': size_name, 'attribute_id': size_attr.id
+                    })
 
-        # 6. Imagen principal
+                if color_attr and color_val and all(line['attribute_id'] != color_attr.id for line in attribute_lines):
+                    attribute_lines.append({
+                        'attribute_id': color_attr.id,
+                        'value_ids': [(6, 0, [color_val.id])]
+                    })
+
+                if size_attr and size_val and all(line['attribute_id'] != size_attr.id for line in attribute_lines):
+                    attribute_lines.append({
+                        'attribute_id': size_attr.id,
+                        'value_ids': [(6, 0, [size_val.id])]
+                    })
+
+        if attribute_lines:
+            product_template.write({
+                'attribute_line_ids': [(0, 0, line) for line in attribute_lines]
+            })
+            _logger.info("✅ Atributos y valores asignados correctamente.")
+        else:
+            _logger.warning("⚠️ No se encontraron atributos para asignar.")
+
+        # Imagen principal
         img_url = data.get("images", [])[0].get("url_image") if data.get("images") else None
         if img_url:
             try:
