@@ -143,29 +143,33 @@ class ProductTemplate(models.Model):
         else:
             _logger.warning("⚠️ No se encontraron atributos para asignar.")
 
-        # 5. Imagen principal del producto
+        # 5. Imagen principal con verificación
         img_url = data.get("images", [])[0].get("url_image") if data.get("images") else None
-        if img_url and img_url.lower().endswith(('.jpg', '.jpeg', '.png')):
+        if img_url:
             try:
-                image_content = requests.get(img_url).content
-                product_template.image_1920 = image_content
-                _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
+                img_response = requests.get(img_url)
+                if "image" in img_response.headers.get("Content-Type", ""):
+                    product_template.image_1920 = img_response.content
+                    _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
+                else:
+                    _logger.warning("⚠️ La URL no contiene una imagen válida.")
             except Exception as e:
                 _logger.warning(f"⚠️ Error cargando imagen principal: {e}")
-        else:
-            _logger.warning("⚠️ Imagen principal no válida o ausente.")
 
-        # 6. Imagen por variante (color)
+        # 6. Imagen por variante de color
         for variant in product_template.product_variant_ids:
             color_value = variant.product_template_attribute_value_ids.filtered(
                 lambda v: v.attribute_id.name == "Color"
             ).name
             color_data = next((c for c in data.get("colors", []) if c.get("colors", {}).get("es") == color_value), None)
             variant_img = color_data.get("url_image") if color_data else None
-            if variant_img and variant_img.lower().endswith(('.jpg', '.jpeg', '.png')):
+            if variant_img:
                 try:
-                    image = requests.get(variant_img).content
-                    variant.image_1920 = image
-                    _logger.info(f"🖼️ Imagen asignada a variante: {variant.name}")
+                    variant_response = requests.get(variant_img)
+                    if "image" in variant_response.headers.get("Content-Type", ""):
+                        variant.image_1920 = variant_response.content
+                        _logger.info(f"🖼️ Imagen asignada a variante: {variant.name}")
+                    else:
+                        _logger.warning(f"⚠️ Imagen no válida para variante {variant.name}")
                 except Exception as e:
                     _logger.warning(f"⚠️ Error asignando imagen a variante {variant.name}: {e}")
