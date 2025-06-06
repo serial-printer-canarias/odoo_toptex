@@ -20,7 +20,7 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # 1. Autenticación correcta con x-api-key en headers
+        # 1. Autenticación con x-api-key
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {
             "username": username,
@@ -43,7 +43,7 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # 2. Llamada al producto NS300 (catalog_reference + b2b_b2c)
+        # 2. Llamada con catalog_reference (bloque modificado)
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -53,18 +53,24 @@ class ProductTemplate(models.Model):
 
         try:
             response = requests.get(product_url, headers=headers)
+            _logger.info(f"📥 Respuesta cruda:\n{response.text}")
             if response.status_code != 200:
                 raise UserError(f"❌ Error al obtener el producto: {response.status_code} - {response.text}")
             data_list = response.json()
-            if not isinstance(data_list, list) or not data_list:
+
+            if isinstance(data_list, dict):
+                data = data_list
+            elif isinstance(data_list, list) and data_list:
+                data = data_list[0]
+            else:
                 raise UserError("⚠️ Respuesta vacía o malformada.")
-            data = data_list[0]
-            _logger.info(f"📦 JSON recibido:\n{json.dumps(data, indent=2)}")
+
+            _logger.info(f"📦 JSON interpretado:\n{json.dumps(data, indent=2)}")
         except Exception as e:
-            _logger.error(f"❌ Error al obtener el producto: {e}")
+            _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # 3. Crear plantilla
+        # 3. Crear plantilla del producto
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
