@@ -20,7 +20,6 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # Autenticación
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
@@ -37,7 +36,6 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # Petición de producto por catalog_reference
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -57,19 +55,36 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # Crear plantilla
+        # Datos de producto
+        brand = data.get("brand", {}).get("name", {}).get("es", "")
         name = data.get("designation", {}).get("es", "Producto sin nombre")
+        full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
+
+        # Precio de venta base
         list_price = 9.8
+        standard_price = 0.0
+
+        # Obtener primer precio de coste válido
+        for color in data.get("colors", []):
+            for size in color.get("sizes", []):
+                price_str = size.get("wholesaleUnitPrice", "0").replace(",", ".")
+                try:
+                    standard_price = float(price_str)
+                    break
+                except Exception:
+                    continue
+            if standard_price:
+                break
 
         template_vals = {
-            'name': name,
+            'name': full_name,
             'default_code': default_code,
             'type': 'consu',
             'description_sale': description,
             'list_price': list_price,
-            'standard_price': list_price,
+            'standard_price': standard_price,
             'categ_id': self.env.ref("product.product_category_all").id,
         }
 
@@ -77,7 +92,7 @@ class ProductTemplate(models.Model):
         product_template = self.create(template_vals)
         _logger.info(f"✅ Plantilla creada: {product_template.name}")
 
-        # Crear atributos y líneas de variantes
+        # Crear atributos y variantes
         attribute_lines = []
 
         for color in data.get("colors", []):
@@ -127,12 +142,14 @@ class ProductTemplate(models.Model):
         else:
             _logger.warning("⚠️ No se encontraron atributos para asignar.")
 
-        # Imagen principal
+        # Imagen principal con filtro
         img_url = data.get("images", [])[0].get("url_image") if data.get("images") else None
-        if img_url:
+        if img_url and img_url.lower().endswith(('.jpg', '.jpeg', '.png')):
             try:
                 image_content = requests.get(img_url).content
                 product_template.image_1920 = image_content
                 _logger.info(f"🖼️ Imagen asignada desde: {img_url}")
             except Exception as e:
                 _logger.warning(f"⚠️ Error cargando imagen: {e}")
+        else:
+            _logger.warning("⚠️ URL de imagen vacía o no válida.")
