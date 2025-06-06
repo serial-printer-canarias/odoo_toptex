@@ -20,6 +20,7 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
+        # 1. Autenticación
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
@@ -36,6 +37,7 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
+        # 2. Petición producto
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -55,18 +57,17 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # Datos de producto
-        brand = data.get("brand", {}).get("name", {}).get("es", "")
+        # 3. Datos para plantilla
+        brand = ""
+        if isinstance(data.get("brand"), dict):
+            brand = data.get("brand", {}).get("name", {}).get("es", "")
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
-
-        # Precio de venta base
         list_price = 9.8
         standard_price = 0.0
 
-        # Obtener primer precio de coste válido
         for color in data.get("colors", []):
             for size in color.get("sizes", []):
                 price_str = size.get("wholesaleUnitPrice", "0").replace(",", ".")
@@ -92,7 +93,7 @@ class ProductTemplate(models.Model):
         product_template = self.create(template_vals)
         _logger.info(f"✅ Plantilla creada: {product_template.name}")
 
-        # Crear atributos y variantes
+        # 4. Atributos y variantes
         attribute_lines = []
 
         for color in data.get("colors", []):
@@ -142,7 +143,7 @@ class ProductTemplate(models.Model):
         else:
             _logger.warning("⚠️ No se encontraron atributos para asignar.")
 
-        # Imagen principal con filtro
+        # 5. Imagen
         img_url = data.get("images", [])[0].get("url_image") if data.get("images") else None
         if img_url and img_url.lower().endswith(('.jpg', '.jpeg', '.png')):
             try:
