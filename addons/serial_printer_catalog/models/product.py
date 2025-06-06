@@ -37,7 +37,7 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # 2. Petición producto
+        # 2. Obtener datos del producto
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -57,7 +57,7 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # 3. Datos para plantilla
+        # 3. Datos base del producto
         brand = ""
         if isinstance(data.get("brand"), dict):
             brand = data.get("brand", {}).get("name", {}).get("es", "")
@@ -143,14 +143,29 @@ class ProductTemplate(models.Model):
         else:
             _logger.warning("⚠️ No se encontraron atributos para asignar.")
 
-        # 5. Imagen
+        # 5. Imagen principal del producto
         img_url = data.get("images", [])[0].get("url_image") if data.get("images") else None
         if img_url and img_url.lower().endswith(('.jpg', '.jpeg', '.png')):
             try:
                 image_content = requests.get(img_url).content
                 product_template.image_1920 = image_content
-                _logger.info(f"🖼️ Imagen asignada desde: {img_url}")
+                _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
             except Exception as e:
-                _logger.warning(f"⚠️ Error cargando imagen: {e}")
+                _logger.warning(f"⚠️ Error cargando imagen principal: {e}")
         else:
-            _logger.warning("⚠️ URL de imagen vacía o no válida.")
+            _logger.warning("⚠️ Imagen principal no válida o ausente.")
+
+        # 6. Imagen por variante (color)
+        for variant in product_template.product_variant_ids:
+            color_value = variant.product_template_attribute_value_ids.filtered(
+                lambda v: v.attribute_id.name == "Color"
+            ).name
+            color_data = next((c for c in data.get("colors", []) if c.get("colors", {}).get("es") == color_value), None)
+            variant_img = color_data.get("url_image") if color_data else None
+            if variant_img and variant_img.lower().endswith(('.jpg', '.jpeg', '.png')):
+                try:
+                    image = requests.get(variant_img).content
+                    variant.image_1920 = image
+                    _logger.info(f"🖼️ Imagen asignada a variante: {variant.name}")
+                except Exception as e:
+                    _logger.warning(f"⚠️ Error asignando imagen a variante {variant.name}: {e}")
