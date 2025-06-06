@@ -11,7 +11,6 @@ class ProductTemplate(models.Model):
 
     @api.model
     def sync_product_from_api(self):
-        # Leer parámetros
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
@@ -21,23 +20,22 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # 1. Autenticación
+        # 1. Autenticación correcta con x-api-key en headers
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {
             "username": username,
-            "password": password,
-            "apiKey": api_key
+            "password": password
         }
         auth_headers = {
+            "x-api-key": api_key,
             "Content-Type": "application/json"
         }
 
         try:
             auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
             if auth_response.status_code != 200:
-                raise UserError(f"❌ Error autenticando en TopTex: {auth_response.status_code} - {auth_response.text}")
-            token_data = auth_response.json()
-            token = token_data.get("token")
+                raise UserError(f"❌ Error autenticando: {auth_response.status_code} - {auth_response.text}")
+            token = auth_response.json().get("token")
             if not token:
                 raise UserError("❌ No se recibió un token válido.")
             _logger.info("🔐 Token recibido correctamente.")
@@ -45,7 +43,7 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # 2. Llamada con catalog_reference + b2b_b2c
+        # 2. Llamada al producto NS300 (catalog_reference + b2b_b2c)
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -59,14 +57,14 @@ class ProductTemplate(models.Model):
                 raise UserError(f"❌ Error al obtener el producto: {response.status_code} - {response.text}")
             data_list = response.json()
             if not isinstance(data_list, list) or not data_list:
-                raise UserError("⚠️ Respuesta vacía o incorrecta.")
+                raise UserError("⚠️ Respuesta vacía o malformada.")
             data = data_list[0]
-            _logger.info(f"📦 Producto NS300 recibido:\n{json.dumps(data, indent=2)}")
+            _logger.info(f"📦 JSON recibido:\n{json.dumps(data, indent=2)}")
         except Exception as e:
-            _logger.error(f"❌ Error en llamada a la API: {e}")
+            _logger.error(f"❌ Error al obtener el producto: {e}")
             return
 
-        # 3. Crear product.template
+        # 3. Crear plantilla
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
@@ -83,7 +81,7 @@ class ProductTemplate(models.Model):
         })
         _logger.info(f"✅ Plantilla creada: {product_template.name}")
 
-        # 4. Crear atributos y valores si no existen
+        # 4. Crear atributos y valores
         def get_or_create_attribute(name, value):
             attr = self.env['product.attribute'].search([('name', '=', name)], limit=1)
             if not attr:
@@ -99,7 +97,7 @@ class ProductTemplate(models.Model):
                 })
             return attr, val
 
-        # 5. Crear variantes (product.product)
+        # 5. Crear variantes
         for color in data.get("colors", []):
             color_name = color.get("colors", {}).get("es")
             for size in color.get("sizes", []):
@@ -126,6 +124,6 @@ class ProductTemplate(models.Model):
             try:
                 image_content = requests.get(img_url).content
                 product_template.image_1920 = image_content
-                _logger.info(f"🖼️ Imagen principal cargada desde: {img_url}")
+                _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
             except Exception as e:
-                _logger.warning(f"⚠️ No se pudo cargar imagen: {e}")
+                _logger.warning(f"⚠️ Error cargando imagen: {e}")
