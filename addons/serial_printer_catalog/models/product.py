@@ -20,7 +20,7 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # 1. Autenticación con headers correctos
+        # 1. Autenticación
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {
             "username": username,
@@ -43,7 +43,7 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # 2. Llamada a producto por catalog_reference
+        # 2. Llamada con catalog_reference
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -70,7 +70,7 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # 3. Crear plantilla con type 'consu'
+        # 3. Crear plantilla
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
@@ -79,7 +79,7 @@ class ProductTemplate(models.Model):
         template_vals = {
             'name': name,
             'default_code': default_code,
-            'type': 'consu',  # 💡 Tipo correcto según Odoo para tu flujo
+            'type': 'consu',
             'description_sale': description,
             'list_price': list_price,
             'standard_price': list_price,
@@ -90,7 +90,7 @@ class ProductTemplate(models.Model):
         product_template = self.create(template_vals)
         _logger.info(f"✅ Plantilla creada: {product_template.name}")
 
-        # 4. Crear atributos y valores
+        # 4. Atributos y valores
         def get_or_create_attribute(name, value):
             attr = self.env['product.attribute'].search([('name', '=', name)], limit=1)
             if not attr:
@@ -106,14 +106,19 @@ class ProductTemplate(models.Model):
                 })
             return attr, val
 
-        # 5. Crear variantes
+        # 5. Crear variantes (con control de precio)
         for color in data.get("colors", []):
             color_name = color.get("colors", {}).get("es")
             for size in color.get("sizes", []):
                 size_name = size.get("size")
                 sku = size.get("sku")
                 ean = size.get("ean")
-                price = size.get("publicUnitPrice", "9.8").replace(",", ".")
+                price_str = size.get("publicUnitPrice", "9.8")
+                try:
+                    price = float(price_str.replace(",", "."))
+                except Exception:
+                    _logger.warning(f"⚠️ Precio inválido para {sku}: {price_str}")
+                    price = 0.0
 
                 color_attr, color_val = get_or_create_attribute("Color", color_name)
                 size_attr, size_val = get_or_create_attribute("Talla", size_name)
@@ -122,10 +127,10 @@ class ProductTemplate(models.Model):
                     'product_tmpl_id': product_template.id,
                     'default_code': sku,
                     'barcode': ean,
-                    'lst_price': float(price),
+                    'lst_price': price,
                     'attribute_value_ids': [(6, 0, [color_val.id, size_val.id])]
                 })
-                _logger.info(f"🧬 Variante: {color_name} / {size_name} - {sku}")
+                _logger.info(f"🧬 Variante: {color_name} / {size_name} - {sku} - {price}€")
 
         # 6. Imagen principal
         img_url = data.get("images", [])[0].get("url_image") if data.get("images") else None
