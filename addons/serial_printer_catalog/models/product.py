@@ -55,8 +55,13 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # Datos principales
-        brand = data.get("brand", {}).get("name", {}).get("es", "")
+        # ✅ CORRECCIÓN: Validar marca (brand)
+        brand_data = data.get("brand") or {}
+        if isinstance(brand_data, dict):
+            brand = brand_data.get("name", {}).get("es", "")
+        else:
+            brand = ""
+
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
@@ -89,7 +94,7 @@ class ProductTemplate(models.Model):
         product_template = self.create(template_vals)
         _logger.info(f"✅ Plantilla creada: {product_template.name}")
 
-        # Atributos
+        # Atributos y variantes
         attribute_lines = []
 
         for color in data.get("colors", []):
