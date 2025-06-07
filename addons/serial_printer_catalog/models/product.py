@@ -20,7 +20,6 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # 1. Autenticación
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
@@ -37,7 +36,6 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # 2. Obtener datos del producto
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -57,10 +55,8 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # 3. Datos base del producto
-        brand = ""
-        if isinstance(data.get("brand"), dict):
-            brand = data.get("brand", {}).get("name", {}).get("es", "")
+        # Datos principales
+        brand = data.get("brand", {}).get("name", {}).get("es", "")
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
@@ -93,7 +89,7 @@ class ProductTemplate(models.Model):
         product_template = self.create(template_vals)
         _logger.info(f"✅ Plantilla creada: {product_template.name}")
 
-        # 4. Atributos y variantes
+        # Atributos
         attribute_lines = []
 
         for color in data.get("colors", []):
@@ -143,8 +139,14 @@ class ProductTemplate(models.Model):
         else:
             _logger.warning("⚠️ No se encontraron atributos para asignar.")
 
-        # 5. Imagen principal con verificación
-        img_url = data.get("images", [])[0].get("url_image") if data.get("images") else None
+        # Imagen principal verificada
+        img_url = ""
+        images = data.get("images", [])
+        for img in images:
+            if img.get("url_image", "").lower().endswith((".jpg", ".jpeg", ".png")):
+                img_url = img["url_image"]
+                break
+
         if img_url:
             try:
                 img_response = requests.get(img_url)
@@ -152,11 +154,11 @@ class ProductTemplate(models.Model):
                     product_template.image_1920 = img_response.content
                     _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
                 else:
-                    _logger.warning("⚠️ La URL no contiene una imagen válida.")
+                    _logger.warning("⚠️ La URL de imagen principal no es válida.")
             except Exception as e:
                 _logger.warning(f"⚠️ Error cargando imagen principal: {e}")
 
-        # 6. Imagen por variante de color
+        # Imagen por variante de color
         for variant in product_template.product_variant_ids:
             color_value = variant.product_template_attribute_value_ids.filtered(
                 lambda v: v.attribute_id.name == "Color"
