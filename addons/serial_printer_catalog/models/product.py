@@ -55,7 +55,7 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # ✅ CORRECCIÓN: Validar marca (brand)
+        # Marca
         brand_data = data.get("brand") or {}
         if isinstance(brand_data, dict):
             brand = brand_data.get("name", {}).get("es", "")
@@ -144,7 +144,7 @@ class ProductTemplate(models.Model):
         else:
             _logger.warning("⚠️ No se encontraron atributos para asignar.")
 
-        # Imagen principal verificada
+        # Imagen principal con validación de tipo MIME
         img_url = ""
         images = data.get("images", [])
         for img in images:
@@ -155,11 +155,11 @@ class ProductTemplate(models.Model):
         if img_url:
             try:
                 img_response = requests.get(img_url)
-                if "image" in img_response.headers.get("Content-Type", ""):
+                if img_response.ok and "image" in img_response.headers.get("Content-Type", ""):
                     product_template.image_1920 = img_response.content
                     _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
                 else:
-                    _logger.warning("⚠️ La URL de imagen principal no es válida.")
+                    _logger.warning(f"⚠️ Imagen principal inválida: {img_url} - {img_response.headers.get('Content-Type')}")
             except Exception as e:
                 _logger.warning(f"⚠️ Error cargando imagen principal: {e}")
 
@@ -173,7 +173,7 @@ class ProductTemplate(models.Model):
             if variant_img:
                 try:
                     variant_response = requests.get(variant_img)
-                    if "image" in variant_response.headers.get("Content-Type", ""):
+                    if variant_response.ok and "image" in variant_response.headers.get("Content-Type", ""):
                         variant.image_1920 = variant_response.content
                         _logger.info(f"🖼️ Imagen asignada a variante: {variant.name}")
                     else:
