@@ -55,7 +55,6 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # Marca
         brand_data = data.get("brand") or {}
         if isinstance(brand_data, dict):
             brand = brand_data.get("name", {}).get("es", "")
@@ -144,24 +143,23 @@ class ProductTemplate(models.Model):
         else:
             _logger.warning("⚠️ No se encontraron atributos para asignar.")
 
-        # Imagen principal con validación de tipo MIME
+        # Imagen principal con validación más estricta
         img_url = ""
         images = data.get("images", [])
         for img in images:
-            if img.get("url_image", "").lower().endswith((".jpg", ".jpeg", ".png")):
-                img_url = img["url_image"]
-                break
-
-        if img_url:
-            try:
-                img_response = requests.get(img_url)
-                if img_response.ok and "image" in img_response.headers.get("Content-Type", ""):
-                    product_template.image_1920 = img_response.content
-                    _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
-                else:
-                    _logger.warning(f"⚠️ Imagen principal inválida: {img_url} - {img_response.headers.get('Content-Type')}")
-            except Exception as e:
-                _logger.warning(f"⚠️ Error cargando imagen principal: {e}")
+            img_url = img.get("url_image", "")
+            if img_url.lower().endswith((".jpg", ".jpeg", ".png")):
+                try:
+                    img_response = requests.get(img_url)
+                    content_type = img_response.headers.get("Content-Type", "")
+                    if img_response.ok and "image" in content_type:
+                        product_template.image_1920 = img_response.content
+                        _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
+                        break
+                    else:
+                        _logger.warning(f"⚠️ Imagen principal inválida: {img_url} - Tipo: {content_type}")
+                except Exception as e:
+                    _logger.warning(f"⚠️ Error cargando imagen principal desde {img_url}: {e}")
 
         # Imagen por variante de color
         for variant in product_template.product_variant_ids:
