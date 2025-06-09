@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import json
 import logging
 import requests
@@ -26,7 +27,8 @@ class ProductTemplate(models.Model):
 
         try:
             auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
-            auth_response.raise_for_status()
+            if auth_response.status_code != 200:
+                raise UserError(f"❌ Error autenticando: {auth_response.status_code} - {auth_response.text}")
             token = auth_response.json().get("token")
             if not token:
                 raise UserError("❌ No se recibió un token válido.")
@@ -44,45 +46,40 @@ class ProductTemplate(models.Model):
 
         try:
             response = requests.get(product_url, headers=headers)
-            response.raise_for_status()
+            _logger.info(f"📥 Respuesta cruda:\n{response.text}")
+            if response.status_code != 200:
+                raise UserError(f"❌ Error al obtener el producto: {response.status_code} - {response.text}")
             data_list = response.json()
             data = data_list if isinstance(data_list, dict) else data_list[0] if data_list else {}
-            _logger.info(f"📦 JSON recibido:\n{json.dumps(data, indent=2)}")
+            _logger.info(f"📦 JSON interpretado:\n{json.dumps(data, indent=2)}")
         except Exception as e:
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # Marca
         brand_data = data.get("brand") or {}
-        brand_name = ""
         if isinstance(brand_data, dict):
-            brand_name = brand_data.get("name", {}).get("es", "")
-        if not brand_name:
-            _logger.warning("⚠️ Marca no disponible.")
+            brand = brand_data.get("name", {}).get("es", "")
+        else:
+            brand = ""
 
-        # Datos básicos
         name = data.get("designation", {}).get("es", "Producto sin nombre")
-        full_name = f"{brand_name} {name}".strip()
+        full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
-        list_price = 9.8  # Valor ficticio por defecto
+        list_price = 9.8
         standard_price = 0.0
 
-        # Precio de coste
         for color in data.get("colors", []):
             for size in color.get("sizes", []):
+                price_str = size.get("wholesaleUnitPrice", "0").replace(",", ".")
                 try:
-                    price_str = size.get("wholesaleUnitPrice", "0").replace(",", ".")
                     standard_price = float(price_str)
                     break
-                except Exception as e:
-                    _logger.warning(f"⚠️ Error leyendo precio coste: {e}")
+                except Exception:
+                    continue
             if standard_price:
                 break
-        if not standard_price:
-            _logger.warning("⚠️ No se pudo obtener precio de coste.")
 
-        # Crear plantilla
         template_vals = {
             'name': full_name,
             'default_code': default_code,
@@ -92,12 +89,14 @@ class ProductTemplate(models.Model):
             'standard_price': standard_price,
             'categ_id': self.env.ref("product.product_category_all").id,
         }
+
         _logger.info(f"🛠️ Datos para crear plantilla: {template_vals}")
         product_template = self.create(template_vals)
         _logger.info(f"✅ Plantilla creada: {product_template.name}")
 
         # Atributos y variantes
         attribute_lines = []
+
         for color in data.get("colors", []):
             color_name = color.get("colors", {}).get("es")
             for size in color.get("sizes", []):
@@ -130,6 +129,7 @@ class ProductTemplate(models.Model):
                         'attribute_id': color_attr.id,
                         'value_ids': [(6, 0, [color_val.id])]
                     })
+
                 if size_attr and size_val and all(line['attribute_id'] != size_attr.id for line in attribute_lines):
                     attribute_lines.append({
                         'attribute_id': size_attr.id,
@@ -144,24 +144,27 @@ class ProductTemplate(models.Model):
         else:
             _logger.warning("⚠️ No se encontraron atributos para asignar.")
 
-        # Imagen principal
+        # Imagen principal con logs adicionales
         img_url = ""
-        for img in data.get("images", []):
+        images = data.get("images", [])
+        for img in images:
             img_url = img.get("url_image", "")
             if img_url.lower().endswith((".jpg", ".jpeg", ".png")):
                 try:
                     img_response = requests.get(img_url)
                     content_type = img_response.headers.get("Content-Type", "")
+                    _logger.info(f"🧪 Validando imagen desde: {img_url} - Content-Type: {content_type}")
+                    _logger.info(f"🧪 Bytes (100 primeros): {img_response.content[:100]}")
                     if img_response.ok and "image" in content_type:
                         product_template.image_1920 = img_response.content
                         _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
                         break
                     else:
-                        _logger.warning(f"⚠️ Imagen no válida: {img_url} (Content-Type: {content_type})")
+                        _logger.warning(f"⚠️ Imagen principal inválida: {img_url} - Tipo: {content_type}")
                 except Exception as e:
                     _logger.warning(f"⚠️ Error cargando imagen principal desde {img_url}: {e}")
 
-        # Imagen por variante
+        # Imagen por variante de color
         for variant in product_template.product_variant_ids:
             color_value = variant.product_template_attribute_value_ids.filtered(
                 lambda v: v.attribute_id.name == "Color"
@@ -171,7 +174,9 @@ class ProductTemplate(models.Model):
             if variant_img:
                 try:
                     variant_response = requests.get(variant_img)
-                    if variant_response.ok and "image" in variant_response.headers.get("Content-Type", ""):
+                    variant_type = variant_response.headers.get("Content-Type", "")
+                    _logger.info(f"🧪 Imagen variante desde: {variant_img} - Tipo: {variant_type}")
+                    if variant_response.ok and "image" in variant_type:
                         variant.image_1920 = variant_response.content
                         _logger.info(f"🖼️ Imagen asignada a variante: {variant.name}")
                     else:
