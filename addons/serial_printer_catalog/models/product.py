@@ -1,11 +1,32 @@
-# -*- coding: utf-8 -*-
 import json
 import logging
 import requests
+import base64
+import io
+from PIL import Image
 from odoo import models, api
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
+
+def get_image_binary_from_url(url):
+    try:
+        _logger.info(f"🖼️ Descargando imagen desde {url}")
+        response = requests.get(url, stream=True, timeout=10)
+        content_type = response.headers.get("Content-Type", "")
+        if response.status_code == 200 and "image" in content_type:
+            image = Image.open(io.BytesIO(response.content))
+            image = image.convert("RGB")
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG")
+            image_bytes = buffer.getvalue()
+            _logger.info(f"✅ Imagen convertida a binario ({len(image_bytes)} bytes)")
+            return base64.b64encode(image_bytes)
+        else:
+            _logger.warning(f"⚠️ Contenido no válido como imagen: {url}")
+    except Exception as e:
+        _logger.warning(f"❌ Error al procesar imagen desde {url}: {str(e)}")
+    return None
 
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
@@ -144,27 +165,18 @@ class ProductTemplate(models.Model):
         else:
             _logger.warning("⚠️ No se encontraron atributos para asignar.")
 
-        # Imagen principal con logs adicionales
-        img_url = ""
+        # Imagen principal (Pillow)
         images = data.get("images", [])
         for img in images:
             img_url = img.get("url_image", "")
-            if img_url.lower().endswith((".jpg", ".jpeg", ".png")):
-                try:
-                    img_response = requests.get(img_url)
-                    content_type = img_response.headers.get("Content-Type", "")
-                    _logger.info(f"🧪 Validando imagen desde: {img_url} - Content-Type: {content_type}")
-                    _logger.info(f"🧪 Bytes (100 primeros): {img_response.content[:100]}")
-                    if img_response.ok and "image" in content_type:
-                        product_template.image_1920 = img_response.content
-                        _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
-                        break
-                    else:
-                        _logger.warning(f"⚠️ Imagen principal inválida: {img_url} - Tipo: {content_type}")
-                except Exception as e:
-                    _logger.warning(f"⚠️ Error cargando imagen principal desde {img_url}: {e}")
+            if img_url:
+                image_bin = get_image_binary_from_url(img_url)
+                if image_bin:
+                    product_template.image_1920 = image_bin
+                    _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
+                    break
 
-        # Imagen por variante de color
+        # Imagen por variante de color (Pillow)
         for variant in product_template.product_variant_ids:
             color_value = variant.product_template_attribute_value_ids.filtered(
                 lambda v: v.attribute_id.name == "Color"
@@ -172,14 +184,7 @@ class ProductTemplate(models.Model):
             color_data = next((c for c in data.get("colors", []) if c.get("colors", {}).get("es") == color_value), None)
             variant_img = color_data.get("url_image") if color_data else None
             if variant_img:
-                try:
-                    variant_response = requests.get(variant_img)
-                    variant_type = variant_response.headers.get("Content-Type", "")
-                    _logger.info(f"🧪 Imagen variante desde: {variant_img} - Tipo: {variant_type}")
-                    if variant_response.ok and "image" in variant_type:
-                        variant.image_1920 = variant_response.content
-                        _logger.info(f"🖼️ Imagen asignada a variante: {variant.name}")
-                    else:
-                        _logger.warning(f"⚠️ Imagen no válida para variante {variant.name}")
-                except Exception as e:
-                    _logger.warning(f"⚠️ Error asignando imagen a variante {variant.name}: {e}")
+                image_bin = get_image_binary_from_url(variant_img)
+                if image_bin:
+                    variant.image_1920 = image_bin
+                    _logger.info(f"🖼️ Imagen asignada a variante: {variant.name}")
