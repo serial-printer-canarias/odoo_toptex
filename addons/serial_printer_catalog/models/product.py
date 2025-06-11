@@ -14,48 +14,50 @@ class ProductTemplate(models.Model):
 
     @api.model
     def sync_product_from_api(self):
-        # Leer parámetros de sistema
         proxy_url = self.env['ir.config_parameter'].sudo().get_param('toptex_proxy_url')
         username = self.env['ir.config_parameter'].sudo().get_param('toptex_username')
         password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
         api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key')
 
-        # Obtener token
-        token_url = f"{proxy_url}/v3/authenticate"
-        headers = {'x-api-key': api_key, 'Content-Type': 'application/json'}
-        payload = {'username': username, 'password': password}
+        # Autenticación
+        auth_url = f"{proxy_url}/v3/authenticate"
+        auth_headers = {'x-api-key': api_key, 'Content-Type': 'application/json'}
+        auth_payload = {'username': username, 'password': password}
 
-        response = requests.post(token_url, headers=headers, json=payload)
-        if response.status_code != 200:
-            _logger.error(f"Error autenticando: {response.status_code} - {response.text}")
+        auth_response = requests.post(auth_url, headers=auth_headers, json=auth_payload)
+        if auth_response.status_code != 200:
+            _logger.error(f"Error autenticando: {auth_response.status_code} - {auth_response.text}")
             return
 
-        token = response.json().get('token')
+        token = auth_response.json().get('token')
         _logger.info("Token obtenido correctamente")
 
-        # Crear sesión persistente con headers fijos
-        session = requests.Session()
-        session.headers.update({
-            'x-api-key': api_key,
-            'Authorization': f'Bearer {token}',
-            'Content-Type': 'application/json'
-        })
-
-        # Endpoint individual b2b_uniquement estable
+        # Obtenemos el producto por catalog_reference con b2b_b2c
         catalog_reference = "NS300"
-        product_url = f"{proxy_url}/v3/products/{catalog_reference}?usage_right=b2b_uniquement"
+        product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c"
+        headers = {
+            'x-api-key': api_key,
+            'toptex-authorization': token,
+            'Content-Type': 'application/json'
+        }
 
-        product_response = session.get(product_url)
+        product_response = requests.get(product_url, headers=headers)
         if product_response.status_code != 200:
             _logger.error(f"Error obteniendo producto: {product_response.status_code} - {product_response.text}")
             return
 
-        product_data = product_response.json()
+        product_list = product_response.json()
+        if isinstance(product_list, list) and len(product_list) > 0:
+            product_data = product_list[0]
+        else:
+            _logger.error("No se encontró el producto en la respuesta.")
+            return
+
         _logger.info(f"Producto recibido: {json.dumps(product_data)}")
 
-        # Obtener stock
+        # Obtenemos el stock
         stock_url = f"{proxy_url}/v3/products/inventory/{catalog_reference}"
-        stock_response = session.get(stock_url)
+        stock_response = requests.get(stock_url, headers=headers)
         if stock_response.status_code == 200:
             stock_data = stock_response.json()
             _logger.info(f"Stock recibido: {json.dumps(stock_data)}")
@@ -63,9 +65,9 @@ class ProductTemplate(models.Model):
             stock_data = {}
             _logger.warning(f"No se pudo obtener el stock: {stock_response.status_code}")
 
-        # Obtener precios de coste
+        # Obtenemos el precio
         price_url = f"{proxy_url}/v3/products/price/{catalog_reference}"
-        price_response = session.get(price_url)
+        price_response = requests.get(price_url, headers=headers)
         if price_response.status_code == 200:
             price_data = price_response.json()
             _logger.info(f"Precios recibidos: {json.dumps(price_data)}")
@@ -73,7 +75,7 @@ class ProductTemplate(models.Model):
             price_data = {}
             _logger.warning(f"No se pudo obtener el precio: {price_response.status_code}")
 
-        # Preparar atributos
+        # Atributos
         color_attribute = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
         if not color_attribute:
             color_attribute = self.env['product.attribute'].create({'name': 'Color'})
@@ -82,9 +84,9 @@ class ProductTemplate(models.Model):
         if not size_attribute:
             size_attribute = self.env['product.attribute'].create({'name': 'Talla'})
 
-        # Crear template principal
         brand_name = product_data.get('brand', {}).get('name', {}).get('es', 'Sin marca')
         description = product_data.get('description', {}).get('fullDescription', {}).get('es', '')
+
         template_vals = {
             'name': f"{brand_name} {product_data.get('designation', '')}",
             'default_code': product_data.get('catalogReference', ''),
@@ -95,7 +97,6 @@ class ProductTemplate(models.Model):
             'list_price': price_data.get('priceList', [{}])[0].get('publicPrice', 0.0),
         }
 
-        # Cargar imagen principal
         try:
             first_image_url = product_data.get('images', [])[0].get('url')
             image_response = requests.get(first_image_url)
@@ -112,7 +113,6 @@ class ProductTemplate(models.Model):
 
         product_template = self.env['product.template'].create(template_vals)
 
-        # Crear variantes
         for color in product_data.get('colors', []):
             color_name = color.get('translatedName', {}).get('es', color.get('name', ''))
             color_value = self.env['product.attribute.value'].search([
@@ -142,7 +142,6 @@ class ProductTemplate(models.Model):
                     'standard_price': price_data.get('priceList', [{}])[0].get('netPrice', 0.0),
                 })
 
-                # Descargar imagen por variante (color)
                 try:
                     variant_images = color.get('images', [])
                     if variant_images:
@@ -159,7 +158,6 @@ class ProductTemplate(models.Model):
                 except Exception as e:
                     _logger.warning(f"Error cargando imagen variante: {str(e)}")
 
-                # Asignar stock real si disponible
                 try:
                     inventory = stock_data.get('inventoryList', [])
                     for inv in inventory:
@@ -167,7 +165,7 @@ class ProductTemplate(models.Model):
                             qty = inv.get('availableQuantity', 0)
                             self.env['stock.quant'].create({
                                 'product_id': variant.id,
-                                'location_id': 1,  # Ajustar si es necesario
+                                'location_id': 1,
                                 'quantity': qty
                             })
                             break
