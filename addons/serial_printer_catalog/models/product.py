@@ -32,15 +32,14 @@ class ProductTemplate(models.Model):
         token = auth_response.json().get('token')
         _logger.info("Token obtenido correctamente")
 
-        # Configuramos sesión para proteger headers en Odoo.sh
+        # Creamos sesión para proteger headers
         session = requests.Session()
         session.headers.update({
             'x-api-key': api_key,
-            'toptex-authorization': token,
+            'Authorization': f'Bearer {token}',
             'Content-Type': 'application/json'
         })
 
-        # Obtenemos el producto b2b_b2c
         catalog_reference = "NS300"
         product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c"
         product_response = session.get(product_url)
