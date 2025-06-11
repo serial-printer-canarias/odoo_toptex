@@ -32,16 +32,18 @@ class ProductTemplate(models.Model):
         token = auth_response.json().get('token')
         _logger.info("Token obtenido correctamente")
 
-        # Obtenemos el producto por catalog_reference con b2b_b2c
-        catalog_reference = "NS300"
-        product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c"
-        headers = {
+        # Configuramos sesión para proteger headers en Odoo.sh
+        session = requests.Session()
+        session.headers.update({
             'x-api-key': api_key,
             'toptex-authorization': token,
             'Content-Type': 'application/json'
-        }
+        })
 
-        product_response = requests.get(product_url, headers=headers)
+        # Obtenemos el producto b2b_b2c
+        catalog_reference = "NS300"
+        product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c"
+        product_response = session.get(product_url)
         if product_response.status_code != 200:
             _logger.error(f"Error obteniendo producto: {product_response.status_code} - {product_response.text}")
             return
@@ -55,25 +57,15 @@ class ProductTemplate(models.Model):
 
         _logger.info(f"Producto recibido: {json.dumps(product_data)}")
 
-        # Obtenemos el stock
+        # Stock
         stock_url = f"{proxy_url}/v3/products/inventory/{catalog_reference}"
-        stock_response = requests.get(stock_url, headers=headers)
-        if stock_response.status_code == 200:
-            stock_data = stock_response.json()
-            _logger.info(f"Stock recibido: {json.dumps(stock_data)}")
-        else:
-            stock_data = {}
-            _logger.warning(f"No se pudo obtener el stock: {stock_response.status_code}")
+        stock_response = session.get(stock_url)
+        stock_data = stock_response.json() if stock_response.status_code == 200 else {}
 
-        # Obtenemos el precio
+        # Precios
         price_url = f"{proxy_url}/v3/products/price/{catalog_reference}"
-        price_response = requests.get(price_url, headers=headers)
-        if price_response.status_code == 200:
-            price_data = price_response.json()
-            _logger.info(f"Precios recibidos: {json.dumps(price_data)}")
-        else:
-            price_data = {}
-            _logger.warning(f"No se pudo obtener el precio: {price_response.status_code}")
+        price_response = session.get(price_url)
+        price_data = price_response.json() if price_response.status_code == 200 else {}
 
         # Atributos
         color_attribute = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
@@ -106,8 +98,6 @@ class ProductTemplate(models.Model):
                 image.save(buffered, format="PNG")
                 img_str = base64.b64encode(buffered.getvalue())
                 template_vals['image_1920'] = img_str
-            else:
-                _logger.warning("No se pudo cargar la imagen principal")
         except Exception as e:
             _logger.warning(f"Error cargando imagen principal: {str(e)}")
 
@@ -153,8 +143,6 @@ class ProductTemplate(models.Model):
                             image.save(buffered, format="PNG")
                             img_str = base64.b64encode(buffered.getvalue())
                             variant.image_1920 = img_str
-                        else:
-                            _logger.warning(f"No se pudo cargar imagen variante para color {color_name}")
                 except Exception as e:
                     _logger.warning(f"Error cargando imagen variante: {str(e)}")
 
