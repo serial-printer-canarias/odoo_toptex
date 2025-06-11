@@ -32,16 +32,17 @@ class ProductTemplate(models.Model):
         token = auth_response.json().get('token')
         _logger.info("Token obtenido correctamente")
 
-        # Creamos sesión para proteger headers
+        # Creamos sesión sin headers ya que el token va por URL
         session = requests.Session()
         session.headers.update({
             'x-api-key': api_key,
-            'Authorization': f'Bearer {token}',
             'Content-Type': 'application/json'
         })
 
         catalog_reference = "NS300"
-        product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c"
+
+        # --- Aquí es donde pasamos el token por URL ---
+        product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c&token={token}"
         product_response = session.get(product_url)
         if product_response.status_code != 200:
             _logger.error(f"Error obteniendo producto: {product_response.status_code} - {product_response.text}")
@@ -57,12 +58,12 @@ class ProductTemplate(models.Model):
         _logger.info(f"Producto recibido: {json.dumps(product_data)}")
 
         # Stock
-        stock_url = f"{proxy_url}/v3/products/inventory/{catalog_reference}"
+        stock_url = f"{proxy_url}/v3/products/inventory/{catalog_reference}?token={token}"
         stock_response = session.get(stock_url)
         stock_data = stock_response.json() if stock_response.status_code == 200 else {}
 
         # Precios
-        price_url = f"{proxy_url}/v3/products/price/{catalog_reference}"
+        price_url = f"{proxy_url}/v3/products/price/{catalog_reference}?token={token}"
         price_response = session.get(price_url)
         price_data = price_response.json() if price_response.status_code == 200 else {}
 
