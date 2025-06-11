@@ -33,26 +33,35 @@ class ProductTemplate(models.Model):
         token = response.json().get('token')
         _logger.info("Token obtenido correctamente")
 
-        # Obtener datos del producto principal (catálogo)
-        catalog_reference = "NS300"
-        product_url = f"{proxy_url}/v3/products/{catalog_reference}?usage_right=b2b_uniquement"
-        product_headers = {
+        # Crear sesión persistente con headers fijos
+        session = requests.Session()
+        session.headers.update({
             'x-api-key': api_key,
             'Authorization': f'Bearer {token}',
             'Content-Type': 'application/json'
-        }
+        })
 
-        product_response = requests.get(product_url, headers=product_headers)
+        # Usamos tu endpoint correcto con b2b_b2c
+        catalog_reference = "NS300"
+        product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c"
+
+        product_response = session.get(product_url)
         if product_response.status_code != 200:
             _logger.error(f"Error obteniendo producto: {product_response.status_code} - {product_response.text}")
             return
 
-        product_data = product_response.json()
+        product_list = product_response.json()
+        if isinstance(product_list, list) and len(product_list) > 0:
+            product_data = product_list[0]  # Tomamos el primer producto de la lista
+        else:
+            _logger.error("No se encontró el producto en la respuesta.")
+            return
+
         _logger.info(f"Producto recibido: {json.dumps(product_data)}")
 
         # Obtener stock
         stock_url = f"{proxy_url}/v3/products/inventory/{catalog_reference}"
-        stock_response = requests.get(stock_url, headers=product_headers)
+        stock_response = session.get(stock_url)
         if stock_response.status_code == 200:
             stock_data = stock_response.json()
             _logger.info(f"Stock recibido: {json.dumps(stock_data)}")
@@ -62,7 +71,7 @@ class ProductTemplate(models.Model):
 
         # Obtener precios de coste
         price_url = f"{proxy_url}/v3/products/price/{catalog_reference}"
-        price_response = requests.get(price_url, headers=product_headers)
+        price_response = session.get(price_url)
         if price_response.status_code == 200:
             price_data = price_response.json()
             _logger.info(f"Precios recibidos: {json.dumps(price_data)}")
