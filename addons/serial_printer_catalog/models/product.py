@@ -38,7 +38,7 @@ class ProductTemplate(models.Model):
         product_url = f"{proxy_url}/v3/products/{catalog_reference}?usage_right=b2b_uniquement"
         product_headers = {
             'x-api-key': api_key,
-            'toptex-authorization': token,
+            'Authorization': f'Bearer {token}',
             'Content-Type': 'application/json'
         }
 
