@@ -41,22 +41,16 @@ class ProductTemplate(models.Model):
             'Content-Type': 'application/json'
         })
 
-        # Usamos tu endpoint correcto con b2b_b2c
+        # Endpoint individual b2b_uniquement estable
         catalog_reference = "NS300"
-        product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c"
+        product_url = f"{proxy_url}/v3/products/{catalog_reference}?usage_right=b2b_uniquement"
 
         product_response = session.get(product_url)
         if product_response.status_code != 200:
             _logger.error(f"Error obteniendo producto: {product_response.status_code} - {product_response.text}")
             return
 
-        product_list = product_response.json()
-        if isinstance(product_list, list) and len(product_list) > 0:
-            product_data = product_list[0]  # Tomamos el primer producto de la lista
-        else:
-            _logger.error("No se encontró el producto en la respuesta.")
-            return
-
+        product_data = product_response.json()
         _logger.info(f"Producto recibido: {json.dumps(product_data)}")
 
         # Obtener stock
