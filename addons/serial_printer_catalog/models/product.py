@@ -89,7 +89,7 @@ class ProductTemplate(models.Model):
         except Exception as e:
             _logger.warning(f"⚠️ Error imagen principal: {e}")
 
-        # Crear atributos
+        # Crear atributos (si no existen)
         color_attribute = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
         if not color_attribute:
             color_attribute = self.env['product.attribute'].create({'name': 'Color'})
@@ -119,6 +119,7 @@ class ProductTemplate(models.Model):
                     size_value = self.env['product.attribute.value'].create({'name': size_name, 'attribute_id': size_attribute.id})
                 size_values.append(size_value)
 
+        # Crear el producto template sin variantes primero
         template_vals = {
             'name': full_name,
             'default_code': default_code,
@@ -126,26 +127,31 @@ class ProductTemplate(models.Model):
             'description_sale': description,
             'list_price': list_price,
             'standard_price': standard_price,
-            'attribute_line_ids': [
-                (0, 0, {'attribute_id': color_attribute.id, 'value_ids': [(6, 0, [v.id for v in color_values])]}),
-                (0, 0, {'attribute_id': size_attribute.id, 'value_ids': [(6, 0, [v.id for v in size_values])]}),
-            ],
+            'categ_id': self.env.ref('product.product_category_all').id,
         }
         if image_data:
             template_vals['image_1920'] = image_data
 
         product_template = self.env['product.template'].create(template_vals)
 
-        # Asignar imágenes por variante, precio y stock
+        # Asignar atributos después vía write
+        product_template.write({
+            'attribute_line_ids': [
+                (0, 0, {'attribute_id': color_attribute.id, 'value_ids': [(6, 0, [v.id for v in color_values])]}),
+                (0, 0, {'attribute_id': size_attribute.id, 'value_ids': [(6, 0, [v.id for v in size_values])]}),
+            ]
+        })
+
+        # Forzar generación de variantes
+        product_template._create_variant_ids()
+
+        # Recorrer variantes
         for variant in product_template.product_variant_ids:
             variant_attributes = variant.product_template_attribute_value_ids
             color_name = ''
-            size_name = ''
             for val in variant_attributes:
                 if val.attribute_id == color_attribute:
                     color_name = val.name
-                elif val.attribute_id == size_attribute:
-                    size_name = val.name
 
             # Imagen de variante por color
             try:
