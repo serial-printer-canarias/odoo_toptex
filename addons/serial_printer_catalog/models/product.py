@@ -5,7 +5,7 @@ import logging
 import requests
 from io import BytesIO
 from PIL import Image
-from odoo import models, fields, api
+from odoo import models, api
 
 _logger = logging.getLogger(__name__)
 
@@ -19,55 +19,66 @@ class ProductTemplate(models.Model):
         password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
         api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key')
 
-        # Autenticación
+        # Autenticación (POST con API Key)
         auth_url = f"{proxy_url}/v3/authenticate"
-        auth_headers = {'x-api-key': api_key, 'Content-Type': 'application/json'}
-        auth_payload = {'username': username, 'password': password}
+        auth_headers = {
+            'x-api-key': api_key,
+            'Content-Type': 'application/json'
+        }
+        auth_payload = {
+            'username': username,
+            'password': password
+        }
 
         auth_response = requests.post(auth_url, headers=auth_headers, json=auth_payload)
         if auth_response.status_code != 200:
-            _logger.error(f"Error autenticando: {auth_response.status_code} - {auth_response.text}")
+            _logger.error(f"❌ Error autenticando: {auth_response.status_code} - {auth_response.text}")
             return
 
         token = auth_response.json().get('token')
-        _logger.info("Token obtenido correctamente")
+        if not token:
+            _logger.error("❌ No se recibió un token válido.")
+            return
 
-        # Creamos sesión sin headers ya que el token va por URL
-        session = requests.Session()
-        session.headers.update({
+        _logger.info("🔐 Token recibido correctamente.")
+
+        # Headers para TODAS las llamadas GET
+        headers = {
             'x-api-key': api_key,
-            'Content-Type': 'application/json'
-        })
+            'x-toptex-authorization': token,
+            'Content-Type': 'application/json',
+            'Accept-Encoding': 'gzip, deflate, br'
+        }
 
         catalog_reference = "NS300"
 
-        # --- Aquí es donde pasamos el token por URL ---
-        product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c&token={token}"
-        product_response = session.get(product_url)
-        if product_response.status_code != 200:
-            _logger.error(f"Error obteniendo producto: {product_response.status_code} - {product_response.text}")
+        # Llamada al producto
+        product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c"
+        response = requests.get(product_url, headers=headers)
+        if response.status_code != 200:
+            _logger.error(f"❌ Error obteniendo producto: {response.status_code} - {response.text}")
             return
 
-        product_list = product_response.json()
-        if isinstance(product_list, list) and len(product_list) > 0:
-            product_data = product_list[0]
+        data_list = response.json()
+        if isinstance(data_list, list) and len(data_list) > 0:
+            product_data = data_list[0]
         else:
-            _logger.error("No se encontró el producto en la respuesta.")
+            _logger.error("❌ No se encontró el producto en la respuesta.")
             return
 
-        _logger.info(f"Producto recibido: {json.dumps(product_data)}")
+        _logger.info("✅ Producto recibido correctamente.")
 
-        # Stock
-        stock_url = f"{proxy_url}/v3/products/inventory/{catalog_reference}?token={token}"
-        stock_response = session.get(stock_url)
+        # Llamada a stock
+        stock_url = f"{proxy_url}/v3/products/inventory/{catalog_reference}"
+        stock_response = requests.get(stock_url, headers=headers)
         stock_data = stock_response.json() if stock_response.status_code == 200 else {}
 
-        # Precios
-        price_url = f"{proxy_url}/v3/products/price/{catalog_reference}?token={token}"
-        price_response = session.get(price_url)
+        # Llamada a precios
+        price_url = f"{proxy_url}/v3/products/price/{catalog_reference}"
+        price_response = requests.get(price_url, headers=headers)
         price_data = price_response.json() if price_response.status_code == 200 else {}
 
-        # Atributos
+        # Preparación de atributos
         color_attribute = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
         if not color_attribute:
             color_attribute = self.env['product.attribute'].create({'name': 'Color'})
@@ -99,7 +110,7 @@ class ProductTemplate(models.Model):
                 img_str = base64.b64encode(buffered.getvalue())
                 template_vals['image_1920'] = img_str
         except Exception as e:
-            _logger.warning(f"Error cargando imagen principal: {str(e)}")
+            _logger.warning(f"⚠️ Error cargando imagen principal: {str(e)}")
 
         product_template = self.env['product.template'].create(template_vals)
 
@@ -144,7 +155,7 @@ class ProductTemplate(models.Model):
                             img_str = base64.b64encode(buffered.getvalue())
                             variant.image_1920 = img_str
                 except Exception as e:
-                    _logger.warning(f"Error cargando imagen variante: {str(e)}")
+                    _logger.warning(f"⚠️ Error cargando imagen variante: {str(e)}")
 
                 try:
                     inventory = stock_data.get('inventoryList', [])
@@ -158,6 +169,6 @@ class ProductTemplate(models.Model):
                             })
                             break
                 except Exception as e:
-                    _logger.warning(f"Error asignando stock: {str(e)}")
+                    _logger.warning(f"⚠️ Error asignando stock: {str(e)}")
 
-        _logger.info("Producto sincronizado correctamente")
+        _logger.info("✅ Producto sincronizado correctamente.")
