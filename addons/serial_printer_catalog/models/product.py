@@ -68,16 +68,28 @@ class ProductTemplate(models.Model):
         brand_data = data.get("brand") or {}
         brand = brand_data.get("name", {}).get("es", "") if isinstance(brand_data, dict) else ""
 
-        # Nombre + descripción
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
-
         default_code = data.get("catalogReference", "NS300")
+
         list_price = price_data.get('priceList', [{}])[0].get('publicPrice', 9.8)
         standard_price = price_data.get('priceList', [{}])[0].get('netPrice', 0.0)
 
-        # Creamos atributos
+        # Imagen principal
+        image_data = None
+        try:
+            first_image_url = data.get("images", [])[0].get("url")
+            image_response = requests.get(first_image_url)
+            if image_response.status_code == 200 and 'image' in image_response.headers.get('Content-Type', ''):
+                image = Image.open(BytesIO(image_response.content))
+                buffered = BytesIO()
+                image.save(buffered, format="PNG")
+                image_data = base64.b64encode(buffered.getvalue())
+        except Exception as e:
+            _logger.warning(f"⚠️ Error imagen principal: {e}")
+
+        # Crear atributos
         color_attribute = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
         if not color_attribute:
             color_attribute = self.env['product.attribute'].create({'name': 'Color'})
@@ -107,20 +119,6 @@ class ProductTemplate(models.Model):
                     size_value = self.env['product.attribute.value'].create({'name': size_name, 'attribute_id': size_attribute.id})
                 size_values.append(size_value)
 
-        # Imagen principal
-        image_data = None
-        try:
-            first_image_url = data.get("images", [])[0].get("url")
-            image_response = requests.get(first_image_url)
-            if image_response.status_code == 200 and 'image' in image_response.headers.get('Content-Type', ''):
-                image = Image.open(BytesIO(image_response.content))
-                buffered = BytesIO()
-                image.save(buffered, format="PNG")
-                image_data = base64.b64encode(buffered.getvalue())
-        except Exception as e:
-            _logger.warning(f"⚠️ Error imagen principal: {e}")
-
-        # Crear product.template
         template_vals = {
             'name': full_name,
             'default_code': default_code,
@@ -138,7 +136,7 @@ class ProductTemplate(models.Model):
 
         product_template = self.env['product.template'].create(template_vals)
 
-        # Ahora actualizamos cada variante generada por Odoo
+        # Asignar imágenes por variante, precio y stock
         for variant in product_template.product_variant_ids:
             variant_attributes = variant.product_template_attribute_value_ids
             color_name = ''
