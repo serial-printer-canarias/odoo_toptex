@@ -79,11 +79,11 @@ class ProductTemplate(models.Model):
         full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
 
-        # Precios base
         default_code = data.get("catalogReference", "NS300")
         list_price = price_data.get('priceList', [{}])[0].get('publicPrice', 9.8)
         standard_price = price_data.get('priceList', [{}])[0].get('netPrice', 0.0)
 
+        # Creamos atributos si no existen
         color_attribute = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
         if not color_attribute:
             color_attribute = self.env['product.attribute'].create({'name': 'Color'})
@@ -92,30 +92,8 @@ class ProductTemplate(models.Model):
         if not size_attribute:
             size_attribute = self.env['product.attribute'].create({'name': 'Talla'})
 
-        template_vals = {
-            'name': full_name,
-            'default_code': default_code,
-            'type': 'consu',
-            'description_sale': description,
-            'list_price': list_price,
-            'standard_price': standard_price,
-        }
-
-        # Imagen principal
-        try:
-            first_image_url = data.get("images", [])[0].get("url")
-            image_response = requests.get(first_image_url)
-            if image_response.status_code == 200 and 'image' in image_response.headers.get('Content-Type', ''):
-                image = Image.open(BytesIO(image_response.content))
-                buffered = BytesIO()
-                image.save(buffered, format="PNG")
-                img_str = base64.b64encode(buffered.getvalue())
-                template_vals['image_1920'] = img_str
-        except Exception as e:
-            _logger.warning(f"⚠️ Error procesando imagen principal: {e}")
-
-        product_template = self.env['product.template'].create(template_vals)
-
+        # Creamos los valores de atributos
+        color_values = []
         for color in data.get("colors", []):
             color_name = color.get("translatedName", {}).get("es", color.get("name", ""))
             color_value = self.env['product.attribute.value'].search([
@@ -125,6 +103,7 @@ class ProductTemplate(models.Model):
                 color_value = self.env['product.attribute.value'].create({
                     'name': color_name, 'attribute_id': color_attribute.id
                 })
+            color_values.append(color_value)
 
             for size in color.get("sizes", []):
                 size_name = size.get("translatedName", {}).get("es", size.get("name", ""))
@@ -132,47 +111,45 @@ class ProductTemplate(models.Model):
                     ('name', '=', size_name), ('attribute_id', '=', size_attribute.id)
                 ], limit=1)
                 if not size_value:
-                    size_value = self.env['product.attribute.value'].create({
+                    self.env['product.attribute.value'].create({
                         'name': size_name, 'attribute_id': size_attribute.id
                     })
 
-                combination = [(6, 0, [color_value.id, size_value.id])]
+        # Imagen principal
+        image_data = None
+        try:
+            first_image_url = data.get("images", [])[0].get("url")
+            image_response = requests.get(first_image_url)
+            if image_response.status_code == 200 and 'image' in image_response.headers.get('Content-Type', ''):
+                image = Image.open(BytesIO(image_response.content))
+                buffered = BytesIO()
+                image.save(buffered, format="PNG")
+                image_data = base64.b64encode(buffered.getvalue())
+        except Exception as e:
+            _logger.warning(f"⚠️ Error procesando imagen principal: {e}")
 
-                variant = self.env['product.product'].create({
-                    'product_tmpl_id': product_template.id,
-                    'attribute_value_ids': combination,
-                    'default_code': size.get("sku", ""),
-                    'standard_price': standard_price
-                })
+        # Creamos el template con atributos
+        template_vals = {
+            'name': full_name,
+            'default_code': default_code,
+            'type': 'consu',
+            'description_sale': description,
+            'list_price': list_price,
+            'standard_price': standard_price,
+            'attribute_line_ids': [
+                (0, 0, {
+                    'attribute_id': color_attribute.id,
+                    'value_ids': [(6, 0, [v.id for v in color_values])]
+                }),
+                (0, 0, {
+                    'attribute_id': size_attribute.id,
+                    'value_ids': [(6, 0, self.env['product.attribute.value'].search([('attribute_id', '=', size_attribute.id)]).ids)]
+                }),
+            ],
+        }
+        if image_data:
+            template_vals['image_1920'] = image_data
 
-                # Imagen de variante
-                try:
-                    variant_images = color.get("images", [])
-                    if variant_images:
-                        variant_image_url = variant_images[0].get("url")
-                        image_response = requests.get(variant_image_url)
-                        if image_response.status_code == 200 and 'image' in image_response.headers.get('Content-Type', ''):
-                            image = Image.open(BytesIO(image_response.content))
-                            buffered = BytesIO()
-                            image.save(buffered, format="PNG")
-                            img_str = base64.b64encode(buffered.getvalue())
-                            variant.image_1920 = img_str
-                except Exception as e:
-                    _logger.warning(f"⚠️ Error procesando imagen de variante: {e}")
-
-                # Stock por variante
-                try:
-                    inventory = stock_data.get("inventoryList", [])
-                    for inv in inventory:
-                        if inv.get("sku") == size.get("sku"):
-                            qty = inv.get("availableQuantity", 0)
-                            self.env['stock.quant'].create({
-                                'product_id': variant.id,
-                                'location_id': 1,
-                                'quantity': qty
-                            })
-                            break
-                except Exception as e:
-                    _logger.warning(f"⚠️ Error asignando stock: {e}")
+        product_template = self.env['product.template'].create(template_vals)
 
         _logger.info("✅ Producto NS300 sincronizado completamente.")
