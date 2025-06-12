@@ -5,7 +5,7 @@ import logging
 import requests
 from io import BytesIO
 from PIL import Image
-from odoo import models, api
+from odoo import models, api, exceptions
 
 _logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ class ProductTemplate(models.Model):
         proxy_url = icp.get_param('toptex_proxy_url')
 
         if not all([username, password, api_key, proxy_url]):
-            raise UserError("❌ Faltan credenciales o parámetros.")
+            raise exceptions.UserError("❌ Faltan credenciales o parámetros.")
 
         # Autenticación
         auth_url = f"{proxy_url}/v3/authenticate"
@@ -31,10 +31,10 @@ class ProductTemplate(models.Model):
         try:
             auth_response = requests.post(auth_url, headers=auth_headers, json=auth_payload)
             if auth_response.status_code != 200:
-                raise UserError(f"❌ Error autenticando: {auth_response.status_code} - {auth_response.text}")
+                raise exceptions.UserError(f"❌ Error autenticando: {auth_response.status_code} - {auth_response.text}")
             token = auth_response.json().get("token")
             if not token:
-                raise UserError("❌ No se recibió un token válido.")
+                raise exceptions.UserError("❌ No se recibió un token válido.")
             _logger.info("🔐 Token recibido correctamente.")
         except Exception as e:
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
@@ -53,7 +53,7 @@ class ProductTemplate(models.Model):
         try:
             response = requests.get(product_url, headers=headers)
             if response.status_code != 200:
-                raise UserError(f"❌ Error al obtener el producto: {response.status_code} - {response.text}")
+                raise exceptions.UserError(f"❌ Error al obtener el producto: {response.status_code} - {response.text}")
             data_list = response.json()
             data = data_list[0] if isinstance(data_list, list) else data_list
             _logger.info("✅ Producto recibido correctamente.")
@@ -79,7 +79,7 @@ class ProductTemplate(models.Model):
         full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
 
-        # Precios base (por seguridad)
+        # Precios base
         default_code = data.get("catalogReference", "NS300")
         list_price = price_data.get('priceList', [{}])[0].get('publicPrice', 9.8)
         standard_price = price_data.get('priceList', [{}])[0].get('netPrice', 0.0)
@@ -96,7 +96,6 @@ class ProductTemplate(models.Model):
             'name': full_name,
             'default_code': default_code,
             'type': 'consu',
-            'detailed_type': 'product',
             'description_sale': description,
             'list_price': list_price,
             'standard_price': standard_price,
