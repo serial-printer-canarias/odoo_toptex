@@ -30,60 +30,40 @@ class ProductTemplate(models.Model):
 
         try:
             auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
-            if auth_response.status_code != 200:
-                raise UserError(f"❌ Error autenticando: {auth_response.status_code} - {auth_response.text}")
+            auth_response.raise_for_status()
             token = auth_response.json().get("token")
             if not token:
-                raise UserError("❌ No se recibió un token válido.")
+                raise UserError("❌ No se recibió token.")
             _logger.info("✅ Token recibido correctamente.")
         except Exception as e:
-            raise UserError(f"❌ Error autenticando con TopTex: {e}")
+            raise UserError(f"❌ Error autenticando: {e}")
 
-        # Petición del producto
         catalog_reference = "NS300"
         product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
-            "x-toptex-authorization": token,
-            "Accept-Encoding": "gzip, deflate, br"
+            "x-toptex-authorization": token
         }
 
         try:
             response = requests.get(product_url, headers=headers)
-            _logger.info(f"🌀 Respuesta cruda:\n{response.text}")
-            if response.status_code != 200:
-                raise UserError(f"❌ Error al obtener el producto: {response.status_code} - {response.text}")
+            response.raise_for_status()
             data_list = response.json()
-            data_list = data_list if isinstance(data_list, dict) else data_list[0]
-            data = data_list or {}
-            _logger.info(f"✅ JSON interpretado correctamente.")
+            data = data_list[0] if isinstance(data_list, list) else data_list
+            _logger.info(f"🟢 JSON recibido:\n{json.dumps(data, indent=2)}")
         except Exception as e:
-            raise UserError(f"❌ Error al obtener producto desde API: {e}")
+            raise UserError(f"❌ Error obteniendo producto: {e}")
 
-        # Mapeo de campos
-        brand_data = data.get("brand", {})
-        brand = ""
-        if isinstance(brand_data, dict):
-            brand = brand_data.get("name", {}).get("es", "")
-
-        name = data.get("designation", {}).get("es", "Producto sin nombre")
+        # Datos principales
+        brand = data.get("brandName", {}).get("es", "")
+        name = data.get("translatedName", {}).get("es", "Producto sin nombre")
         full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
-        default_code = data.get("catalogReference", "NS300")
-        list_price = data.get("publicPrice", 9.8)
-        standard_price = 0.0
+        default_code = data.get("productReference", catalog_reference)
+        list_price = float(data.get("publicUnitPrice", 0))
+        standard_price = 0.0  # lo calcularemos después
 
-        for color in data.get("colors", []):
-            for size in color.get("sizes", []):
-                price_str = size.get("wholesaleUnitPrice", "0").replace(",", ".")
-                try:
-                    standard_price = float(price_str)
-                    break
-                except:
-                    continue
-            if standard_price:
-                break
-
+        # Plantilla base
         template_vals = {
             'name': full_name,
             'default_code': default_code,
@@ -93,93 +73,98 @@ class ProductTemplate(models.Model):
             'standard_price': standard_price,
             'categ_id': self.env.ref('product.product_category_all').id,
         }
-
-        _logger.info(f"📦 Datos para crear plantilla: {template_vals}")
+        _logger.info(f"✅ Datos plantilla: {template_vals}")
         product_template = self.create(template_vals)
-        _logger.info(f"✅ Plantilla creada: {product_template.name}")
 
-        # Crear atributos y variantes
-        attribute_lines = []
+        # Atributos
+        color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
+        if not color_attr:
+            color_attr = self.env['product.attribute'].create({'name': 'Color'})
+
+        size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1)
+        if not size_attr:
+            size_attr = self.env['product.attribute'].create({'name': 'Talla'})
+
+        color_values = []
+        size_values = []
 
         for color in data.get("colors", []):
-            color_name = color.get("color", {}).get("es")
-            size_list = color.get("sizes", [])
-
-            # Validación por si color es None
+            color_name = color.get("colors", {}).get("es", "")
             if not color_name:
-                _logger.warning("⚠️ Color vacío o inválido, se omite.")
                 continue
 
-            color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
-            if not color_attr:
-                color_attr = self.env['product.attribute'].create({'name': 'Color'})
             color_val = self.env['product.attribute.value'].search([
-                ('name', '=', color_name),
-                ('attribute_id', '=', color_attr.id)
+                ('name', '=', color_name), ('attribute_id', '=', color_attr.id)
             ], limit=1)
             if not color_val:
                 color_val = self.env['product.attribute.value'].create({
-                    'name': color_name,
-                    'attribute_id': color_attr.id
+                    'name': color_name, 'attribute_id': color_attr.id
                 })
+            if color_val.id not in color_values:
+                color_values.append(color_val.id)
 
-            for size in size_list:
-                size_name = size.get("size")
-                if not size_name:
-                    continue
+            for size in color.get("sizes", []):
+                size_name = size.get("size", "")
+                price_str = size.get("wholesaleUnitPrice", "0").replace(",", ".")
+                try:
+                    price_float = float(price_str)
+                    if standard_price == 0.0:
+                        standard_price = price_float
+                except:
+                    price_float = 0.0
 
-                size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1)
-                if not size_attr:
-                    size_attr = self.env['product.attribute'].create({'name': 'Talla'})
                 size_val = self.env['product.attribute.value'].search([
-                    ('name', '=', size_name),
-                    ('attribute_id', '=', size_attr.id)
+                    ('name', '=', size_name), ('attribute_id', '=', size_attr.id)
                 ], limit=1)
                 if not size_val:
                     size_val = self.env['product.attribute.value'].create({
-                        'name': size_name,
-                        'attribute_id': size_attr.id
+                        'name': size_name, 'attribute_id': size_attr.id
                     })
+                if size_val.id not in size_values:
+                    size_values.append(size_val.id)
 
-                # Añadimos combinación color+talla
-                attribute_lines.append((0, 0, {
-                    'attribute_id': color_attr.id,
-                    'value_ids': [(6, 0, [color_val.id])]
-                }))
-                attribute_lines.append((0, 0, {
-                    'attribute_id': size_attr.id,
-                    'value_ids': [(6, 0, [size_val.id])]
-                }))
-
-        if attribute_lines:
-            product_template.write({'attribute_line_ids': attribute_lines})
-            _logger.info("✅ Atributos y variantes asignados correctamente.")
-        else:
-            _logger.warning("⚠️ No se encontraron atributos válidos para asignar.")
+        # Aplicar variantes
+        product_template.write({
+            'standard_price': standard_price,
+            'attribute_line_ids': [
+                (0, 0, {'attribute_id': color_attr.id, 'value_ids': [(6, 0, color_values)]}),
+                (0, 0, {'attribute_id': size_attr.id, 'value_ids': [(6, 0, size_values)]}),
+            ]
+        })
+        _logger.info("✅ Variantes generadas correctamente.")
 
         # Imagen principal
-        images = data.get("images", [])
-        for img in images:
-            img_url = img.get("url_image", "")
+        try:
+            img_url = data.get("packshotUrl", "")
             if img_url:
-                img_bin = self.get_image_binary_from_url(img_url)
+                img_bin = self.download_image(img_url)
                 if img_bin:
                     product_template.image_1920 = img_bin
-                    _logger.info(f"🖼 Imagen principal asignada desde: {img_url}")
-                break
+                    _logger.info(f"✅ Imagen principal asignada: {img_url}")
+        except Exception as e:
+            _logger.warning(f"⚠ Error imagen principal: {e}")
 
-    def get_image_binary_from_url(self, url):
+        # Imagen por variante de color
+        for variant in product_template.product_variant_ids:
+            color_value = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id == color_attr).name
+            color_data = next((c for c in data.get("colors", []) if c.get("colors", {}).get("es", "") == color_value), None)
+            if color_data:
+                variant_img_url = color_data.get("urlPackshot", "")
+                if variant_img_url:
+                    img_bin = self.download_image(variant_img_url)
+                    if img_bin:
+                        variant.image_variant_1920 = img_bin
+                        _logger.info(f"✅ Imagen asignada a variante {variant.display_name}")
+
+    def download_image(self, url):
         try:
             response = requests.get(url)
             if response.status_code == 200 and 'image' in response.headers.get('Content-Type', ''):
                 img = Image.open(BytesIO(response.content))
-                img_format = img.format if img.format else 'PNG'
-                buffered = BytesIO()
-                img.save(buffered, format=img_format)
-                return base64.b64encode(buffered.getvalue())
-            else:
-                _logger.warning(f"⚠️ Contenido no válido como imagen: {url}")
-                return None
+                img = img.convert('RGB')
+                buffer = BytesIO()
+                img.save(buffer, format='PNG')
+                return base64.b64encode(buffer.getvalue())
         except Exception as e:
-            _logger.warning(f"❌ Error al procesar imagen desde {url}: {e}")
-            return None
+            _logger.warning(f"⚠ Error descargando imagen: {e}")
+        return None
