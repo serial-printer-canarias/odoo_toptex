@@ -1,11 +1,11 @@
-# -*- coding: utf-8 -*-
-import base64
-import json
-import logging
 import requests
-from io import BytesIO
+import logging
+import json
+from odoo import models, api, fields
+from odoo.exceptions import UserError
 from PIL import Image
-from odoo import models, api, exceptions
+from io import BytesIO
+import base64
 
 _logger = logging.getLogger(__name__)
 
@@ -21,77 +21,98 @@ class ProductTemplate(models.Model):
         proxy_url = icp.get_param('toptex_proxy_url')
 
         if not all([username, password, api_key, proxy_url]):
-            raise exceptions.UserError("❌ Faltan parámetros de configuración.")
+            raise UserError("❌ Faltan credenciales o parámetros de configuración.")
 
-        # Autenticación
+        # 1️⃣ Autenticación
         auth_url = f"{proxy_url}/v3/authenticate"
-        auth_payload = {"username": username, "password": password}
-        auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
+        auth_payload = {'username': username, 'password': password}
+        auth_headers = {'x-api-key': api_key, 'Content-Type': 'application/json'}
 
         try:
             auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
-            auth_response.raise_for_status()
-            token = auth_response.json().get("token")
+            if auth_response.status_code != 200:
+                raise UserError(f"❌ Error autenticando: {auth_response.status_code} - {auth_response.text}")
+            token = auth_response.json().get('token')
             if not token:
-                raise exceptions.UserError("❌ No se recibió token.")
+                raise UserError("❌ No se recibió un token válido.")
             _logger.info("✅ Token recibido correctamente.")
         except Exception as e:
-            _logger.error(f"❌ Error autenticando: {e}")
+            _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        headers = {
-            "x-api-key": api_key,
-            "x-toptex-authorization": token
-        }
-
+        # 2️⃣ Descarga del producto NS300
         catalog_reference = "NS300"
         product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c"
+        headers = {
+            "x-api-key": api_key,
+            "x-toptex-authorization": token,
+            "Accept-Encoding": "gzip, deflate, br"
+        }
 
         try:
             response = requests.get(product_url, headers=headers)
-            response.raise_for_status()
+            _logger.info(f"📥 Respuesta cruda:\n{response.text}")
+            if response.status_code != 200:
+                raise UserError(f"❌ Error al obtener el producto: {response.status_code} - {response.text}")
             data_list = response.json()
-            data = data_list[0] if isinstance(data_list, list) and data_list else {}
-            _logger.info(json.dumps(data, indent=2))
+            data_list = data_list if isinstance(data_list, list) else [data_list]
+            if not data_list:
+                raise UserError("❌ No se encontró el producto en la respuesta.")
+            data = data_list[0]
+            _logger.info(f"🟢 JSON interpretado correctamente.")
         except Exception as e:
-            _logger.error(f"❌ Error obteniendo producto: {e}")
+            _logger.error(f"❌ Error obteniendo el producto desde API: {e}")
             return
 
-        # Marca y datos base
-        brand = data.get("brand", {}).get("name", {}).get("es", "") or "Sin Marca"
-        designation = data.get("designation", {}).get("es", "Sin Nombre")
-        full_name = f"{brand} {designation}".strip()
-        description = data.get("description", {}).get("es", "")
-        default_code = data.get("productReference", "NS300")
-        list_price = float(data.get("publicUnitPrice", 0) or 0)
-
-        # Precio coste del primer size
-        standard_price = 0.0
-        for color in data.get("colors", []):
-            for size in color.get("sizes", []):
-                price_str = size.get("wholesaleUnitPrice", "0").replace(",", ".")
-                try:
-                    standard_price = float(price_str)
-                    break
-                except:
-                    continue
-            if standard_price:
-                break
-
-        # Imagen principal
-        image_data = None
+        # 3️⃣ Mapeo de campos principales
         try:
-            images = data.get("images", [])
-            if images:
-                img_url = images[0].get("url_image", "")
-                img_data = self.download_and_resize_image(img_url)
-                if img_data:
-                    image_data = img_data
-                    _logger.info(f"✅ Imagen principal asignada: {img_url}")
-        except Exception as e:
-            _logger.warning(f"⚠️ Imagen principal no asignada: {e}")
+            brand_data = data.get("brand") or {}
+            brand = brand_data.get("name", {}).get("es", "")
+            name = data.get("designation", {}).get("es", "Producto sin nombre")
+            full_name = f"[{data.get('catalogReference','')}] {name}"
+            description = data.get("description", {}).get("es", "")
+            default_code = data.get("catalogReference", "NS300")
+            list_price = float(data.get("publicUnitPrice", 0) or 0)
+            standard_price = 0.0
 
-        # Creamos atributos
+            for color in data.get("colors", []):
+                for size in color.get("sizes", []):
+                    price_str = size.get("wholesaleUnitPrice", "0").replace(",", ".")
+                    try:
+                        standard_price = float(price_str)
+                        break
+                    except:
+                        continue
+                if standard_price:
+                    break
+
+            template_vals = {
+                'name': full_name,
+                'default_code': default_code,
+                'type': 'consu',
+                'description_sale': description,
+                'list_price': list_price,
+                'standard_price': standard_price,
+                'categ_id': self.env.ref('product.product_category_all').id,
+            }
+
+            if brand:
+                brand_obj = self.env['product.brand'].search([('name', '=', brand)], limit=1)
+                if not brand_obj:
+                    brand_obj = self.env['product.brand'].create({'name': brand})
+                template_vals['product_brand_id'] = brand_obj.id
+
+            _logger.info(f"✅ Datos para crear plantilla: {template_vals}")
+
+            product_template = self.create(template_vals)
+            _logger.info(f"✅ Plantilla creada: {product_template.name}")
+
+        except Exception as e:
+            _logger.error(f"❌ Error en mapeo de datos principales: {e}")
+            return
+
+        # 4️⃣ Crear atributos y variantes
+        attribute_lines = []
         color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
         if not color_attr:
             color_attr = self.env['product.attribute'].create({'name': 'Color'})
@@ -103,90 +124,92 @@ class ProductTemplate(models.Model):
         color_values = []
         size_values = []
 
-        for color in data.get("colors", []):
-            color_name = color.get("color", {}).get("es", "Color desconocido")
-            color_val = self.env['product.attribute.value'].search([
-                ('name', '=', color_name), ('attribute_id', '=', color_attr.id)
-            ], limit=1)
-            if not color_val:
-                color_val = self.env['product.attribute.value'].create({'name': color_name, 'attribute_id': color_attr.id})
-            color_values.append(color_val)
-
-            for size in color.get("sizes", []):
-                size_name = size.get("size", "Talla desconocida")
-                size_val = self.env['product.attribute.value'].search([
-                    ('name', '=', size_name), ('attribute_id', '=', size_attr.id)
-                ], limit=1)
-                if not size_val:
-                    size_val = self.env['product.attribute.value'].create({'name': size_name, 'attribute_id': size_attr.id})
-                size_values.append(size_val)
-
-        # Crear plantilla
-        template_vals = {
-            'name': full_name,
-            'default_code': default_code,
-            'type': 'consu',
-            'description_sale': description,
-            'list_price': list_price,
-            'standard_price': standard_price,
-            'categ_id': self.env.ref('product.product_category_all').id,
-        }
-        if image_data:
-            template_vals['image_1920'] = image_data
-
-        product_template = self.create(template_vals)
-
-        # Asignar variantes
-        product_template.write({
-            'attribute_line_ids': [
-                (0, 0, {'attribute_id': color_attr.id, 'value_ids': [(6, 0, [v.id for v in color_values])]}),
-                (0, 0, {'attribute_id': size_attr.id, 'value_ids': [(6, 0, [v.id for v in size_values])]}),
-            ]
-        })
-
-        product_template._create_variant_ids()
-
-        # Asignar imágenes de variantes
-        for variant in product_template.product_variant_ids:
-            color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id).name
-            color_data = next((c for c in data.get("colors", []) if c.get("color", {}).get("es", "") == color_val), None)
-            if color_data:
-                variant_img_url = color_data.get("url_image", "")
-                img_data = self.download_and_resize_image(variant_img_url)
-                if img_data:
-                    variant.image_variant_1920 = img_data
-                    _logger.info(f"✅ Imagen asignada a variante {variant.display_name}")
-
-        # Asignar stock
-        inventory_url = f"{proxy_url}/v3/products/inventory/{catalog_reference}"
         try:
-            stock_resp = requests.get(inventory_url, headers=headers)
-            stock_resp.raise_for_status()
-            stock_data = stock_resp.json()
-            for variant in product_template.product_variant_ids:
-                sku = variant.default_code
-                for inv in stock_data.get("inventoryList", []):
-                    if inv.get("sku") == sku:
-                        qty = inv.get("availableQuantity", 0)
-                        self.env['stock.quant'].create({
-                            'product_id': variant.id,
-                            'location_id': 1,
-                            'quantity': qty
-                        })
-                        _logger.info(f"✅ Stock asignado a {sku}: {qty}")
-                        break
-        except Exception as e:
-            _logger.warning(f"⚠️ Error asignando stock: {e}")
+            for color in data.get("colors", []):
+                color_name = color.get("color", {}).get("es", "")
+                color_val = self.env['product.attribute.value'].search([
+                    ('name', '=', color_name), ('attribute_id', '=', color_attr.id)
+                ], limit=1)
+                if not color_val:
+                    color_val = self.env['product.attribute.value'].create({
+                        'name': color_name, 'attribute_id': color_attr.id
+                    })
+                color_values.append(color_val.id)
 
-    def download_and_resize_image(self, url):
+                for size in color.get("sizes", []):
+                    size_name = size.get("size", "")
+                    size_val = self.env['product.attribute.value'].search([
+                        ('name', '=', size_name), ('attribute_id', '=', size_attr.id)
+                    ], limit=1)
+                    if not size_val:
+                        size_val = self.env['product.attribute.value'].create({
+                            'name': size_name, 'attribute_id': size_attr.id
+                        })
+                    size_values.append(size_val.id)
+
+            if color_values:
+                attribute_lines.append((0, 0, {
+                    'attribute_id': color_attr.id,
+                    'value_ids': [(6, 0, color_values)]
+                }))
+            if size_values:
+                attribute_lines.append((0, 0, {
+                    'attribute_id': size_attr.id,
+                    'value_ids': [(6, 0, size_values)]
+                }))
+
+            product_template.write({'attribute_line_ids': attribute_lines})
+            _logger.info("✅ Variantes y atributos creados correctamente.")
+
+        except Exception as e:
+            _logger.error(f"❌ Error creando variantes: {e}")
+            return
+
+        # 5️⃣ Imagen principal (Pillow)
+        try:
+            images = data.get("images", [])
+            img_url = ""
+            for img in images:
+                img_url = img.get("url_image", "")
+                if img_url:
+                    break
+            if img_url:
+                img_bin = self.get_image_binary_from_url(img_url)
+                if img_bin:
+                    product_template.image_1920 = img_bin
+                    _logger.info("✅ Imagen principal asignada.")
+        except Exception as e:
+            _logger.error(f"❌ Error asignando imagen principal: {e}")
+
+        # 6️⃣ Imagen por variante de color (Pillow)
+        try:
+            for variant in product_template.product_variant_ids:
+                color_value = variant.product_template_attribute_value_ids.filtered(
+                    lambda v: v.attribute_id.id == color_attr.id
+                ).name
+
+                color_data = next((c for c in data.get("colors", []) if c.get("color", {}).get("es", "") == color_value), None)
+                variant_img = color_data.get("url_image", "") if color_data else None
+                if variant_img:
+                    img_bin = self.get_image_binary_from_url(variant_img)
+                    if img_bin:
+                        variant.image_1920 = img_bin
+                        _logger.info(f"✅ Imagen asignada a variante: {variant.name}")
+        except Exception as e:
+            _logger.error(f"❌ Error asignando imagen a variantes: {e}")
+
+    def get_image_binary_from_url(self, url):
         try:
             response = requests.get(url)
-            if response.status_code == 200 and 'image' in response.headers.get('Content-Type', ''):
-                img = Image.open(BytesIO(response.content))
-                img = img.convert('RGB')
-                output = BytesIO()
-                img.save(output, format='PNG')
-                return base64.b64encode(output.getvalue())
+            if response.status_code == 200:
+                image = Image.open(BytesIO(response.content))
+                buffer = BytesIO()
+                image.save(buffer, format="PNG")
+                img_bytes = buffer.getvalue()
+                return base64.b64encode(img_bytes)
+            else:
+                _logger.warning(f"⚠ No se pudo descargar imagen desde {url}")
+                return None
         except Exception as e:
-            _logger.warning(f"⚠️ Error descargando imagen: {e}")
-        return None
+            _logger.error(f"❌ Error procesando imagen: {e}")
+            return None
