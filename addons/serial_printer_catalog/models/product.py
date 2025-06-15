@@ -28,8 +28,8 @@ class ProductTemplate(models.Model):
         token = auth_response.json().get("token")
         _logger.info("Token recibido correctamente.")
 
-        # Descargar producto por catalog_reference NS300
-        product_url = f"{proxy_url}/v3/products?catalog_reference=NS300&usage_right=b2b_b2c"
+        # Descargar producto por catalog_reference ns300 (minúsculas)
+        product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
             "x-toptex-authorization": token,
@@ -79,7 +79,7 @@ class ProductTemplate(models.Model):
                     _logger.warning(f"No se pudo procesar imagen principal: {str(e)}")
 
         # Obtener precio coste
-        price_url = f"{proxy_url}/v3/products/price?catalog_reference=NS300"
+        price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
         price_response = requests.get(price_url, headers=headers)
         standard_price = 0.0
         if price_response.status_code == 200:
@@ -93,7 +93,7 @@ class ProductTemplate(models.Model):
             _logger.warning("Error obteniendo precios.")
 
         # Obtener stock
-        stock_url = f"{proxy_url}/v3/products/inventory?catalog_reference=NS300"
+        stock_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
         stock_response = requests.get(stock_url, headers=headers)
         stock_quantity = 0
         if stock_response.status_code == 200:
@@ -143,6 +143,21 @@ class ProductTemplate(models.Model):
                     'attribute_id': color_attr.id
                 })
 
+            # Imagen por variante
+            variant_image_bin = False
+            variant_images = color.get("images", [])
+            if variant_images:
+                variant_url = variant_images[0].get("url_packshot")
+                if variant_url:
+                    try:
+                        img_response = requests.get(variant_url)
+                        img = Image.open(BytesIO(img_response.content))
+                        buffer = BytesIO()
+                        img.save(buffer, format='PNG')
+                        variant_image_bin = base64.b64encode(buffer.getvalue())
+                    except Exception as e:
+                        _logger.warning(f"No se pudo procesar imagen variante {color_name}: {str(e)}")
+
             for size in color.get("sizes", []):
                 size_name = size.get("size", "").strip()
                 if not size_name:
@@ -167,9 +182,10 @@ class ProductTemplate(models.Model):
                     'value_ids': [(6, 0, [size_val.id])]
                 }))
 
+                # Aquí ya podemos extender luego si queremos asignar imagen a cada combinación específica
+
         if attribute_lines:
             product_template.write({'attribute_line_ids': attribute_lines})
             _logger.info("Atributos y variantes asignadas correctamente.")
 
-        # Log final para validación completa
-        _logger.info("Producto NS300 sincronizado completamente en Odoo.")
+        _logger.info("Producto NS300 sincronizado completamente en Odoo con imágenes por variante.")
