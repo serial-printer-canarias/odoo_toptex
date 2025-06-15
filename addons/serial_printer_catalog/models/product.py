@@ -13,7 +13,6 @@ class ProductTemplate(models.Model):
 
     @api.model
     def sync_product_from_api(self):
-        # Leer parámetros de sistema
         proxy_url = self.env['ir.config_parameter'].sudo().get_param('toptex_proxy_url')
         username = self.env['ir.config_parameter'].sudo().get_param('toptex_username')
         password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
@@ -23,12 +22,11 @@ class ProductTemplate(models.Model):
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-
         auth_response = requests.post(auth_url, headers=auth_headers, json=auth_payload)
         token = auth_response.json().get("token")
         _logger.info("Token recibido correctamente.")
 
-        # Descargar producto por catalog_reference NS300
+        # Obtener producto NS300
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -38,33 +36,29 @@ class ProductTemplate(models.Model):
         response = requests.get(product_url, headers=headers)
 
         if response.status_code != 200:
-            _logger.error(f"Error en llamada a catálogo: {response.text}")
+            _logger.error(f"Error al obtener producto: {response.text}")
             return
 
-        # Parseo robusto de respuesta JSON
         try:
             full_response = response.json()
-            data_list = full_response.get("data", full_response)
-            if isinstance(data_list, list) and len(data_list) > 0:
-                data = data_list[0]
+            if isinstance(full_response, list) and len(full_response) > 0:
+                data = full_response[0]
             else:
                 _logger.error("No se encontró producto en respuesta.")
                 return
         except Exception as e:
-            _logger.error(f"Error al interpretar respuesta JSON: {str(e)}")
+            _logger.error(f"Error al interpretar JSON: {str(e)}")
             return
 
         _logger.info("JSON principal recibido:")
         _logger.info(json.dumps(data, indent=2))
 
-        # Extraer campos generales
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
 
         brand_data = data.get("brand", {})
         brand = brand_data.get("name", {}).get("es", "Sin Marca")
-
         brand_category = self.env['product.category'].search([('name', '=', brand)], limit=1)
         if not brand_category:
             brand_category = self.env['product.category'].create({'name': brand})
@@ -108,7 +102,7 @@ class ProductTemplate(models.Model):
         else:
             _logger.warning("Error obteniendo stock.")
 
-        # Crear plantilla principal
+        # Crear plantilla
         template_vals = {
             'name': name,
             'default_code': default_code,
@@ -123,7 +117,7 @@ class ProductTemplate(models.Model):
         product_template = self.create(template_vals)
         _logger.info(f"Producto creado: {product_template.name}")
 
-        # Crear atributos Color y Talla
+        # Variantes (Color y Talla)
         color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
         if not color_attr:
             color_attr = self.env['product.attribute'].create({'name': 'Color'})
@@ -136,7 +130,7 @@ class ProductTemplate(models.Model):
         for color in data.get("colors", []):
             color_name = color.get("colors", {}).get("es", "").strip()
             if not color_name:
-                _logger.warning("Color vacío, omitido.")
+                _logger.warning("Color vacío omitido.")
                 continue
 
             color_val = self.env['product.attribute.value'].search([
@@ -175,6 +169,6 @@ class ProductTemplate(models.Model):
 
         if attribute_lines:
             product_template.write({'attribute_line_ids': attribute_lines})
-            _logger.info("Atributos y variantes asignadas correctamente.")
+            _logger.info("Atributos y variantes asignados correctamente.")
 
-        _logger.info("Producto NS300 sincronizado correctamente.")
+        _logger.info("Producto NS300 sincronizado completamente.")
