@@ -28,8 +28,9 @@ class ProductTemplate(models.Model):
         token = auth_response.json().get("token")
         _logger.info("Token recibido correctamente.")
 
-        # Llamada al producto por catalog_reference
-        product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
+        # Petición al producto NS300 (catalog_reference)
+        catalog_reference = "ns300"
+        product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
             "x-toptex-authorization": token,
@@ -46,16 +47,15 @@ class ProductTemplate(models.Model):
         _logger.info("JSON interpretado correctamente.")
         _logger.info(json.dumps(data, indent=2))
 
-        # Mapear datos generales
+        # Mapeo de campos generales
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         description = data.get("description", {}).get("es", "")
-        default_code = data.get("catalogReference", "NS300")
+        default_code = data.get("catalogReference", catalog_reference)
 
         # Marca
-        brand_data = data.get("brand", {})
-        brand = brand_data.get("name", {}).get("es", "Sin Marca")
+        brand = data.get("brand", "Sin Marca")
 
-        # Crear categoría de marca
+        # Buscar o crear categoría de marca
         brand_category = self.env['product.category'].search([('name', '=', brand)], limit=1)
         if not brand_category:
             brand_category = self.env['product.category'].create({'name': brand})
@@ -75,11 +75,11 @@ class ProductTemplate(models.Model):
                 except Exception as e:
                     _logger.warning(f"No se pudo procesar la imagen principal: {str(e)}")
 
-        # Crear producto plantilla
+        # Crear plantilla producto
         template_vals = {
             'name': name,
             'default_code': default_code,
-            'type': 'consu',  # SIEMPRE FIJO
+            'type': 'consu',
             'description_sale': description,
             'categ_id': brand_category.id,
             'image_1920': image_bin or False,
@@ -87,29 +87,29 @@ class ProductTemplate(models.Model):
         product_template = self.create(template_vals)
         _logger.info(f"Producto plantilla creado: {product_template.name}")
 
-        # Crear atributos Color y Talla
+        # Procesar variantes: Color y Talla
         color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
         if not color_attr:
             color_attr = self.env['product.attribute'].create({'name': 'Color'})
+
         size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1)
         if not size_attr:
             size_attr = self.env['product.attribute'].create({'name': 'Talla'})
 
-        attribute_lines = []
+        # Preparar líneas de atributos agrupados
+        color_values, size_values = [], []
 
         for color in data.get("colors", []):
-            color_name = color.get("colors", {}).get("es", "").strip()
+            color_name = color.get("color", {}).get("es", "").strip()
             if not color_name:
-                _logger.warning("Color vacío. Se omite.")
                 continue
 
             color_val = self.env['product.attribute.value'].search([
                 ('name', '=', color_name), ('attribute_id', '=', color_attr.id)
             ], limit=1)
             if not color_val:
-                color_val = self.env['product.attribute.value'].create({
-                    'name': color_name, 'attribute_id': color_attr.id
-                })
+                color_val = self.env['product.attribute.value'].create({'name': color_name, 'attribute_id': color_attr.id})
+            color_values.append(color_val.id)
 
             for size in color.get("sizes", []):
                 size_name = size.get("size", "").strip()
@@ -120,42 +120,41 @@ class ProductTemplate(models.Model):
                     ('name', '=', size_name), ('attribute_id', '=', size_attr.id)
                 ], limit=1)
                 if not size_val:
-                    size_val = self.env['product.attribute.value'].create({
-                        'name': size_name, 'attribute_id': size_attr.id
-                    })
+                    size_val = self.env['product.attribute.value'].create({'name': size_name, 'attribute_id': size_attr.id})
+                size_values.append(size_val.id)
 
-                # Añadir líneas para la combinación
-                attribute_lines.append((0, 0, {
-                    'attribute_id': color_attr.id, 'value_ids': [(6, 0, [color_val.id])]
-                }))
-                attribute_lines.append((0, 0, {
-                    'attribute_id': size_attr.id, 'value_ids': [(6, 0, [size_val.id])]
-                }))
+        attribute_lines = []
+        if color_values:
+            attribute_lines.append((0, 0, {'attribute_id': color_attr.id, 'value_ids': [(6, 0, color_values)]}))
+        if size_values:
+            attribute_lines.append((0, 0, {'attribute_id': size_attr.id, 'value_ids': [(6, 0, size_values)]}))
 
         if attribute_lines:
             product_template.write({'attribute_line_ids': attribute_lines})
-            _logger.info("Atributos y variantes creadas correctamente.")
+            _logger.info("Variantes color y talla creadas correctamente.")
 
-        # --------- PRECIOS Y STOCK -------------------
-
-        # Precio de coste
+        # Obtener Precio de Coste
         try:
-            price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
+            price_url = f"{proxy_url}/v3/products/price?catalog_reference={catalog_reference}"
             price_response = requests.get(price_url, headers=headers)
             price_data = price_response.json()
-            standard_price = price_data.get("purchasePrice", 0.0)
+            standard_price = float(price_data[0]["colors"][0]["sizes"][0]["wholesalePrice"]["value"])
             product_template.write({'standard_price': standard_price})
-            _logger.info(f"Precio de coste asignado: {standard_price}")
+            _logger.info(f"Precio coste asignado: {standard_price}")
         except Exception as e:
-            _logger.warning("No se pudo obtener precio de coste.")
+            _logger.warning(f"No se pudo obtener precio coste: {e}")
 
-        # Stock
+        # Obtener Stock
         try:
-            stock_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
+            stock_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_reference}"
             stock_response = requests.get(stock_url, headers=headers)
             stock_data = stock_response.json()
-            stock_qty = stock_data.get("availableStock", 0)
+            stock_qty = sum(
+                int(size.get("stock", {}).get("quantity", 0))
+                for color in stock_data[0].get("colors", [])
+                for size in color.get("sizes", [])
+            )
             product_template.write({'qty_available': stock_qty})
-            _logger.info(f"Stock asignado: {stock_qty}")
+            _logger.info(f"Stock total asignado: {stock_qty}")
         except Exception as e:
-            _logger.warning("No se pudo obtener stock.")
+            _logger.warning(f"No se pudo obtener stock: {e}")
