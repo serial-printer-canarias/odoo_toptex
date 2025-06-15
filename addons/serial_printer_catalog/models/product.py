@@ -3,7 +3,7 @@ import json
 import base64
 from io import BytesIO
 from PIL import Image
-from odoo import models, fields, api
+from odoo import models, api
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -13,6 +13,7 @@ class ProductTemplate(models.Model):
 
     @api.model
     def sync_product_from_api(self):
+        # Leer parámetros desde Odoo
         proxy_url = self.env['ir.config_parameter'].sudo().get_param('toptex_proxy_url')
         username = self.env['ir.config_parameter'].sudo().get_param('toptex_username')
         password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
@@ -26,7 +27,7 @@ class ProductTemplate(models.Model):
         token = auth_response.json().get("token")
         _logger.info("Token recibido correctamente.")
 
-        # Obtener producto NS300
+        # Descargar producto NS300 (catalog_reference minúsculas)
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -34,15 +35,15 @@ class ProductTemplate(models.Model):
             "Accept-Encoding": "gzip, deflate, br"
         }
         response = requests.get(product_url, headers=headers)
-
         if response.status_code != 200:
-            _logger.error(f"Error al obtener producto: {response.text}")
+            _logger.error(f"Error en llamada a catálogo: {response.text}")
             return
 
+        # Corrección definitiva del parseo JSON (este era el bucle)
         try:
-            full_response = response.json()
-            if isinstance(full_response, list) and len(full_response) > 0:
-                data = full_response[0]
+            data_list = response.json()
+            if isinstance(data_list, list) and len(data_list) > 0:
+                data = data_list[0]
             else:
                 _logger.error("No se encontró producto en respuesta.")
                 return
@@ -50,15 +51,17 @@ class ProductTemplate(models.Model):
             _logger.error(f"Error al interpretar JSON: {str(e)}")
             return
 
-        _logger.info("JSON principal recibido:")
+        _logger.info("JSON recibido correctamente:")
         _logger.info(json.dumps(data, indent=2))
 
+        # Campos generales
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
 
         brand_data = data.get("brand", {})
         brand = brand_data.get("name", {}).get("es", "Sin Marca")
+
         brand_category = self.env['product.category'].search([('name', '=', brand)], limit=1)
         if not brand_category:
             brand_category = self.env['product.category'].create({'name': brand})
@@ -78,7 +81,7 @@ class ProductTemplate(models.Model):
                 except Exception as e:
                     _logger.warning(f"No se pudo procesar imagen principal: {str(e)}")
 
-        # Obtener precio coste
+        # Precio coste
         price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
         price_response = requests.get(price_url, headers=headers)
         standard_price = 0.0
@@ -92,7 +95,7 @@ class ProductTemplate(models.Model):
         else:
             _logger.warning("Error obteniendo precios.")
 
-        # Obtener stock
+        # Stock
         stock_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
         stock_response = requests.get(stock_url, headers=headers)
         stock_quantity = 0
@@ -102,7 +105,7 @@ class ProductTemplate(models.Model):
         else:
             _logger.warning("Error obteniendo stock.")
 
-        # Crear plantilla
+        # Crear producto en Odoo
         template_vals = {
             'name': name,
             'default_code': default_code,
@@ -113,9 +116,8 @@ class ProductTemplate(models.Model):
             'standard_price': standard_price,
             'list_price': standard_price * 2,
         }
-
         product_template = self.create(template_vals)
-        _logger.info(f"Producto creado: {product_template.name}")
+        _logger.info(f"Producto plantilla creado: {product_template.name}")
 
         # Variantes (Color y Talla)
         color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
@@ -133,14 +135,13 @@ class ProductTemplate(models.Model):
                 _logger.warning("Color vacío omitido.")
                 continue
 
-            color_val = self.env['product.attribute.value'].search([
-                ('name', '=', color_name),
-                ('attribute_id', '=', color_attr.id)
-            ], limit=1)
+            color_val = self.env['product.attribute.value'].search(
+                [('name', '=', color_name), ('attribute_id', '=', color_attr.id)],
+                limit=1
+            )
             if not color_val:
                 color_val = self.env['product.attribute.value'].create({
-                    'name': color_name,
-                    'attribute_id': color_attr.id
+                    'name': color_name, 'attribute_id': color_attr.id
                 })
 
             for size in color.get("sizes", []):
@@ -148,14 +149,13 @@ class ProductTemplate(models.Model):
                 if not size_name:
                     continue
 
-                size_val = self.env['product.attribute.value'].search([
-                    ('name', '=', size_name),
-                    ('attribute_id', '=', size_attr.id)
-                ], limit=1)
+                size_val = self.env['product.attribute.value'].search(
+                    [('name', '=', size_name), ('attribute_id', '=', size_attr.id)],
+                    limit=1
+                )
                 if not size_val:
                     size_val = self.env['product.attribute.value'].create({
-                        'name': size_name,
-                        'attribute_id': size_attr.id
+                        'name': size_name, 'attribute_id': size_attr.id
                     })
 
                 attribute_lines.append((0, 0, {
@@ -169,6 +169,6 @@ class ProductTemplate(models.Model):
 
         if attribute_lines:
             product_template.write({'attribute_line_ids': attribute_lines})
-            _logger.info("Atributos y variantes asignados correctamente.")
+            _logger.info("Variantes de producto asignadas correctamente.")
 
-        _logger.info("Producto NS300 sincronizado completamente.")
+        _logger.info("Producto NS300 completamente sincronizado en Odoo.")
