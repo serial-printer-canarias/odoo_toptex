@@ -13,51 +13,48 @@ class ProductTemplate(models.Model):
 
     @api.model
     def sync_product_from_api(self):
-        # Leer parámetros de sistema
         proxy_url = self.env['ir.config_parameter'].sudo().get_param('toptex_proxy_url')
         username = self.env['ir.config_parameter'].sudo().get_param('toptex_username')
         password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
         api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key')
 
-        # Obtener token
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
 
         auth_response = requests.post(auth_url, headers=auth_headers, json=auth_payload)
         token = auth_response.json().get("token")
-        _logger.info("✅ Token recibido correctamente.")
+        _logger.info("Token recibido correctamente.")
 
-        # Descargar producto por catalog_reference NS300 (siempre minúscula)
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
             "x-toptex-authorization": token,
             "Accept-Encoding": "gzip, deflate, br"
         }
+
         response = requests.get(product_url, headers=headers)
-
         if response.status_code != 200:
-            _logger.error(f"❌ Error en llamada a catálogo: {response.text}")
+            _logger.error(f"Error en llamada a catálogo: {response.text}")
             return
 
+        # PARSER ROBUSTO DEFINITIVO
         try:
-            # Aquí va la CLAVE de todo el fallo
-            data_list = response.json()
-            if isinstance(data_list, list) and len(data_list) > 0:
-                data = data_list[0]
+            full_response = response.json()
+            if isinstance(full_response, list) and full_response:
+                data = full_response[0]
+            elif isinstance(full_response, dict):
+                data = full_response.get("data", {})
             else:
-                _logger.error("❌ No se encontró producto en respuesta.")
+                _logger.error("Respuesta vacía o malformada.")
                 return
-
-            _logger.info("✅ JSON principal recibido:")
-            _logger.info(json.dumps(data, indent=2))
-
         except Exception as e:
-            _logger.error(f"❌ Error interpretando respuesta: {str(e)}")
+            _logger.error(f"Error al interpretar JSON: {e}")
             return
 
-        # Extraer campos generales
+        _logger.info("JSON principal recibido:")
+        _logger.info(json.dumps(data, indent=2))
+
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
@@ -69,7 +66,6 @@ class ProductTemplate(models.Model):
         if not brand_category:
             brand_category = self.env['product.category'].create({'name': brand})
 
-        # Imagen principal (solo la principal de momento)
         image_bin = False
         images = data.get("images", [])
         if images:
@@ -82,22 +78,45 @@ class ProductTemplate(models.Model):
                     img.save(buffer, format='PNG')
                     image_bin = base64.b64encode(buffer.getvalue())
                 except Exception as e:
-                    _logger.warning(f"⚠ No se pudo procesar imagen principal: {str(e)}")
+                    _logger.warning(f"No se pudo procesar imagen principal: {str(e)}")
 
-        # Crear plantilla principal básica
+        # PRECIO COSTE
+        price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
+        price_response = requests.get(price_url, headers=headers)
+        standard_price = 0.0
+        if price_response.status_code == 200:
+            price_data = price_response.json()
+            price_list = price_data.get("prices", [])
+            if price_list:
+                standard_price = price_list[0].get("netPrice", 0.0)
+        else:
+            _logger.warning("Error obteniendo precios.")
+
+        # STOCK
+        stock_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
+        stock_response = requests.get(stock_url, headers=headers)
+        stock_quantity = 0
+        if stock_response.status_code == 200:
+            stock_data = stock_response.json()
+            stock_quantity = sum(item.get("availableStock", 0) for item in stock_data.get("inventory", []))
+        else:
+            _logger.warning("Error obteniendo stock.")
+
         template_vals = {
             'name': name,
             'default_code': default_code,
             'type': 'consu',
             'description_sale': description,
             'categ_id': brand_category.id,
-            'image_1920': image_bin or False
+            'image_1920': image_bin or False,
+            'standard_price': standard_price,
+            'list_price': standard_price * 2,
         }
 
         product_template = self.create(template_vals)
-        _logger.info(f"✅ Producto creado en Odoo: {product_template.name}")
+        _logger.info(f"Producto creado: {product_template.name}")
 
-        # Crear atributos Color y Talla
+        # ATRIBUTOS VARIANTES
         color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
         if not color_attr:
             color_attr = self.env['product.attribute'].create({'name': 'Color'})
@@ -110,7 +129,6 @@ class ProductTemplate(models.Model):
         for color in data.get("colors", []):
             color_name = color.get("colors", {}).get("es", "").strip()
             if not color_name:
-                _logger.warning("⚠ Color vacío, omitido.")
                 continue
 
             color_val = self.env['product.attribute.value'].search([
@@ -149,6 +167,6 @@ class ProductTemplate(models.Model):
 
         if attribute_lines:
             product_template.write({'attribute_line_ids': attribute_lines})
-            _logger.info("✅ Variantes de color y talla asignadas correctamente.")
+            _logger.info("Atributos y variantes asignadas correctamente.")
 
-        _logger.info("🎯 Proceso finalizado correctamente para NS300.")
+        _logger.info("Producto NS300 sincronizado completamente.")
