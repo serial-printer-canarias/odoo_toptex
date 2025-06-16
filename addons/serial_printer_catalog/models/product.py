@@ -24,7 +24,7 @@ class ProductTemplate(models.Model):
 
         auth_response = requests.post(auth_url, headers=auth_headers, json=auth_payload)
         token = auth_response.json().get("token")
-        _logger.info("Token recibido correctamente.")
+        _logger.info("✅ Token recibido correctamente.")
 
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
@@ -35,30 +35,23 @@ class ProductTemplate(models.Model):
 
         response = requests.get(product_url, headers=headers)
         if response.status_code != 200:
-            _logger.error(f"Error en llamada a catálogo: {response.text}")
+            _logger.error(f"❌ Error en llamada a catálogo: {response.text}")
             return
 
-        # PARSER ROBUSTO DEFINITIVO
-        try:
-            full_response = response.json()
-            if isinstance(full_response, list) and full_response:
-                data = full_response[0]
-            elif isinstance(full_response, dict):
-                data = full_response.get("data", {})
-            else:
-                _logger.error("Respuesta vacía o malformada.")
-                return
-        except Exception as e:
-            _logger.error(f"Error al interpretar JSON: {e}")
-            return
+        # Procesar JSON (respuesta es lista directa)
+        full_response = response.json()
+        _logger.info("📦 JSON completo recibido:")
+        _logger.info(json.dumps(full_response, indent=2))
 
-        _logger.info("JSON principal recibido:")
-        _logger.info(json.dumps(data, indent=2))
+        if isinstance(full_response, list) and full_response:
+            data = full_response[0]
+        else:
+            _logger.error("❌ No se encontró producto en la respuesta.")
+            return
 
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
-
         brand_data = data.get("brand", {})
         brand = brand_data.get("name", {}).get("es", "Sin Marca")
 
@@ -78,9 +71,8 @@ class ProductTemplate(models.Model):
                     img.save(buffer, format='PNG')
                     image_bin = base64.b64encode(buffer.getvalue())
                 except Exception as e:
-                    _logger.warning(f"No se pudo procesar imagen principal: {str(e)}")
+                    _logger.warning(f"⚠️ No se pudo procesar imagen principal: {str(e)}")
 
-        # PRECIO COSTE
         price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
         price_response = requests.get(price_url, headers=headers)
         standard_price = 0.0
@@ -90,9 +82,8 @@ class ProductTemplate(models.Model):
             if price_list:
                 standard_price = price_list[0].get("netPrice", 0.0)
         else:
-            _logger.warning("Error obteniendo precios.")
+            _logger.warning("⚠️ Error obteniendo precios.")
 
-        # STOCK
         stock_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
         stock_response = requests.get(stock_url, headers=headers)
         stock_quantity = 0
@@ -100,7 +91,7 @@ class ProductTemplate(models.Model):
             stock_data = stock_response.json()
             stock_quantity = sum(item.get("availableStock", 0) for item in stock_data.get("inventory", []))
         else:
-            _logger.warning("Error obteniendo stock.")
+            _logger.warning("⚠️ Error obteniendo stock.")
 
         template_vals = {
             'name': name,
@@ -114,9 +105,8 @@ class ProductTemplate(models.Model):
         }
 
         product_template = self.create(template_vals)
-        _logger.info(f"Producto creado: {product_template.name}")
+        _logger.info(f"✅ Producto creado: {product_template.name}")
 
-        # ATRIBUTOS VARIANTES
         color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
         if not color_attr:
             color_attr = self.env['product.attribute'].create({'name': 'Color'})
@@ -129,6 +119,7 @@ class ProductTemplate(models.Model):
         for color in data.get("colors", []):
             color_name = color.get("colors", {}).get("es", "").strip()
             if not color_name:
+                _logger.warning("Color vacío, omitido.")
                 continue
 
             color_val = self.env['product.attribute.value'].search([
@@ -167,6 +158,6 @@ class ProductTemplate(models.Model):
 
         if attribute_lines:
             product_template.write({'attribute_line_ids': attribute_lines})
-            _logger.info("Atributos y variantes asignadas correctamente.")
+            _logger.info("✅ Atributos y variantes asignadas correctamente.")
 
-        _logger.info("Producto NS300 sincronizado completamente.")
+        _logger.info("🎯 Producto NS300 completamente sincronizado.")
