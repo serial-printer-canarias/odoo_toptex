@@ -13,11 +13,13 @@ class ProductTemplate(models.Model):
 
     @api.model
     def sync_product_from_api(self):
+        # Leer parámetros de sistema
         proxy_url = self.env['ir.config_parameter'].sudo().get_param('toptex_proxy_url')
         username = self.env['ir.config_parameter'].sudo().get_param('toptex_username')
         password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
         api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key')
 
+        # Obtener token
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
@@ -26,32 +28,39 @@ class ProductTemplate(models.Model):
         token = auth_response.json().get("token")
         _logger.info("✅ Token recibido correctamente.")
 
-        product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
+        # Descargar producto NS300 (catalog_reference)
+        product_url = f"{proxy_url}/v3/products?catalog_reference=NS300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
             "x-toptex-authorization": token,
             "Accept-Encoding": "gzip, deflate, br"
         }
-
         response = requests.get(product_url, headers=headers)
+
         if response.status_code != 200:
-            _logger.error(f"❌ Error en llamada a catálogo: {response.text}")
+            _logger.error(f"❌ Error al obtener producto: {response.text}")
             return
 
-        # Procesar JSON (respuesta es lista directa)
-        full_response = response.json()
-        _logger.info("📦 JSON completo recibido:")
-        _logger.info(json.dumps(full_response, indent=2))
-
-        if isinstance(full_response, list) and full_response:
-            data = full_response[0]
-        else:
-            _logger.error("❌ No se encontró producto en la respuesta.")
+        # PARSE CORRECTO DE LA RESPUESTA (LIST directo sin .get("data"))
+        try:
+            full_response = response.json()
+            if isinstance(full_response, list) and len(full_response) > 0:
+                data = full_response[0]
+            else:
+                _logger.error("❌ Respuesta vacía o mal formada")
+                return
+        except Exception as e:
+            _logger.error(f"❌ Error parseando JSON: {str(e)}")
             return
 
+        _logger.info("✅ JSON recibido:")
+        _logger.info(json.dumps(data, indent=2))
+
+        # Extraer campos generales
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
+
         brand_data = data.get("brand", {})
         brand = brand_data.get("name", {}).get("es", "Sin Marca")
 
@@ -59,6 +68,7 @@ class ProductTemplate(models.Model):
         if not brand_category:
             brand_category = self.env['product.category'].create({'name': brand})
 
+        # Imagen principal
         image_bin = False
         images = data.get("images", [])
         if images:
@@ -71,9 +81,10 @@ class ProductTemplate(models.Model):
                     img.save(buffer, format='PNG')
                     image_bin = base64.b64encode(buffer.getvalue())
                 except Exception as e:
-                    _logger.warning(f"⚠️ No se pudo procesar imagen principal: {str(e)}")
+                    _logger.warning(f"⚠️ Error procesando imagen: {str(e)}")
 
-        price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
+        # Obtener precio coste
+        price_url = f"{proxy_url}/v3/products/price?catalog_reference=NS300"
         price_response = requests.get(price_url, headers=headers)
         standard_price = 0.0
         if price_response.status_code == 200:
@@ -82,9 +93,10 @@ class ProductTemplate(models.Model):
             if price_list:
                 standard_price = price_list[0].get("netPrice", 0.0)
         else:
-            _logger.warning("⚠️ Error obteniendo precios.")
+            _logger.warning("⚠️ Error obteniendo precio coste.")
 
-        stock_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
+        # Obtener stock
+        stock_url = f"{proxy_url}/v3/products/inventory?catalog_reference=NS300"
         stock_response = requests.get(stock_url, headers=headers)
         stock_quantity = 0
         if stock_response.status_code == 200:
@@ -93,6 +105,7 @@ class ProductTemplate(models.Model):
         else:
             _logger.warning("⚠️ Error obteniendo stock.")
 
+        # Crear plantilla principal
         template_vals = {
             'name': name,
             'default_code': default_code,
@@ -107,6 +120,7 @@ class ProductTemplate(models.Model):
         product_template = self.create(template_vals)
         _logger.info(f"✅ Producto creado: {product_template.name}")
 
+        # Crear atributos Color y Talla
         color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
         if not color_attr:
             color_attr = self.env['product.attribute'].create({'name': 'Color'})
@@ -119,7 +133,7 @@ class ProductTemplate(models.Model):
         for color in data.get("colors", []):
             color_name = color.get("colors", {}).get("es", "").strip()
             if not color_name:
-                _logger.warning("Color vacío, omitido.")
+                _logger.warning("⚠️ Color vacío, omitido.")
                 continue
 
             color_val = self.env['product.attribute.value'].search([
