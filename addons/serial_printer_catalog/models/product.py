@@ -38,16 +38,20 @@ class ProductTemplate(models.Model):
             _logger.error(f"Error al obtener el producto: {response.text}")
             return
 
-        # LOG DEL JSON COMPLETO
+        # 👇 Aquí capturamos la respuesta exacta en bruto
+        _logger.info("Respuesta cruda recibida:")
+        _logger.info(response.text)
+
+        # Intentamos parsear el JSON como siempre
         try:
             full_response = response.json()
-            _logger.info("Respuesta completa de la API:")
+            _logger.info("JSON interpretado correctamente:")
             _logger.info(json.dumps(full_response, indent=2))
         except Exception as e:
-            _logger.error(f"Error interpretando el JSON completo: {str(e)}")
+            _logger.error(f"Error interpretando el JSON: {str(e)}")
             return
 
-        # PARSEO DE RESPUESTA COMO ANTES
+        # Mantenemos el mismo mapeo que antes
         if isinstance(full_response, list):
             data = full_response[0]
         else:
