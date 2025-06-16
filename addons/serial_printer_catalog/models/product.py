@@ -3,7 +3,7 @@ import json
 import base64
 from io import BytesIO
 from PIL import Image
-from odoo import models, api
+from odoo import models, fields, api
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -26,10 +26,10 @@ class ProductTemplate(models.Model):
 
         auth_response = requests.post(auth_url, headers=auth_headers, json=auth_payload)
         token = auth_response.json().get("token")
-        _logger.info("✅ Token recibido correctamente.")
+        _logger.info("✅ Token recibido correctamente")
 
         # Descargar producto por catalog_reference NS300
-        product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
+        product_url = f"{proxy_url}/v3/products?catalog_reference=NS300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
             "x-toptex-authorization": token,
@@ -38,30 +38,30 @@ class ProductTemplate(models.Model):
         response = requests.get(product_url, headers=headers)
 
         if response.status_code != 200:
-            _logger.error(f"❌ Error en llamada a catálogo: {response.text}")
+            _logger.error(f"❌ Error al obtener el producto: {response.text}")
             return
 
-        # Procesar JSON
+        # ATENCIÓN: respuesta es directamente una lista
         try:
-            full_response = response.json()
-            _logger.info(f"📦 JSON crudo recibido: {json.dumps(full_response, indent=2)}")
-            if isinstance(full_response, list) and len(full_response) > 0:
-                data = full_response[0]
+            data_list = response.json()
+            _logger.debug(f"Respuesta cruda completa: {json.dumps(data_list, indent=2)}")
+            if isinstance(data_list, list) and len(data_list) > 0:
+                data = data_list[0]
+                _logger.info("✅ Producto extraído correctamente del listado")
             else:
-                _logger.error("❌ No se encontró producto en respuesta.")
+                _logger.error("❌ No se encontró producto en la respuesta")
                 return
         except Exception as e:
-            _logger.error(f"❌ Error procesando JSON: {str(e)}")
+            _logger.error(f"❌ Error al interpretar el JSON: {str(e)}")
             return
 
-        # Datos principales
+        # Datos generales
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
 
         brand_data = data.get("brand", {})
         brand = brand_data.get("name", {}).get("es", "Sin Marca")
-
         brand_category = self.env['product.category'].search([('name', '=', brand)], limit=1)
         if not brand_category:
             brand_category = self.env['product.category'].create({'name': brand})
@@ -79,10 +79,10 @@ class ProductTemplate(models.Model):
                     img.save(buffer, format='PNG')
                     image_bin = base64.b64encode(buffer.getvalue())
                 except Exception as e:
-                    _logger.warning(f"⚠ No se pudo procesar imagen principal: {str(e)}")
+                    _logger.warning(f"No se pudo procesar imagen principal: {str(e)}")
 
         # Precio coste
-        price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
+        price_url = f"{proxy_url}/v3/products/price?catalog_reference=NS300"
         price_response = requests.get(price_url, headers=headers)
         standard_price = 0.0
         if price_response.status_code == 200:
@@ -91,21 +91,21 @@ class ProductTemplate(models.Model):
             if price_list:
                 standard_price = price_list[0].get("netPrice", 0.0)
             else:
-                _logger.warning("⚠ Lista de precios vacía.")
+                _logger.warning("Lista de precios vacía")
         else:
-            _logger.warning("⚠ Error obteniendo precios.")
+            _logger.warning("Error obteniendo precios")
 
         # Stock
-        stock_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
+        stock_url = f"{proxy_url}/v3/products/inventory?catalog_reference=NS300"
         stock_response = requests.get(stock_url, headers=headers)
         stock_quantity = 0
         if stock_response.status_code == 200:
             stock_data = stock_response.json()
             stock_quantity = sum(item.get("availableStock", 0) for item in stock_data.get("inventory", []))
         else:
-            _logger.warning("⚠ Error obteniendo stock.")
+            _logger.warning("Error obteniendo stock")
 
-        # Crear producto plantilla
+        # Crear plantilla de producto
         template_vals = {
             'name': name,
             'default_code': default_code,
@@ -118,9 +118,9 @@ class ProductTemplate(models.Model):
         }
 
         product_template = self.create(template_vals)
-        _logger.info(f"✅ Producto creado: {product_template.name}")
+        _logger.info(f"✅ Producto creado correctamente: {product_template.name}")
 
-        # Atributos Color y Talla
+        # Crear atributos Color y Talla
         color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
         if not color_attr:
             color_attr = self.env['product.attribute'].create({'name': 'Color'})
@@ -133,6 +133,7 @@ class ProductTemplate(models.Model):
         for color in data.get("colors", []):
             color_name = color.get("colors", {}).get("es", "").strip()
             if not color_name:
+                _logger.warning("Color vacío, omitido.")
                 continue
 
             color_val = self.env['product.attribute.value'].search([
@@ -171,6 +172,6 @@ class ProductTemplate(models.Model):
 
         if attribute_lines:
             product_template.write({'attribute_line_ids': attribute_lines})
-            _logger.info("✅ Variantes creadas correctamente.")
+            _logger.info("✅ Atributos y variantes asignadas correctamente")
 
-        _logger.info("🚀 Producto NS300 sincronizado completamente.")
+        _logger.info("🎯 Producto NS300 sincronizado con éxito en Odoo")
