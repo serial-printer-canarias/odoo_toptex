@@ -3,7 +3,7 @@ import json
 import base64
 from io import BytesIO
 from PIL import Image
-from odoo import models, api
+from odoo import models, fields, api
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -13,7 +13,6 @@ class ProductTemplate(models.Model):
 
     @api.model
     def sync_product_from_api(self):
-        # Leer parámetros desde Odoo
         proxy_url = self.env['ir.config_parameter'].sudo().get_param('toptex_proxy_url')
         username = self.env['ir.config_parameter'].sudo().get_param('toptex_username')
         password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
@@ -25,9 +24,9 @@ class ProductTemplate(models.Model):
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
         auth_response = requests.post(auth_url, headers=auth_headers, json=auth_payload)
         token = auth_response.json().get("token")
-        _logger.info("Token recibido correctamente.")
+        _logger.info("Token recibido correctamente")
 
-        # Descargar producto NS300 (catalog_reference minúsculas)
+        # Obtener producto NS300
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -35,30 +34,24 @@ class ProductTemplate(models.Model):
             "Accept-Encoding": "gzip, deflate, br"
         }
         response = requests.get(product_url, headers=headers)
+
         if response.status_code != 200:
             _logger.error(f"Error en llamada a catálogo: {response.text}")
             return
 
-        # Corrección definitiva del parseo JSON (este era el bucle)
-        try:
-            data_list = response.json()
-            if isinstance(data_list, list) and len(data_list) > 0:
-                data = data_list[0]
-            else:
-                _logger.error("No se encontró producto en respuesta.")
-                return
-        except Exception as e:
-            _logger.error(f"Error al interpretar JSON: {str(e)}")
+        data_list = response.json()
+        if isinstance(data_list, list) and len(data_list) > 0:
+            data = data_list[0]
+        else:
+            _logger.error("No se encontró producto en respuesta")
             return
 
-        _logger.info("JSON recibido correctamente:")
+        _logger.info("JSON principal recibido")
         _logger.info(json.dumps(data, indent=2))
 
-        # Campos generales
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
-
         brand_data = data.get("brand", {})
         brand = brand_data.get("name", {}).get("es", "Sin Marca")
 
@@ -81,7 +74,7 @@ class ProductTemplate(models.Model):
                 except Exception as e:
                     _logger.warning(f"No se pudo procesar imagen principal: {str(e)}")
 
-        # Precio coste
+        # Obtener precio coste
         price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
         price_response = requests.get(price_url, headers=headers)
         standard_price = 0.0
@@ -91,11 +84,11 @@ class ProductTemplate(models.Model):
             if price_list:
                 standard_price = price_list[0].get("netPrice", 0.0)
             else:
-                _logger.warning("Lista de precios vacía.")
+                _logger.warning("Lista de precios vacía")
         else:
-            _logger.warning("Error obteniendo precios.")
+            _logger.warning("Error obteniendo precios")
 
-        # Stock
+        # Obtener stock
         stock_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
         stock_response = requests.get(stock_url, headers=headers)
         stock_quantity = 0
@@ -103,9 +96,9 @@ class ProductTemplate(models.Model):
             stock_data = stock_response.json()
             stock_quantity = sum(item.get("availableStock", 0) for item in stock_data.get("inventory", []))
         else:
-            _logger.warning("Error obteniendo stock.")
+            _logger.warning("Error obteniendo stock")
 
-        # Crear producto en Odoo
+        # Crear producto plantilla
         template_vals = {
             'name': name,
             'default_code': default_code,
@@ -117,9 +110,9 @@ class ProductTemplate(models.Model):
             'list_price': standard_price * 2,
         }
         product_template = self.create(template_vals)
-        _logger.info(f"Producto plantilla creado: {product_template.name}")
+        _logger.info(f"Producto creado: {product_template.name}")
 
-        # Variantes (Color y Talla)
+        # Atributos y variantes
         color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
         if not color_attr:
             color_attr = self.env['product.attribute'].create({'name': 'Color'})
@@ -132,16 +125,17 @@ class ProductTemplate(models.Model):
         for color in data.get("colors", []):
             color_name = color.get("colors", {}).get("es", "").strip()
             if not color_name:
-                _logger.warning("Color vacío omitido.")
+                _logger.warning("Color vacío, omitido")
                 continue
 
-            color_val = self.env['product.attribute.value'].search(
-                [('name', '=', color_name), ('attribute_id', '=', color_attr.id)],
-                limit=1
-            )
+            color_val = self.env['product.attribute.value'].search([
+                ('name', '=', color_name),
+                ('attribute_id', '=', color_attr.id)
+            ], limit=1)
             if not color_val:
                 color_val = self.env['product.attribute.value'].create({
-                    'name': color_name, 'attribute_id': color_attr.id
+                    'name': color_name,
+                    'attribute_id': color_attr.id
                 })
 
             for size in color.get("sizes", []):
@@ -149,13 +143,14 @@ class ProductTemplate(models.Model):
                 if not size_name:
                     continue
 
-                size_val = self.env['product.attribute.value'].search(
-                    [('name', '=', size_name), ('attribute_id', '=', size_attr.id)],
-                    limit=1
-                )
+                size_val = self.env['product.attribute.value'].search([
+                    ('name', '=', size_name),
+                    ('attribute_id', '=', size_attr.id)
+                ], limit=1)
                 if not size_val:
                     size_val = self.env['product.attribute.value'].create({
-                        'name': size_name, 'attribute_id': size_attr.id
+                        'name': size_name,
+                        'attribute_id': size_attr.id
                     })
 
                 attribute_lines.append((0, 0, {
@@ -169,6 +164,6 @@ class ProductTemplate(models.Model):
 
         if attribute_lines:
             product_template.write({'attribute_line_ids': attribute_lines})
-            _logger.info("Variantes de producto asignadas correctamente.")
+            _logger.info("Atributos y variantes asignadas correctamente")
 
-        _logger.info("Producto NS300 completamente sincronizado en Odoo.")
+        _logger.info("Producto NS300 sincronizado completamente en Odoo")
