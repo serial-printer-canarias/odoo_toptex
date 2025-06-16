@@ -1,10 +1,10 @@
 import requests
 import json
 import base64
-from io import BytesIO
-from PIL import Image
-from odoo import models, fields, api
 import logging
+from PIL import Image
+from io import BytesIO
+from odoo import models, fields, api
 
 _logger = logging.getLogger(__name__)
 
@@ -13,109 +13,120 @@ class ProductTemplate(models.Model):
 
     @api.model
     def sync_product_from_api(self):
-        # Recuperar parámetros del sistema
-        IrConfig = self.env['ir.config_parameter'].sudo()
-        proxy_url = IrConfig.get_param('toptex_proxy_url')
-        username = IrConfig.get_param('toptex_username')
-        password = IrConfig.get_param('toptex_password')
-        api_key = IrConfig.get_param('toptex_api_key')
+        # Leer parámetros del sistema
+        proxy_url = self.env['ir.config_parameter'].sudo().get_param('toptex_proxy_url')
+        api_key = self.env['ir.config_parameter'].sudo().get_param('toptex_api_key')
+        username = self.env['ir.config_parameter'].sudo().get_param('toptex_username')
+        password = self.env['ir.config_parameter'].sudo().get_param('toptex_password')
 
-        # Obtener token
+        # Generar Token
         auth_url = f"{proxy_url}/v3/authenticate"
-        headers_auth = {"x-api-key": api_key, "Content-Type": "application/json"}
-        payload_auth = {"username": username, "password": password}
-        response_auth = requests.post(auth_url, headers=headers_auth, json=payload_auth)
+        auth_payload = {
+            "username": username,
+            "password": password
+        }
+        auth_headers = {
+            "x-api-key": api_key,
+            "Content-Type": "application/json"
+        }
 
-        if response_auth.status_code != 200:
-            _logger.error(f"Error autenticación: {response_auth.status_code} {response_auth.text}")
+        auth_response = requests.post(auth_url, headers=auth_headers, json=auth_payload)
+        if auth_response.status_code != 200:
+            _logger.error(f"Error al autenticar: {auth_response.status_code} - {auth_response.text}")
             return
 
-        token = response_auth.json().get("token")
+        token = auth_response.json().get("token")
         _logger.info("✅ Token recibido correctamente.")
 
         # Descargar producto por catalog_reference
         catalog_reference = "NS300"
-        product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_uniquement"
-        headers = {"x-api-key": api_key, "x-toptex-authorization": token}
+        product_url = f"{proxy_url}/v3/products/{catalog_reference}?usage_right=b2b_uniquement"
+        headers = {
+            "x-api-key": api_key,
+            "x-toptex-authorization": token,
+            "Accept-Encoding": "gzip, deflate, br"
+        }
 
         response = requests.get(product_url, headers=headers)
-
         if response.status_code != 200:
-            _logger.error(f"Error producto: {response.status_code} {response.text}")
+            _logger.error(f"Error en llamada a producto: {response.status_code}")
             return
 
+        # Parseo robusto
         try:
             full_response = response.json()
-            data_list = full_response.get("data")
-            if not data_list:
-                _logger.error("❌ No se encontraron datos dentro del dict")
+            _logger.info("📦 JSON principal recibido:")
+            _logger.info(json.dumps(full_response, indent=2))
+
+            # Manejo dict vs list
+            if isinstance(full_response, list):
+                if len(full_response) > 0:
+                    data = full_response[0]
+                else:
+                    _logger.error("❌ Lista vacía en respuesta.")
+                    return
+            elif isinstance(full_response, dict):
+                if full_response:
+                    data = full_response
+                else:
+                    _logger.error("❌ No se encontraron datos dentro del dict.")
+                    return
+            else:
+                _logger.error("❌ Respuesta inesperada de formato JSON.")
                 return
-            data = data_list[0]
+
         except Exception as e:
-            _logger.error(f"Error parseando JSON: {e}")
+            _logger.error(f"Error interpretando JSON: {str(e)}")
             return
 
-        _logger.info("✅ JSON principal recibido:")
-        _logger.info(json.dumps(data, indent=2))
-
-        # Mapping de campos principales
+        # Mapeo de datos básico
         name = data.get("designation", {}).get("es", "Sin nombre")
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", catalog_reference)
 
-        # Marca
+        # Marca segura
         brand_data = data.get("brand", {})
-        brand_name = brand_data.get("name", {}).get("es", "Sin Marca")
+        if isinstance(brand_data, dict):
+            brand = brand_data.get("name", {}).get("es", "Sin Marca")
+        else:
+            brand = "Sin Marca"
 
-        # Precio de venta
-        public_price = data.get("publicUnitPrice", 0.0)
-        purchase_price = data.get("purchaseUnitPrice", 0.0)
-        stock = data.get("stock", 0)
+        _logger.info(f"Creando producto: {name} [{default_code}] Marca: {brand}")
 
-        # Procesar imagen principal
+        # Imagen principal
         image_url = None
         images = data.get("images", [])
         if images:
-            for img in images:
-                if img.get("isMain"):
-                    image_url = img.get("url")
-                    break
+            first_image = images[0]
+            image_url = first_image.get("url")
 
-        image_binary = False
+        image_data = None
         if image_url:
             try:
-                img_response = requests.get(image_url)
-                if img_response.status_code == 200:
-                    image = Image.open(BytesIO(img_response.content))
-                    buffer = BytesIO()
-                    image.save(buffer, format="PNG")
-                    image_binary = base64.b64encode(buffer.getvalue())
-            except Exception as img_err:
-                _logger.warning(f"No se pudo procesar imagen: {img_err}")
+                image_response = requests.get(image_url)
+                if image_response.status_code == 200 and 'image' in image_response.headers.get('Content-Type', ''):
+                    img = Image.open(BytesIO(image_response.content))
+                    img_buffer = BytesIO()
+                    img.save(img_buffer, format='PNG')
+                    image_data = base64.b64encode(img_buffer.getvalue())
+                else:
+                    _logger.warning("⚠️ Imagen no válida o no encontrada.")
+            except Exception as e:
+                _logger.warning(f"⚠️ Error procesando imagen: {str(e)}")
 
-        # Crear categoría por defecto si no existe
-        category = self.env['product.category'].search([('name', '=', 'All Products')], limit=1)
-        if not category:
-            category = self.env['product.category'].create({'name': 'All Products'})
-
-        # Buscar marca o crear
-        brand_obj = self.env['product.brand'].search([('name', '=', brand_name)], limit=1)
-        if not brand_obj:
-            brand_obj = self.env['product.brand'].create({'name': brand_name})
-
-        # Crear producto principal
-        product = self.create({
+        # Crear o actualizar producto
+        product_vals = {
             'name': name,
             'default_code': default_code,
-            'list_price': public_price,
-            'standard_price': purchase_price,
-            'type': 'product',
-            'categ_id': category.id,
             'description_sale': description,
-            'image_1920': image_binary,
-            'quantity_on_hand': stock,
-            'product_brand_id': brand_obj.id,
-        })
+            'type': 'consu',
+            'categ_id': self.env.ref('product.product_category_all').id,
+            'standard_price': 0.0,
+            'list_price': 0.0,
+            'image_1920': image_data,
+        }
 
-        _logger.info(f"✅ Producto creado: {name}")
+        product = self.env['product.template'].create(product_vals)
+        _logger.info("✅ Producto creado correctamente.")
+
         _logger.info("✅ Sincronización inicial terminada correctamente.")
