@@ -41,9 +41,9 @@ class ProductTemplate(models.Model):
         product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c"
         product_headers = {
             "x-api-key": api_key,
-            "toptex-authorization": token,
-            "Content-Type": "application/json",
-            "Accept-Encoding": "gzip"
+            "x-toptex-authorization": token,
+            "Accept-Encoding": "gzip, deflate, br",
+            "Content-Type": "application/json"
         }
         product_response = requests.get(product_url, headers=product_headers)
         _logger.info(f"🔍 Llamada a producto: {product_url} | Status: {product_response.status_code}")
