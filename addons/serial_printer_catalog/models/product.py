@@ -42,7 +42,6 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # AUTENTICACIÓN
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
@@ -59,7 +58,6 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # LLAMADA AL PRODUCTO (respeta la URL original sin modificaciones)
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -79,12 +77,12 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # Mapeo básico del producto
         brand_data = data.get("brand") or {}
         if isinstance(brand_data, dict):
             brand = brand_data.get("name", {}).get("es", "")
         else:
             brand = ""
+
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
@@ -92,37 +90,44 @@ class ProductTemplate(models.Model):
         list_price = 9.8
         standard_price = 0.0
 
-        # EXTRAER PRECIO DE COSTE REAL (sin modificar la lógica original)
-        price_url = f"{proxy_url}/v3/products/price?catalog_reference={default_code}&usage_right=b2b_b2c"
-        res_price = requests.get(price_url, headers=headers)
-        if res_price.status_code == 200:
-            try:
-                price_data = res_price.json()
-                # Suponiendo que price_data contiene una clave "prices" que es una lista
-                standard_price = float(price_data.get("prices", [{}])[0].get("netPrice", 0.0))
+        # Obtener precio de coste real
+        try:
+            price_url = f"{proxy_url}/v3/products/price"
+            price_payload = {"catalog_reference": default_code}
+            price_headers = {
+                "x-api-key": api_key,
+                "x-toptex-authorization": token,
+                "Content-Type": "application/json"
+            }
+            price_response = requests.post(price_url, json=price_payload, headers=price_headers)
+            if price_response.status_code == 200:
+                price_data = price_response.json()
+                standard_price = float(price_data.get("wholesalePrice", "0").replace(",", "."))
                 _logger.info(f"💰 Precio de coste obtenido: {standard_price}")
-            except Exception as e:
-                _logger.warning(f"❌ Error al parsear precio de coste: {e}")
-        else:
-            _logger.warning(f"❌ Error en precio de coste: {res_price.status_code}")
+            else:
+                _logger.warning(f"⚠️ No se pudo obtener el precio de coste: {price_response.text}")
+        except Exception as e:
+            _logger.warning(f"❌ Error al obtener precio de coste: {str(e)}")
 
-        # EXTRAER STOCK REAL
-        stock_url = f"{proxy_url}/v3/products/inventory?catalog_reference={default_code}&usage_right=b2b_b2c"
-        res_stock = requests.get(stock_url, headers=headers)
-        qty_available = 0
-        if res_stock.status_code == 200:
-            try:
-                stock_data = res_stock.json()
-                # Suponiendo que stock_data contiene una clave "inventory" que es una lista de diccionarios
-                for item in stock_data.get("inventory", []):
-                    qty_available += int(item.get("availableStock", 0))
-                _logger.info(f"📦 Stock total obtenido: {qty_available}")
-            except Exception as e:
-                _logger.warning(f"❌ Error al parsear stock: {e}")
-        else:
-            _logger.warning(f"❌ Error en stock: {res_stock.status_code}")
+        # Obtener stock real
+        try:
+            stock_url = f"{proxy_url}/v3/products/inventory"
+            stock_payload = {"catalog_reference": default_code}
+            stock_headers = {
+                "x-api-key": api_key,
+                "x-toptex-authorization": token,
+                "Content-Type": "application/json"
+            }
+            stock_response = requests.post(stock_url, json=stock_payload, headers=stock_headers)
+            if stock_response.status_code == 200:
+                stock_data = stock_response.json()
+                total_stock = stock_data.get("totalStock", 0)
+                _logger.info(f"📦 Stock total obtenido: {total_stock}")
+            else:
+                _logger.warning(f"⚠️ No se pudo obtener el stock: {stock_response.text}")
+        except Exception as e:
+            _logger.warning(f"❌ Error al obtener stock: {str(e)}")
 
-        # Crear valores para la plantilla del producto
         template_vals = {
             'name': full_name,
             'default_code': default_code,
@@ -131,14 +136,13 @@ class ProductTemplate(models.Model):
             'list_price': list_price,
             'standard_price': standard_price,
             'categ_id': self.env.ref("product.product_category_all").id,
-            'qty_available': qty_available,
         }
 
         _logger.info(f"🛠️ Datos para crear plantilla: {template_vals}")
         product_template = self.create(template_vals)
         _logger.info(f"✅ Plantilla creada: {product_template.name}")
 
-        # Atributos y variantes (sin modificaciones)
+        # Atributos y variantes
         attribute_lines = []
 
         for color in data.get("colors", []):
@@ -188,7 +192,7 @@ class ProductTemplate(models.Model):
         else:
             _logger.warning("⚠️ No se encontraron atributos para asignar.")
 
-        # Imagen principal usando Pillow
+        # Imagen principal (Pillow)
         images = data.get("images", [])
         for img in images:
             img_url = img.get("url_image", "")
@@ -199,7 +203,7 @@ class ProductTemplate(models.Model):
                     _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
                     break
 
-        # Imagen por variante de color (sin modificar)
+        # Imagen por variante de color (Pillow)
         for variant in product_template.product_variant_ids:
             color_value = variant.product_template_attribute_value_ids.filtered(
                 lambda v: v.attribute_id.name == "Color"
@@ -211,6 +215,3 @@ class ProductTemplate(models.Model):
                 if image_bin:
                     variant.image_1920 = image_bin
                     _logger.info(f"🖼️ Imagen asignada a variante: {variant.name}")
-
-        _logger.info(f"✅ Sincronización finalizada para {catalog_reference}.")
-        return True
