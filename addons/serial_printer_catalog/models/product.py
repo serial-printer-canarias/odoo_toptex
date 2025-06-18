@@ -77,6 +77,45 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
+        # Precio de coste
+        standard_price = 0.0
+        try:
+            price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
+            price_headers = {
+                "x-api-key": api_key,
+                "x-toptex-authorization": token,
+                "Accept-Encoding": "gzip, deflate, br"
+            }
+            price_response = requests.get(price_url, headers=price_headers)
+            if price_response.status_code == 200:
+                price_data = price_response.json()
+                price_str = price_data.get("wholesalePrice", "0").replace(",", ".")
+                standard_price = float(price_str)
+                _logger.info(f"💰 Precio de coste obtenido: {standard_price}")
+            else:
+                _logger.warning(f"⚠️ No se pudo obtener el precio de coste: {price_response.text}")
+        except Exception as e:
+            _logger.warning(f"❌ Error obteniendo precio de coste: {e}")
+
+        # Stock total
+        stock_total = 0
+        try:
+            stock_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
+            stock_headers = {
+                "x-api-key": api_key,
+                "x-toptex-authorization": token,
+                "Accept-Encoding": "gzip, deflate, br"
+            }
+            stock_response = requests.get(stock_url, headers=stock_headers)
+            if stock_response.status_code == 200:
+                stock_data = stock_response.json()
+                stock_total = sum(item.get("stock", 0) for item in stock_data)
+                _logger.info(f"📦 Stock total obtenido: {stock_total}")
+            else:
+                _logger.warning(f"⚠️ No se pudo obtener el stock: {stock_response.text}")
+        except Exception as e:
+            _logger.warning(f"❌ Error obteniendo stock: {e}")
+
         brand_data = data.get("brand") or {}
         if isinstance(brand_data, dict):
             brand = brand_data.get("name", {}).get("es", "")
@@ -88,45 +127,6 @@ class ProductTemplate(models.Model):
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
         list_price = 9.8
-        standard_price = 0.0
-
-        # Obtener precio de coste real
-        try:
-            price_url = f"{proxy_url}/v3/products/price"
-            price_payload = {"catalog_reference": default_code}
-            price_headers = {
-                "x-api-key": api_key,
-                "x-toptex-authorization": token,
-                "Content-Type": "application/json"
-            }
-            price_response = requests.post(price_url, json=price_payload, headers=price_headers)
-            if price_response.status_code == 200:
-                price_data = price_response.json()
-                standard_price = float(price_data.get("wholesalePrice", "0").replace(",", "."))
-                _logger.info(f"💰 Precio de coste obtenido: {standard_price}")
-            else:
-                _logger.warning(f"⚠️ No se pudo obtener el precio de coste: {price_response.text}")
-        except Exception as e:
-            _logger.warning(f"❌ Error al obtener precio de coste: {str(e)}")
-
-        # Obtener stock real
-        try:
-            stock_url = f"{proxy_url}/v3/products/inventory"
-            stock_payload = {"catalog_reference": default_code}
-            stock_headers = {
-                "x-api-key": api_key,
-                "x-toptex-authorization": token,
-                "Content-Type": "application/json"
-            }
-            stock_response = requests.post(stock_url, json=stock_payload, headers=stock_headers)
-            if stock_response.status_code == 200:
-                stock_data = stock_response.json()
-                total_stock = stock_data.get("totalStock", 0)
-                _logger.info(f"📦 Stock total obtenido: {total_stock}")
-            else:
-                _logger.warning(f"⚠️ No se pudo obtener el stock: {stock_response.text}")
-        except Exception as e:
-            _logger.warning(f"❌ Error al obtener stock: {str(e)}")
 
         template_vals = {
             'name': full_name,
@@ -192,7 +192,7 @@ class ProductTemplate(models.Model):
         else:
             _logger.warning("⚠️ No se encontraron atributos para asignar.")
 
-        # Imagen principal (Pillow)
+        # Imagen principal
         images = data.get("images", [])
         for img in images:
             img_url = img.get("url_image", "")
@@ -203,7 +203,7 @@ class ProductTemplate(models.Model):
                     _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
                     break
 
-        # Imagen por variante de color (Pillow)
+        # Imagen por variante de color
         for variant in product_template.product_variant_ids:
             color_value = variant.product_template_attribute_value_ids.filtered(
                 lambda v: v.attribute_id.name == "Color"
@@ -215,3 +215,8 @@ class ProductTemplate(models.Model):
                 if image_bin:
                     variant.image_1920 = image_bin
                     _logger.info(f"🖼️ Imagen asignada a variante: {variant.name}")
+
+        # Log final resumen
+        _logger.info(f"✅ Producto final creado: {product_template.name}")
+        _logger.info(f"📦 Stock total registrado (informativo): {stock_total}")
+        _logger.info(f"💰 Precio de coste aplicado: {standard_price}")
