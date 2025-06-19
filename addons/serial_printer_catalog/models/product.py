@@ -4,7 +4,7 @@ import requests
 import base64
 import io
 from PIL import Image
-from odoo import models, api
+from odoo import models, api, fields
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
@@ -13,8 +13,7 @@ def get_image_binary_from_url(url):
     try:
         _logger.info(f"🖼️ Descargando imagen desde {url}")
         response = requests.get(url, stream=True, timeout=10)
-        content_type = response.headers.get("Content-Type", "")
-        if response.status_code == 200 and "image" in content_type:
+        if response.status_code == 200 and "image" in response.headers.get("Content-Type", ""):
             image = Image.open(io.BytesIO(response.content))
             image = image.convert("RGB")
             buffer = io.BytesIO()
@@ -25,7 +24,7 @@ def get_image_binary_from_url(url):
         else:
             _logger.warning(f"⚠️ Contenido no válido como imagen: {url}")
     except Exception as e:
-        _logger.warning(f"❌ Error al procesar imagen desde {url}: {str(e)}")
+        _logger.warning(f"❌ Error procesando imagen {url}: {str(e)}")
     return None
 
 class ProductTemplate(models.Model):
@@ -33,16 +32,16 @@ class ProductTemplate(models.Model):
 
     @api.model
     def sync_product_from_api(self):
+        # 1. Obtener credenciales
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
         api_key = icp.get_param('toptex_api_key')
         proxy_url = icp.get_param('toptex_proxy_url')
-
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # Autenticación
+        # 2. Autenticación (token)
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
@@ -58,159 +57,177 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # Descarga info NS300
-        product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
+        # 3. Cargar info principal de producto
+        catalog_reference = "NS300"   # ← Aquí el ref, luego lo haces variable para otros
+        # (1) Info principal
+        product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c"
+        # (2) Precios y stocks por SKU (variante)
+        price_url = f"{proxy_url}/v3/products/price?catalog_reference={catalog_reference}"
+        stock_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_reference}"
         headers = {
             "x-api-key": api_key,
             "x-toptex-authorization": token,
             "Accept-Encoding": "gzip, deflate, br"
         }
+
+        # --- PRODUCT DATA ---
         try:
             response = requests.get(product_url, headers=headers)
-            _logger.info(f"📥 Respuesta cruda:\n{response.text}")
             if response.status_code != 200:
                 raise UserError(f"❌ Error al obtener el producto: {response.status_code} - {response.text}")
             data_list = response.json()
-            data = data_list if isinstance(data_list, dict) else data_list[0] if data_list else {}
-            _logger.info(f"📦 JSON interpretado:\n{json.dumps(data, indent=2)}")
+            data = data_list[0] if isinstance(data_list, list) and data_list else data_list
+            _logger.info(f"📦 JSON producto:\n{json.dumps(data, indent=2)}")
         except Exception as e:
-            _logger.error(f"❌ Error al obtener producto desde API: {e}")
+            _logger.error(f"❌ Error obteniendo producto: {e}")
             return
 
-        # --- MARCA ---
-        brand_data = data.get("brand") or {}
-        brand = brand_data.get("name", {}).get("es", "") if isinstance(brand_data, dict) else ""
+        # --- PRECIOS VARIANTES ---
+        price_dict = {}  # SKU → precio
+        try:
+            res = requests.get(price_url, headers=headers)
+            if res.status_code == 200:
+                for item in res.json().get("items", []):
+                    sku = item.get("sku")
+                    price = None
+                    for price_obj in item.get("prices", []):
+                        if price_obj.get("quantity") == 1:
+                            price = float(price_obj.get("price", 0))
+                    if sku and price is not None:
+                        price_dict[sku] = price
+            _logger.info(f"💶 Precios variantes obtenidos para {len(price_dict)} SKUs")
+        except Exception as e:
+            _logger.warning(f"❌ Error obteniendo precios variantes: {e}")
 
-        # --- PLANTILLA PRINCIPAL ---
+        # --- STOCK VARIANTES ---
+        stock_dict = {}  # SKU → stock
+        try:
+            res = requests.get(stock_url, headers=headers)
+            if res.status_code == 200:
+                for item in res.json().get("items", []):
+                    sku = item.get("sku")
+                    stock = 0
+                    for warehouse in item.get("warehouses", []):
+                        stock += int(warehouse.get("stock", 0))
+                    if sku:
+                        stock_dict[sku] = stock
+            _logger.info(f"📦 Stocks variantes obtenidos para {len(stock_dict)} SKUs")
+        except Exception as e:
+            _logger.warning(f"❌ Error obteniendo stocks variantes: {e}")
+
+        # --- MARCA ---
+        brand_data = data.get("brand", {})
+        brand = ""
+        if isinstance(brand_data, dict):
+            brand = brand_data.get("name", {}).get("es") or brand_data.get("name", {}).get("en") or ""
+        # Si tienes campo de marca personalizado en tu modelo, aquí lo asignas
+
         name = data.get("designation", {}).get("es", "Producto sin nombre")
-        full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
-        default_code = data.get("catalogReference", "NS300")
+        default_code = data.get("catalogReference", catalog_reference)
+        # Imagen principal
+        images = data.get("images", [])
+        main_image_bin = None
+        for img in images:
+            img_url = img.get("url_image")
+            if img_url:
+                main_image_bin = get_image_binary_from_url(img_url)
+                break
+
+        # --- ATRIBUTOS ---
+        color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1) or \
+            self.env['product.attribute'].create({'name': 'Color'})
+        size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1) or \
+            self.env['product.attribute'].create({'name': 'Talla'})
 
         # --- VARIANTES ---
-        # Reunimos colores y tallas
         colors = data.get("colors", [])
-        all_sizes = set()
-        all_colors = set()
+        variant_lines = []
+        color_vals = []
+        size_vals = []
         for color in colors:
-            color_name = color.get("colors", {}).get("es", "")
-            all_colors.add(color_name)
+            color_name = color.get("colors", {}).get("es") or color.get("colors", {}).get("en")
+            if not color_name:
+                continue
+            color_val = self.env['product.attribute.value'].search([
+                ('name', '=', color_name), ('attribute_id', '=', color_attr.id)
+            ], limit=1) or self.env['product.attribute.value'].create({
+                'name': color_name, 'attribute_id': color_attr.id
+            })
+            color_vals.append(color_val.id)
             for size in color.get("sizes", []):
-                all_sizes.add(size.get("size"))
+                size_name = size.get("size")
+                if not size_name:
+                    continue
+                size_val = self.env['product.attribute.value'].search([
+                    ('name', '=', size_name), ('attribute_id', '=', size_attr.id)
+                ], limit=1) or self.env['product.attribute.value'].create({
+                    'name': size_name, 'attribute_id': size_attr.id
+                })
+                if size_val.id not in size_vals:
+                    size_vals.append(size_val.id)
 
-        # Creamos atributos si no existen
-        color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1) or self.env['product.attribute'].create({'name': 'Color'})
-        size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1) or self.env['product.attribute'].create({'name': 'Talla'})
-
-        # Creamos valores de atributos
-        color_vals = {}
-        for c in all_colors:
-            val = self.env['product.attribute.value'].search([('name', '=', c), ('attribute_id', '=', color_attr.id)], limit=1)
-            if not val:
-                val = self.env['product.attribute.value'].create({'name': c, 'attribute_id': color_attr.id})
-            color_vals[c] = val
-
-        size_vals = {}
-        for s in all_sizes:
-            val = self.env['product.attribute.value'].search([('name', '=', s), ('attribute_id', '=', size_attr.id)], limit=1)
-            if not val:
-                val = self.env['product.attribute.value'].create({'name': s, 'attribute_id': size_attr.id})
-            size_vals[s] = val
-
-        # Atributos para la plantilla
-        attribute_lines = [
-            {
-                'attribute_id': color_attr.id,
-                'value_ids': [(6, 0, [v.id for v in color_vals.values()])]
-            },
-            {
-                'attribute_id': size_attr.id,
-                'value_ids': [(6, 0, [v.id for v in size_vals.values()])]
-            }
-        ]
-
-        # --- PLANTILLA ---
+        # --- CREA LA PLANTILLA ---
         template_vals = {
-            'name': full_name,
+            'name': name,
             'default_code': default_code,
             'type': 'consu',
             'description_sale': description,
+            'list_price': 0.0,
+            'standard_price': 0.0,
+            'image_1920': main_image_bin,
             'categ_id': self.env.ref("product.product_category_all").id,
-            'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
+            # Si tienes campo de marca personalizado, aquí lo añades:
+            # 'x_studio_marca': brand,
         }
         _logger.info(f"🛠️ Datos para crear plantilla: {template_vals}")
         product_template = self.create(template_vals)
         _logger.info(f"✅ Plantilla creada: {product_template.name}")
 
-        # --- IMAGEN PRINCIPAL ---
-        images = data.get("images", [])
-        for img in images:
-            img_url = img.get("url_image", "")
-            if img_url:
-                image_bin = get_image_binary_from_url(img_url)
-                if image_bin:
-                    product_template.image_1920 = image_bin
-                    _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
-                    break
+        # Asigna atributos (solo si hay variantes, Odoo >=14)
+        attribute_lines = [
+            (0, 0, {'attribute_id': color_attr.id, 'value_ids': [(6, 0, color_vals)]}),
+            (0, 0, {'attribute_id': size_attr.id, 'value_ids': [(6, 0, size_vals)]}),
+        ]
+        product_template.write({'attribute_line_ids': attribute_lines})
+        _logger.info("✅ Atributos y valores asignados correctamente.")
 
-        # --- PRECIO DE COSTE, STOCK Y PRECIO DE VENTA POR VARIANTE ---
-        # Llamada a Inventario y Precios para todas las variantes
-        try:
-            inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
-            price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
-            headers = {
-                "x-api-key": api_key,
-                "x-toptex-authorization": token
-            }
-            inv_resp = requests.get(inventory_url, headers=headers)
-            price_resp = requests.get(price_url, headers=headers)
-            inventory_data = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
-            price_data = price_resp.json().get("items", []) if price_resp.status_code == 200 else []
-        except Exception as e:
-            _logger.error(f"❌ Error en inventario/precios: {e}")
-            inventory_data = []
-            price_data = []
-
-        def get_inv_stock(color, size):
-            for item in inventory_data:
-                if item.get("color") == color and item.get("size") == size:
-                    return item.get("stock", 0)
-            return 0
-
-        def get_price_cost(color, size):
-            for item in price_data:
-                if item.get("color") == color and item.get("size") == size:
-                    # Busca el precio de coste en el array "prices"
-                    prices = item.get("prices", [])
-                    if prices:
-                        return float(prices[0].get("price", 0.0))
-            return 0.0
-
-        # --- IMÁGENES Y DATOS PARA VARIANTES ---
+        # --- ACTUALIZA CADA VARIANTE ---
         for variant in product_template.product_variant_ids:
-            # Saca color y talla de los valores asignados a la variante
-            color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
-            size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
-            color_name = color_val.name if color_val else ""
-            size_name = size_val.name if size_val else ""
+            # Busca color y talla en la variante
+            color_val = variant.product_template_attribute_value_ids.filtered(
+                lambda v: v.attribute_id.id == color_attr.id)
+            size_val = variant.product_template_attribute_value_ids.filtered(
+                lambda v: v.attribute_id.id == size_attr.id)
+            # Construye el SKU para buscar precios/stocks
+            sku = f"{default_code}C_{color_val.name}_{size_val.name}".replace(" ", "").replace("/", "")
+            # Busca SKU real del JSON (puedes mapearlo mejor si te dan el SKU exacto)
+            variant_price = 0.0
+            variant_stock = 0
+            # Busca por color y talla en los dicts
+            for item in price_dict.keys():
+                if color_val.name in item and size_val.name in item:
+                    variant_price = price_dict[item]
+                    break
+            for item in stock_dict.keys():
+                if color_val.name in item and size_val.name in item:
+                    variant_stock = stock_dict[item]
+                    break
+            variant.write({
+                'list_price': variant_price,
+                'standard_price': variant_price,  # O usa otro dict si tienes coste separado
+                'qty_available': variant_stock
+            })
+            _logger.info(f"💶 Variante {variant.name}: Precio {variant_price}, Stock {variant_stock}")
 
-            # --- Imagen específica de la variante ---
-            color_data = next((c for c in colors if c.get("colors", {}).get("es") == color_name), None)
-            if color_data:
-                img_url = color_data.get("url_image")
+            # Imagen por variante (si tienes URL en color)
+            color_obj = next((c for c in colors if (c.get("colors", {}).get("es") == color_val.name)), None)
+            if color_obj:
+                img_url = color_obj.get("url_image")
                 if img_url:
                     image_bin = get_image_binary_from_url(img_url)
                     if image_bin:
                         variant.image_1920 = image_bin
                         _logger.info(f"🖼️ Imagen asignada a variante: {variant.name}")
 
-            # --- Precios y stock ---
-            coste = get_price_cost(color_name, size_name)
-            stock = get_inv_stock(color_name, size_name)
-            variant.standard_price = coste
-            variant.lst_price = coste * 1.25 if coste > 0 else 9.8  # Margen ejemplo
-            variant.qty_available = stock
-
-            _logger.info(f"💰 Variante: {variant.name} | Coste: {coste} | Stock: {stock}")
-
-        _logger.info(f"✅ Producto NS300 creado y listo para ventas B2B/B2C en Odoo!")
+        _logger.info(f"🎉 Producto {name} creado con todas las variantes, precios, stocks, imágenes y marca.")
