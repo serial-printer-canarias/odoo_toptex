@@ -1,172 +1,166 @@
-from odoo import models, fields, api
+import json
+import logging
 import requests
 import base64
+import io
+from PIL import Image
+from odoo import models, api, fields
+from odoo.exceptions import UserError
 
-class SerialPrinterProduct(models.Model):
-    _inherit = "product.template"
+_logger = logging.getLogger(__name__)
 
-    marca = fields.Char(string='Marca')
+def get_image_binary_from_url(url):
+    try:
+        response = requests.get(url, stream=True)
+        if response.status_code == 200:
+            image = Image.open(io.BytesIO(response.content))
+            image = image.convert("RGB")
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG")
+            image_bytes = buffer.getvalue()
+            return base64.b64encode(image_bytes)
+        else:
+            _logger.warning(f"⚠️ Imagen no encontrada: {url}")
+    except Exception as e:
+        _logger.warning(f"❌ Error imagen {url}: {e}")
+    return None
+
+class ProductTemplate(models.Model):
+    _inherit = 'product.template'
 
     @api.model
-    def importar_ns300(self):
-        # Configura tus credenciales API
-        API_KEY = 'AQUI_TU_API_KEY'
-        API_AUTH = 'AQUI_TU_TOKEN_AUTH'
-        HEADERS = {
-            "x-api-key": API_KEY,
-            "x-toptex-authorization": API_AUTH
+    def sync_product_from_api(self, catalog_reference='NS300'):
+        # Configura aquí tus endpoints y claves reales
+        api_url_catalog = f"https://toptex-proxy.onrender.com/v3/products/catalog?reference={catalog_reference}"
+        api_url_inventory = f"https://toptex-proxy.onrender.com/v3/products/inventory?catalog_reference={catalog_reference}"
+        api_url_prices = f"https://toptex-proxy.onrender.com/v3/products/price?catalog_reference={catalog_reference}"
+
+        headers = {
+            'x-api-key': 'TU_API_KEY',
+            'x-toptex-authorization': 'TU_AUTH'
         }
-        REF = "ns300"
 
-        # 1. OBTENCIÓN DATOS GENERALES PRODUCTO
-        url_catalog = f"https://toptex-proxy.onrender.com/v3/products/catalog?catalog_reference={REF}"
-        r_catalog = requests.get(url_catalog, headers=HEADERS)
-        catalog = r_catalog.json()['items'][0]
+        # --- INFO BASE PRODUCTO ---
+        response_catalog = requests.get(api_url_catalog, headers=headers)
+        if response_catalog.status_code != 200:
+            raise UserError('Error obteniendo datos base del producto')
+        catalog_data = response_catalog.json()['items'][0]
+        name = catalog_data.get('designation', 'Producto sin nombre')
+        description = catalog_data.get('description', '')
+        default_code = catalog_reference
 
-        # 2. OBTENCIÓN VARIANTES (colores/tallas/foto/sku)
-        url_variants = f"https://toptex-proxy.onrender.com/v3/products/catalog/variants?catalog_reference={REF}"
-        r_variants = requests.get(url_variants, headers=HEADERS)
-        variants = r_variants.json()['items']
+        # Imagen principal del producto
+        image_url = catalog_data.get('mainPicture') or (catalog_data.get('pictures') or [None])[0]
+        image_binary = get_image_binary_from_url(image_url) if image_url else None
 
-        # 3. OBTENCIÓN STOCK POR SKU
-        url_stock = f"https://toptex-proxy.onrender.com/v3/products/inventory?catalog_reference={REF}"
-        r_stock = requests.get(url_stock, headers=HEADERS)
-        stocks = r_stock.json()['items']
-
-        # 4. OBTENCIÓN PRECIOS POR SKU
-        url_prices = f"https://toptex-proxy.onrender.com/v3/products/price?catalog_reference={REF}"
-        r_prices = requests.get(url_prices, headers=HEADERS)
-        prices = r_prices.json()['items']
-
-        # 5. LLAMA A LA CREACIÓN GENERAL (REUTILIZABLE)
-        return self.create_product_from_toptex(
-            catalog,  # datos generales producto
-            variants, # variantes colores/tallas
-            prices,   # precios
-            stocks    # stocks
-        )
-
-    @api.model
-    def create_product_from_toptex(self, product_data, variants_data, prices_data, stocks_data):
-        brand_name = product_data.get('brand', '')
-        # 1. Datos generales producto padre
+        # --- CREAR O ACTUALIZAR PLANTILLA ---
         vals = {
-            'name': product_data.get('designation', ''),
-            'default_code': product_data.get('catalogReference', ''),
-            'type': 'consu',  # Tipo Odoo, para no romper stock
-            'marca': brand_name,
-            'description_sale': product_data.get('description', ''),
+            'name': name,
+            'default_code': default_code,
+            'image_1920': image_binary,
+            'type': 'consu',  # Consumible
+            'sale_ok': True,
+            'purchase_ok': True,
+            'description': description,
         }
+        product = self.env['product.template'].search([('default_code', '=', default_code)], limit=1)
+        if product:
+            product.write(vals)
+        else:
+            product = self.create(vals)
 
-        # Imagen principal (opcional)
-        image_url = product_data.get('mainPicture', '')
-        if image_url:
-            try:
-                img_data = requests.get(image_url).content
-                vals['image_1920'] = base64.b64encode(img_data)
-            except Exception:
-                vals['image_1920'] = False
+        # --- ATRIBUTOS Y VALORES (Color y Talla) ---
+        # Buscar o crear atributos
+        attr_obj = self.env['product.attribute']
+        val_obj = self.env['product.attribute.value']
 
-        # Atributos y variantes
-        def get_or_create_attribute(name):
-            attr = self.env['product.attribute'].search([('name', '=', name)], limit=1)
-            if not attr:
-                attr = self.env['product.attribute'].create({'name': name})
-            return attr
+        # Nos aseguramos que los atributos existan
+        attr_color = attr_obj.search([('name', '=', 'Color')], limit=1)
+        if not attr_color:
+            attr_color = attr_obj.create({'name': 'Color'})
+        attr_size = attr_obj.search([('name', '=', 'Talla')], limit=1)
+        if not attr_size:
+            attr_size = attr_obj.create({'name': 'Talla'})
 
-        color_attr = get_or_create_attribute('Color')
-        size_attr = get_or_create_attribute('Talla')
+        # --- STOCK Y VARIANTES ---
+        response_inventory = requests.get(api_url_inventory, headers=headers)
+        inventory_data = response_inventory.json()['items'] if response_inventory.status_code == 200 else []
 
-        product_tmpl = self.create(vals)
+        # --- PRECIOS ---
+        response_prices = requests.get(api_url_prices, headers=headers)
+        prices_data = response_prices.json()['items'] if response_prices.status_code == 200 else []
 
-        # Todos los valores posibles en variantes
-        color_values = set()
-        size_values = set()
-        for v in variants_data:
-            color_values.add(v.get('color', ''))
-            size_values.add(v.get('size', ''))
+        # --- CREAR VALORES DE ATRIBUTO Y MAPEO ---
+        color_map = {}
+        size_map = {}
 
-        def get_or_create_attr_value(attr, value):
-            if not value:
-                return False
-            val_obj = self.env['product.attribute.value'].search([
-                ('name', '=', value),
-                ('attribute_id', '=', attr.id)
-            ], limit=1)
-            if not val_obj:
-                val_obj = self.env['product.attribute.value'].create({
-                    'name': value,
-                    'attribute_id': attr.id
-                })
-            return val_obj
+        for v in inventory_data:
+            color = v.get('color')
+            size = v.get('size')
+            # Crear valores de color
+            if color and color not in color_map:
+                color_val = val_obj.search([('name', '=', color), ('attribute_id', '=', attr_color.id)], limit=1)
+                if not color_val:
+                    color_val = val_obj.create({'name': color, 'attribute_id': attr_color.id})
+                color_map[color] = color_val
+            # Crear valores de talla
+            if size and size not in size_map:
+                size_val = val_obj.search([('name', '=', size), ('attribute_id', '=', attr_size.id)], limit=1)
+                if not size_val:
+                    size_val = val_obj.create({'name': size, 'attribute_id': attr_size.id})
+                size_map[size] = size_val
 
-        color_value_objs = [get_or_create_attr_value(color_attr, c) for c in color_values if c]
-        size_value_objs = [get_or_create_attr_value(size_attr, t) for t in size_values if t]
+        # Asignar atributos al producto
+        product.attribute_line_ids = [(5, 0, 0)]  # Limpiar líneas anteriores
+        product.attribute_line_ids = [
+            (0, 0, {'attribute_id': attr_color.id, 'value_ids': [(6, 0, [val.id for val in color_map.values()])]}),
+            (0, 0, {'attribute_id': attr_size.id, 'value_ids': [(6, 0, [val.id for val in size_map.values()])]}),
+        ]
 
-        attribute_lines = []
-        if color_value_objs:
-            attribute_lines.append((0, 0, {
-                'attribute_id': color_attr.id,
-                'value_ids': [(6, 0, [cv.id for cv in color_value_objs])]
-            }))
-        if size_value_objs:
-            attribute_lines.append((0, 0, {
-                'attribute_id': size_attr.id,
-                'value_ids': [(6, 0, [sv.id for sv in size_value_objs])]
-            }))
-        if attribute_lines:
-            product_tmpl.attribute_line_ids = attribute_lines
+        # --- CREAR VARIANTES ---
+        # Borra variantes antiguas si hay (opcional)
+        for variant in product.product_variant_ids:
+            variant.unlink()
 
-        product_tmpl._create_variant_ids()
-
-        # Mapea precios y stock por SKU
-        price_map = {p['sku']: p for p in prices_data if p.get('sku')}
-        stock_map = {s['sku']: s for s in stocks_data if s.get('sku')}
-        variant_map = {v['sku']: v for v in variants_data if v.get('sku')}
-
-        # Asigna datos PRO a cada variante
-        for variant in product_tmpl.product_variant_ids:
-            color_name = ""
-            size_name = ""
-            for av in variant.attribute_value_ids:
-                if av.attribute_id.id == color_attr.id:
-                    color_name = av.name
-                elif av.attribute_id.id == size_attr.id:
-                    size_name = av.name
-
-            # Encuentra el SKU para esta variante (color+size)
-            sku = None
-            for v in variants_data:
-                if v.get('color') == color_name and v.get('size') == size_name:
-                    sku = v.get('sku')
-                    break
-            if not sku:
-                continue
-
-            # Precio y coste
-            price_info = price_map.get(sku, {})
-            cost = float(price_info.get('price', 0.0))
-            sale_price = float(price_info.get('sale_price', cost * 1.5))
+        for inv in inventory_data:
+            color = inv.get('color')
+            size = inv.get('size')
+            sku = inv.get('sku')
             # Stock
-            stock_info = stock_map.get(sku, {})
             stock = 0
-            if stock_info and stock_info.get('warehouses'):
-                stock = stock_info['warehouses'][0].get('stock', 0)
+            for wh in inv.get('warehouses', []):
+                if wh.get('id') == 'toptex':
+                    stock = wh.get('stock', 0)
+            # Precio de compra/venta
+            price = 0.0
+            cost = 0.0
+            for p in prices_data:
+                if p.get('color') == color and p.get('size') == size:
+                    prices = p.get('prices', [])
+                    if prices:
+                        price = prices[0].get('price', 0.0)
+                        cost = price  # Si tienes coste separado, cámbialo aquí
 
             # Imagen de variante
-            img_url = variant_map.get(sku, {}).get('picture')
-            img_bin = False
-            if img_url:
-                try:
-                    img_bin = base64.b64encode(requests.get(img_url).content)
-                except Exception:
-                    img_bin = False
+            image_variant_url = None
+            if 'pictures' in inv and inv['pictures']:
+                image_variant_url = inv['pictures'][0]
+            elif 'mainPicture' in inv:
+                image_variant_url = inv['mainPicture']
+            else:
+                image_variant_url = image_url
+            image_variant_binary = get_image_binary_from_url(image_variant_url) if image_variant_url else image_binary
 
-            # Asignar datos a la variante
-            variant.standard_price = cost
-            variant.list_price = sale_price
-            variant.qty_available = stock
-            if img_bin:
-                variant.image_variant_1920 = img_bin
+            # Crea la variante en Odoo
+            variant_vals = {
+                'product_tmpl_id': product.id,
+                'attribute_value_ids': [(6, 0, filter(None, [color_map.get(color).id, size_map.get(size).id]))],
+                'default_code': sku,
+                'image_1920': image_variant_binary,
+                'lst_price': price,
+                'standard_price': cost,
+                'quantity': stock,
+            }
+            self.env['product.product'].create(variant_vals)
 
-        return product_tmpl
+        _logger.info(f"✅ Producto {catalog_reference} creado/sincronizado con todas las variantes (color, talla), imágenes, precios y stock.")
