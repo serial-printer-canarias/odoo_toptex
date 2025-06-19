@@ -4,25 +4,28 @@ import requests
 import base64
 import io
 from PIL import Image
-from odoo import models, api, fields
+from odoo import models, api
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
 def get_image_binary_from_url(url):
     try:
-        _logger.info(f"Descargando imagen: {url}")
+        _logger.info(f"🖼️ Descargando imagen desde {url}")
         response = requests.get(url, stream=True, timeout=10)
         content_type = response.headers.get("Content-Type", "")
         if response.status_code == 200 and "image" in content_type:
-            image = Image.open(io.BytesIO(response.content)).convert("RGB")
+            image = Image.open(io.BytesIO(response.content))
+            image = image.convert("RGB")
             buffer = io.BytesIO()
             image.save(buffer, format="JPEG")
-            return base64.b64encode(buffer.getvalue())
+            image_bytes = buffer.getvalue()
+            _logger.info(f"✅ Imagen convertida a binario ({len(image_bytes)} bytes)")
+            return base64.b64encode(image_bytes)
         else:
-            _logger.warning(f"Contenido no válido como imagen: {url}")
+            _logger.warning(f"⚠️ Contenido no válido como imagen: {url}")
     except Exception as e:
-        _logger.warning(f"Error al procesar imagen {url}: {str(e)}")
+        _logger.warning(f"❌ Error al procesar imagen desde {url}: {str(e)}")
     return None
 
 class ProductTemplate(models.Model):
@@ -39,157 +42,168 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # 1. Autenticación
+        # 1. AUTENTICACIÓN
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
-        if auth_response.status_code != 200:
-            raise UserError(f"Error autenticando: {auth_response.status_code} - {auth_response.text}")
-        token = auth_response.json().get("token")
-        if not token:
-            raise UserError("❌ No se recibió un token válido.")
-        _logger.info("Token recibido correctamente.")
+        try:
+            auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
+            if auth_response.status_code != 200:
+                raise UserError(f"❌ Error autenticando: {auth_response.status_code} - {auth_response.text}")
+            token = auth_response.json().get("token")
+            if not token:
+                raise UserError("❌ No se recibió un token válido.")
+            _logger.info("🔐 Token recibido correctamente.")
+        except Exception as e:
+            _logger.error(f"❌ Error autenticando con TopTex: {e}")
+            return
 
-        # 2. Descarga del producto NS300
+        # 2. DESCARGA INFO PRODUCTO NS300
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
             "x-toptex-authorization": token,
             "Accept-Encoding": "gzip, deflate, br"
         }
-        response = requests.get(product_url, headers=headers)
-        _logger.info(f"Respuesta cruda:\n{response.text}")
-        if response.status_code != 200:
-            raise UserError(f"Error al obtener producto: {response.status_code} - {response.text}")
-        data_list = response.json()
-        data = data_list[0] if isinstance(data_list, list) and data_list else data_list
+        try:
+            response = requests.get(product_url, headers=headers)
+            _logger.info(f"📥 Respuesta cruda:\n{response.text}")
+            if response.status_code != 200:
+                raise UserError(f"❌ Error al obtener el producto: {response.status_code} - {response.text}")
+            data_list = response.json()
+            data = data_list if isinstance(data_list, dict) else data_list[0] if data_list else {}
+            _logger.info(f"📦 JSON interpretado:\n{json.dumps(data, indent=2)}")
+        except Exception as e:
+            _logger.error(f"❌ Error al obtener producto desde API: {e}")
+            return
 
-        _logger.info(f"JSON interpretado:\n{json.dumps(data, indent=2)[:1500]}")  # Solo los primeros 1500 chars
-
-        # 3. Información básica
-        name = data.get("designation", {}).get("es", "Producto sin nombre")
-        description = data.get("description", {}).get("es", "")
-        default_code = data.get("catalogReference", "NS300")
+        # --- MARCA ---
         brand_data = data.get("brand") or {}
         brand = brand_data.get("name", {}).get("es", "") if isinstance(brand_data, dict) else ""
-        full_name = f"{brand} {name}".strip() if brand else name
+        # Si en tu Odoo hay modelo de marca, aquí lo puedes asociar
 
-        # 4. Precios y stock
-        # Precio de coste por variante (si existe), si no, buscar en el color principal
-        standard_price = 0.0
-        list_price = 0.0
-        for color in data.get("colors", []):
+        # --- PLANTILLA PRINCIPAL ---
+        name = data.get("designation", {}).get("es", "Producto sin nombre")
+        full_name = f"{brand} {name}".strip()
+        description = data.get("description", {}).get("es", "")
+        default_code = data.get("catalogReference", "NS300")
+
+        # --- VARIANTES ---
+        colors = data.get("colors", [])
+        all_sizes = set()
+        all_colors = set()
+        for color in colors:
+            color_name = color.get("colors", {}).get("es", "")
+            all_colors.add(color_name)
             for size in color.get("sizes", []):
-                try:
-                    standard_price = float(size.get("wholesaleUnitPrice", "0").replace(",", "."))
-                    list_price = float(size.get("publicUnitPrice", "0").replace(",", "."))
-                    break
-                except Exception:
-                    continue
-            if standard_price and list_price:
-                break
-        # Stock: sumar todos los availableStock de todas las variantes si existe en JSON
-        stock = 0
-        for color in data.get("colors", []):
-            for size in color.get("sizes", []):
-                stock += int(size.get("stock", 0))
+                all_sizes.add(size.get("size"))
 
-        # 5. Imagen principal (la del producto)
-        image_bin = None
-        images = data.get("images", [])
-        image_url = ""
-        if images:
-            # Pilla el primer packshot que encuentres
-            for img in images:
-                image_url = img.get("url_packshot") or img.get("url_image") or ""
-                if image_url:
-                    break
-        if image_url:
-            image_bin = get_image_binary_from_url(image_url)
+        # --- ATRIBUTOS ---
+        color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1) or self.env['product.attribute'].create({'name': 'Color'})
+        size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1) or self.env['product.attribute'].create({'name': 'Talla'})
 
-        # 6. Crear el producto en Odoo (PLANTILLA)
+        color_vals = {}
+        for c in all_colors:
+            val = self.env['product.attribute.value'].search([('name', '=', c), ('attribute_id', '=', color_attr.id)], limit=1)
+            if not val:
+                val = self.env['product.attribute.value'].create({'name': c, 'attribute_id': color_attr.id})
+            color_vals[c] = val
+
+        size_vals = {}
+        for s in all_sizes:
+            val = self.env['product.attribute.value'].search([('name', '=', s), ('attribute_id', '=', size_attr.id)], limit=1)
+            if not val:
+                val = self.env['product.attribute.value'].create({'name': s, 'attribute_id': size_attr.id})
+            size_vals[s] = val
+
+        attribute_lines = [
+            {
+                'attribute_id': color_attr.id,
+                'value_ids': [(6, 0, [v.id for v in color_vals.values()])]
+            },
+            {
+                'attribute_id': size_attr.id,
+                'value_ids': [(6, 0, [v.id for v in size_vals.values()])]
+            }
+        ]
+
         template_vals = {
             'name': full_name,
             'default_code': default_code,
             'type': 'consu',
             'description_sale': description,
-            'image_1920': image_bin or False,
-            'list_price': list_price,
-            'standard_price': standard_price,
             'categ_id': self.env.ref("product.product_category_all").id,
-            'detailed_type': 'consu',
+            'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
         }
-        _logger.info(f"Datos plantilla: {template_vals}")
-
+        _logger.info(f"🛠️ Datos para crear plantilla: {template_vals}")
         product_template = self.create(template_vals)
-        _logger.info(f"Plantilla creada: {product_template.name}")
+        _logger.info(f"✅ Plantilla creada: {product_template.name}")
 
-        # 7. Atributos y variantes (color/talla)
-        color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
-        if not color_attr:
-            color_attr = self.env['product.attribute'].create({'name': 'Color'})
-        size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1)
-        if not size_attr:
-            size_attr = self.env['product.attribute'].create({'name': 'Talla'})
+        # --- IMAGEN PRINCIPAL ---
+        images = data.get("images", [])
+        for img in images:
+            img_url = img.get("url_image", "")
+            if img_url:
+                image_bin = get_image_binary_from_url(img_url)
+                if image_bin:
+                    product_template.image_1920 = image_bin
+                    _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
+                    break
 
-        color_val_map = {}
-        size_val_map = {}
-        attribute_lines = []
+        # --- LLAMADAS MASIVAS INVENTARIO Y PRECIO ---
+        try:
+            inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
+            price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
+            headers_inv = {
+                "x-api-key": api_key,
+                "x-toptex-authorization": token
+            }
+            inv_resp = requests.get(inventory_url, headers=headers_inv)
+            price_resp = requests.get(price_url, headers=headers_inv)
+            inventory_data = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
+            price_data = price_resp.json().get("items", []) if price_resp.status_code == 200 else []
+        except Exception as e:
+            _logger.error(f"❌ Error en inventario/precios: {e}")
+            inventory_data = []
+            price_data = []
 
-        # Creamos todos los valores necesarios para las variantes
-        for color in data.get("colors", []):
-            color_name = color.get("colors", {}).get("es") or color.get("colorReference", "")
-            if not color_name:
-                continue
-            color_val = self.env['product.attribute.value'].search([
-                ('name', '=', color_name), ('attribute_id', '=', color_attr.id)
-            ], limit=1)
-            if not color_val:
-                color_val = self.env['product.attribute.value'].create({'name': color_name, 'attribute_id': color_attr.id})
-            color_val_map[color_name] = color_val.id
+        def get_inv_stock(color, size):
+            for item in inventory_data:
+                if item.get("color") == color and item.get("size") == size:
+                    return item.get("stock", 0)
+            return 0
 
-            for size in color.get("sizes", []):
-                size_name = size.get("size")
-                if not size_name:
-                    continue
-                size_val = self.env['product.attribute.value'].search([
-                    ('name', '=', size_name), ('attribute_id', '=', size_attr.id)
-                ], limit=1)
-                if not size_val:
-                    size_val = self.env['product.attribute.value'].create({'name': size_name, 'attribute_id': size_attr.id})
-                size_val_map[size_name] = size_val.id
+        def get_price_cost(color, size):
+            for item in price_data:
+                if item.get("color") == color and item.get("size") == size:
+                    prices = item.get("prices", [])
+                    if prices:
+                        return float(prices[0].get("price", 0.0))
+            return 0.0
 
-        # Línea de atributos para la plantilla
-        if color_val_map:
-            attribute_lines.append((0, 0, {
-                'attribute_id': color_attr.id,
-                'value_ids': [(6, 0, list(color_val_map.values()))]
-            }))
-        if size_val_map:
-            attribute_lines.append((0, 0, {
-                'attribute_id': size_attr.id,
-                'value_ids': [(6, 0, list(size_val_map.values()))]
-            }))
-        if attribute_lines:
-            product_template.write({'attribute_line_ids': attribute_lines})
-            _logger.info("Atributos y variantes asignadas correctamente.")
-
-        # 8. Imagen por variante (color)
+        # --- ASIGNACIÓN FOTOS, STOCK, PRECIOS POR VARIANTE ---
         for variant in product_template.product_variant_ids:
             color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
-            if color_val:
-                color_name = color_val.name
-                color_obj = next((c for c in data.get("colors", []) if (c.get("colors", {}) or {}).get("es") == color_name or c.get("colorReference") == color_name), None)
-                if color_obj:
-                    img_url = color_obj.get("url_image")
-                    if img_url:
-                        variant_img_bin = get_image_binary_from_url(img_url)
-                        if variant_img_bin:
-                            variant.image_1920 = variant_img_bin
-                            _logger.info(f"Imagen asignada a variante {variant.name}")
+            size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
+            color_name = color_val.name if color_val else ""
+            size_name = size_val.name if size_val else ""
 
-        # 9. LOG FINAL
-        _logger.info("Producto NS300 y variantes creados correctamente con toda la info profesional B2B.")
+            # Imagen específica por variante
+            color_data = next((c for c in colors if c.get("colors", {}).get("es") == color_name), None)
+            if color_data:
+                img_url = color_data.get("url_image")
+                if img_url:
+                    image_bin = get_image_binary_from_url(img_url)
+                    if image_bin:
+                        variant.image_1920 = image_bin
+                        _logger.info(f"🖼️ Imagen asignada a variante: {variant.name}")
 
-        return product_template
+            coste = get_price_cost(color_name, size_name)
+            stock = get_inv_stock(color_name, size_name)
+            variant.standard_price = coste
+            variant.lst_price = round(coste * 1.25, 2) if coste > 0 else 9.8  # Precio de venta calculado, ejemplo margen 25%
+            # El stock lo asigna Odoo mediante inventario físico, pero puedes poner:
+            variant.qty_available = stock  # Esto es sólo informativo (stock real debe ser ajustado por inventario físico en Odoo)
+            _logger.info(f"💰 Variante: {variant.name} | Coste: {coste} | Stock: {stock}")
+
+        _logger.info(f"✅ Producto NS300 creado y listo para ventas B2B/B2C en Odoo!")
