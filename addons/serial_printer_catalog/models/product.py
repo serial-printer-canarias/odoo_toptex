@@ -77,14 +77,13 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # --- MARCA (comentado por ahora) ---
-        # brand_data = data.get("brand") or {}
-        # brand = brand_data.get("name", {}).get("es", "") if isinstance(brand_data, dict) else ""
+        # --- MARCA ---
+        brand_data = data.get("brand") or {}
+        brand = brand_data.get("name", {}).get("es", "") if isinstance(brand_data, dict) else ""
 
         # --- PLANTILLA PRINCIPAL ---
         name = data.get("designation", {}).get("es", "Producto sin nombre")
-        # full_name = f"{brand} {name}".strip()  # Si quieres añadir la marca en el nombre en el futuro
-        full_name = name
+        full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
 
@@ -126,10 +125,12 @@ class ProductTemplate(models.Model):
             }
         ]
 
+        # BLOQUE AJUSTADO (aquí está el cambio que pediste)
         template_vals = {
             'name': full_name,
             'default_code': default_code,
-            'type': 'consu',
+            'type': 'consu',          # Obligatorio: Goods para stock y ventas (NO 'product')
+            'is_storable': True,      # Así Odoo te deja gestionar inventario real
             'description_sale': description,
             'categ_id': self.env.ref("product.product_category_all").id,
             'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
@@ -180,43 +181,28 @@ class ProductTemplate(models.Model):
                         return float(prices[0].get("price", 0.0))
             return 0.0
 
-        # --- DATOS PARA CADA VARIANTE ---
         for variant in product_template.product_variant_ids:
             color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
             size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
             color_name = color_val.name if color_val else ""
             size_name = size_val.name if size_val else ""
 
-            # --- Imagen específica de la variante ---
+            # Imagen por variante (si la tienes en la API y lo implementaste)
             color_data = next((c for c in colors if c.get("colors", {}).get("es") == color_name), None)
-            img_url = None
             if color_data:
-                img_url = color_data.get("url_image") or (color_data.get("images", [{}])[0].get("url_image") if color_data.get("images") else None)
-            if img_url:
-                image_bin = get_image_binary_from_url(img_url)
-                if image_bin:
-                    variant.image_1920 = image_bin
-                    _logger.info(f"🖼️ Imagen de variante '{variant.name}' asignada desde: {img_url}")
+                img_url = color_data.get("url_image")
+                if img_url:
+                    image_bin = get_image_binary_from_url(img_url)
+                    if image_bin:
+                        variant.image_1920 = image_bin
+                        _logger.info(f"🖼️ Imagen asignada a variante: {variant.name}")
 
-            # --- Precios y stock ---
             coste = get_price_cost(color_name, size_name)
             stock = get_inv_stock(color_name, size_name)
             variant.standard_price = coste
-            variant.lst_price = coste * 1.25 if coste > 0 else 9.8
+            variant.lst_price = coste * 1.25 if coste > 0 else 9.8  # Margen ejemplo
+            variant.qty_available = stock
 
-            # --- Stock real en Odoo ---
-            quant = self.env['stock.quant'].search([
-                ('product_id', '=', variant.id),
-                ('location_id.usage', '=', 'internal')
-            ], limit=1)
-            if quant:
-                quant.quantity = stock
-            else:
-                self.env['stock.quant'].create({
-                    'product_id': variant.id,
-                    'location_id': self.env.ref('stock.stock_location_stock').id,
-                    'quantity': stock,
-                })
             _logger.info(f"💰 Variante: {variant.name} | Coste: {coste} | Stock: {stock}")
 
         _logger.info(f"✅ Producto NS300 creado y listo para ventas B2B/B2C en Odoo!")
