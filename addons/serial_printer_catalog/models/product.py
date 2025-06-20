@@ -42,7 +42,7 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # Autenticación
+        # --- AUTENTICACIÓN ---
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
@@ -58,7 +58,7 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # Descarga info NS300
+        # --- DESCARGA INFO NS300 ---
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -77,7 +77,7 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # --- MARCA ---
+        # --- DATOS MARCA ---
         brand_data = data.get("brand") or {}
         brand = brand_data.get("name", {}).get("es", "") if isinstance(brand_data, dict) else ""
 
@@ -87,7 +87,7 @@ class ProductTemplate(models.Model):
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
 
-        # --- VARIANTES ---
+        # --- VARIANTES COLOR/TALLA ---
         colors = data.get("colors", [])
         all_sizes = set()
         all_colors = set()
@@ -125,12 +125,11 @@ class ProductTemplate(models.Model):
             }
         ]
 
-        # BLOQUE AJUSTADO (aquí está el cambio que pediste)
+        # --- PLANTILLA PRODUCTO ---
         template_vals = {
             'name': full_name,
             'default_code': default_code,
-            'type': 'consu',          # Obligatorio: Goods para stock y ventas (NO 'product')
-            'is_storable': True,      # Así Odoo te deja gestionar inventario real
+            'type': 'consu',  # OJO: si quieres stock, usa 'consu' o 'product' según tu Odoo, 'consu' suele funcionar bien
             'description_sale': description,
             'categ_id': self.env.ref("product.product_category_all").id,
             'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
@@ -150,16 +149,16 @@ class ProductTemplate(models.Model):
                     _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
                     break
 
-        # --- PRECIO DE COSTE, STOCK Y PRECIO DE VENTA POR VARIANTE ---
+        # --- INVENTARIO Y PRECIOS ---
         try:
             inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
             price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
-            headers = {
+            headers2 = {
                 "x-api-key": api_key,
                 "x-toptex-authorization": token
             }
-            inv_resp = requests.get(inventory_url, headers=headers)
-            price_resp = requests.get(price_url, headers=headers)
+            inv_resp = requests.get(inventory_url, headers=headers2)
+            price_resp = requests.get(price_url, headers=headers2)
             inventory_data = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
             price_data = price_resp.json().get("items", []) if price_resp.status_code == 200 else []
         except Exception as e:
@@ -181,27 +180,46 @@ class ProductTemplate(models.Model):
                         return float(prices[0].get("price", 0.0))
             return 0.0
 
+        # --- VARIANTES: imagen principal, imágenes extra, stock, precio ---
         for variant in product_template.product_variant_ids:
+            # Color y talla por id
             color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
             size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
             color_name = color_val.name if color_val else ""
             size_name = size_val.name if size_val else ""
 
-            # Imagen por variante (si la tienes en la API y lo implementaste)
+            # Imagen principal específica (si la hay)
             color_data = next((c for c in colors if c.get("colors", {}).get("es") == color_name), None)
-            if color_data:
+            if color_data and color_data.get("url_image"):
                 img_url = color_data.get("url_image")
-                if img_url:
-                    image_bin = get_image_binary_from_url(img_url)
-                    if image_bin:
-                        variant.image_1920 = image_bin
-                        _logger.info(f"🖼️ Imagen asignada a variante: {variant.name}")
+                img_bin = get_image_binary_from_url(img_url)
+                if img_bin:
+                    variant.image_1920 = img_bin
+                    _logger.info(f"🖼️ Imagen principal asignada a variante: {variant.name}")
 
+            # --- IMÁGENES ADICIONALES por variante (profesional) ---
+            if color_data and "images" in color_data:
+                for idx, img_info in enumerate(color_data["images"]):
+                    img_url = img_info.get("url_image")
+                    if img_url:
+                        img_bin = get_image_binary_from_url(img_url)
+                        if img_bin:
+                            self.env['ir.attachment'].create({
+                                'name': f"{variant.name} - Extra {idx+1}",
+                                'datas': img_bin,
+                                'res_model': 'product.product',
+                                'res_id': variant.id,
+                                'res_field': 'image_1920',  # O cambiar si tienes custom
+                                'type': 'binary',
+                            })
+
+            # Precios y stock por variante
             coste = get_price_cost(color_name, size_name)
             stock = get_inv_stock(color_name, size_name)
             variant.standard_price = coste
-            variant.lst_price = coste * 1.25 if coste > 0 else 9.8  # Margen ejemplo
-            variant.qty_available = stock
+            variant.lst_price = coste * 1.25 if coste > 0 else 9.8  # Ajusta el margen aquí
+            # Stock solo si usas 'product' en vez de 'consu'
+            # variant.qty_available = stock
 
             _logger.info(f"💰 Variante: {variant.name} | Coste: {coste} | Stock: {stock}")
 
