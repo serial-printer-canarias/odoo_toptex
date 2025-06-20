@@ -188,22 +188,34 @@ class ProductTemplate(models.Model):
             color_name = color_val.name if color_val else ""
             size_name = size_val.name if size_val else ""
 
-            # Imagen específica por variante
-            color_data = next((c for c in colors if c.get("colors", {}).get("es") == color_name), None)
-            if color_data:
-                img_url = color_data.get("url_image")
-                if img_url:
-                    image_bin = get_image_binary_from_url(img_url)
-                    if image_bin:
-                        variant.image_1920 = image_bin
-                        _logger.info(f"🖼️ Imagen asignada a variante: {variant.name}")
+        # --- Imagen específica de la variante ---
+        color_data = next((c for c in colors if c.get("colors", {}).get("es") == color_name), None)
+        img_url = None
+        if color_data:
+            img_url = color_data.get("url_image") or color_data.get("images", [{}])[0].get("url_image")
+        if img_url:
+            image_bin = get_image_binary_from_url(img_url)
+            if image_bin:
+                variant.image_1920 = image_bin
+                _logger.info(f"🖼️ Imagen de variante '{variant.name}' asignada desde: {img_url}")
 
-            coste = get_price_cost(color_name, size_name)
-            stock = get_inv_stock(color_name, size_name)
-            variant.standard_price = coste
-            variant.lst_price = round(coste * 1.25, 2) if coste > 0 else 9.8  # Precio de venta calculado, ejemplo margen 25%
-            # El stock lo asigna Odoo mediante inventario físico, pero puedes poner:
-            variant.qty_available = stock  # Esto es sólo informativo (stock real debe ser ajustado por inventario físico en Odoo)
-            _logger.info(f"💰 Variante: {variant.name} | Coste: {coste} | Stock: {stock}")
+        # --- Precios y stock ---
+        coste = get_price_cost(color_name, size_name)
+        stock = get_inv_stock(color_name, size_name)
+        variant.standard_price = coste
+        variant.lst_price = coste * 1.25 if coste > 0 else 9.8  # O tu lógica de precio venta
 
-        _logger.info(f"✅ Producto NS300 creado y listo para ventas B2B/B2C en Odoo!")
+        # --- Stock real en Odoo ---
+        quant = self.env['stock.quant'].search([
+            ('product_id', '=', variant.id),
+            ('location_id.usage', '=', 'internal')
+        ], limit=1)
+        if quant:
+            quant.quantity = stock
+        else:
+            self.env['stock.quant'].create({
+            'product_id': variant.id,
+            'location_id': self.env.ref('stock.stock_location_stock').id,
+            'quantity': stock,
+        })
+    _logger.info(f"💰 Variante: {variant.name} | Coste: {coste} | Stock: {stock}")
