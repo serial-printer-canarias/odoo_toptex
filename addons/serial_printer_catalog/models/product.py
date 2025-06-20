@@ -58,7 +58,7 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # --- DESCARGA INFO NS300 ---
+        # --- OBTENCIÓN DE PRODUCTO NS300 ---
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -77,17 +77,15 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # --- DATOS MARCA ---
+        # --- DATOS PRINCIPALES ---
         brand_data = data.get("brand") or {}
         brand = brand_data.get("name", {}).get("es", "") if isinstance(brand_data, dict) else ""
-
-        # --- PLANTILLA PRINCIPAL ---
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
 
-        # --- VARIANTES COLOR/TALLA ---
+        # --- ATRIBUTOS Y VARIANTES ---
         colors = data.get("colors", [])
         all_sizes = set()
         all_colors = set()
@@ -125,14 +123,16 @@ class ProductTemplate(models.Model):
             }
         ]
 
-        # --- PLANTILLA PRODUCTO ---
         template_vals = {
             'name': full_name,
             'default_code': default_code,
-            'type': 'consu',  # OJO: si quieres stock, usa 'consu' o 'product' según tu Odoo, 'consu' suele funcionar bien
+            'type': 'product',  # <-- Importante: "product" para stock
             'description_sale': description,
             'categ_id': self.env.ref("product.product_category_all").id,
             'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
+            'sale_ok': True,
+            'purchase_ok': True,
+            'detailed_type': 'product',  # <-- Odoo 16+ usa este campo, en 14/15 puede omitirse
         }
         _logger.info(f"🛠️ Datos para crear plantilla: {template_vals}")
         product_template = self.create(template_vals)
@@ -149,16 +149,16 @@ class ProductTemplate(models.Model):
                     _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
                     break
 
-        # --- INVENTARIO Y PRECIOS ---
+        # --- OBTENER INVENTARIO Y PRECIOS DE VARIANTES ---
         try:
             inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
             price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
-            headers2 = {
+            headers_inv = {
                 "x-api-key": api_key,
                 "x-toptex-authorization": token
             }
-            inv_resp = requests.get(inventory_url, headers=headers2)
-            price_resp = requests.get(price_url, headers=headers2)
+            inv_resp = requests.get(inventory_url, headers=headers_inv)
+            price_resp = requests.get(price_url, headers=headers_inv)
             inventory_data = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
             price_data = price_resp.json().get("items", []) if price_resp.status_code == 200 else []
         except Exception as e:
@@ -180,47 +180,61 @@ class ProductTemplate(models.Model):
                         return float(prices[0].get("price", 0.0))
             return 0.0
 
-        # --- VARIANTES: imagen principal, imágenes extra, stock, precio ---
+        # --- VARIANTES: PRECIOS, STOCK, FOTOS ---
         for variant in product_template.product_variant_ids:
-            # Color y talla por id
+            # Obtener color y talla de la variante
             color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
             size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
             color_name = color_val.name if color_val else ""
             size_name = size_val.name if size_val else ""
 
-            # Imagen principal específica (si la hay)
+            # Imagen específica por variante (principal)
             color_data = next((c for c in colors if c.get("colors", {}).get("es") == color_name), None)
-            if color_data and color_data.get("url_image"):
+            if color_data:
                 img_url = color_data.get("url_image")
-                img_bin = get_image_binary_from_url(img_url)
-                if img_bin:
-                    variant.image_1920 = img_bin
-                    _logger.info(f"🖼️ Imagen principal asignada a variante: {variant.name}")
+                if img_url:
+                    image_bin = get_image_binary_from_url(img_url)
+                    if image_bin:
+                        variant.image_1920 = image_bin
+                        _logger.info(f"🖼️ Imagen asignada a variante: {variant.name}")
 
-            # --- IMÁGENES ADICIONALES por variante (profesional) ---
-            if color_data and "images" in color_data:
-                for idx, img_info in enumerate(color_data["images"]):
-                    img_url = img_info.get("url_image")
-                    if img_url:
-                        img_bin = get_image_binary_from_url(img_url)
-                        if img_bin:
-                            self.env['ir.attachment'].create({
-                                'name': f"{variant.name} - Extra {idx+1}",
-                                'datas': img_bin,
-                                'res_model': 'product.product',
-                                'res_id': variant.id,
-                                'res_field': 'image_1920',  # O cambiar si tienes custom
-                                'type': 'binary',
-                            })
+                # Fotos extra por variante (adjuntos, galería)
+                if "images" in color_data:
+                    for idx, img_info in enumerate(color_data["images"]):
+                        img_url2 = img_info.get("url_image")
+                        if img_url2:
+                            img_bin2 = get_image_binary_from_url(img_url2)
+                            if img_bin2:
+                                self.env['ir.attachment'].sudo().create({
+                                    'name': f"{variant.name} - Extra {idx+1}",
+                                    'datas': img_bin2,
+                                    'res_model': 'product.product',
+                                    'res_id': variant.id,
+                                    'type': 'binary',
+                                    'mimetype': 'image/jpeg',
+                                })
 
-            # Precios y stock por variante
+            # Coste y venta
             coste = get_price_cost(color_name, size_name)
             stock = get_inv_stock(color_name, size_name)
             variant.standard_price = coste
-            variant.lst_price = coste * 1.25 if coste > 0 else 9.8  # Ajusta el margen aquí
-            # Stock solo si usas 'product' en vez de 'consu'
-            # variant.qty_available = stock
+            variant.lst_price = coste * 1.25 if coste > 0 else 9.8
+
+            # STOCK PRO (crea quants en almacén por variante)
+            warehouse = self.env['stock.warehouse'].search([], limit=1)
+            location_id = warehouse.lot_stock_id.id if warehouse else self.env.ref('stock.stock_location_stock').id
+            # Borra quants antiguos (opcional, cuidado si ya usas el producto)
+            self.env['stock.quant'].sudo().search([
+                ('product_id', '=', variant.id),
+                ('location_id', '=', location_id)
+            ]).unlink()
+            self.env['stock.quant'].sudo().create({
+                'product_id': variant.id,
+                'location_id': location_id,
+                'quantity': stock,
+                'inventory_quantity': stock,
+            })
 
             _logger.info(f"💰 Variante: {variant.name} | Coste: {coste} | Stock: {stock}")
 
-        _logger.info(f"✅ Producto NS300 creado y listo para ventas B2B/B2C en Odoo!")
+        _logger.info(f"✅ Producto NS300 creado y listo para ventas B2B/B2C en Odoo (fotos por variante, precios, stock, galería extra).")
