@@ -42,7 +42,7 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # 1. AUTENTICACIÓN
+        # Autenticación
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
@@ -58,7 +58,7 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        # 2. DESCARGA INFO PRODUCTO NS300
+        # Descarga info NS300
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -77,14 +77,14 @@ class ProductTemplate(models.Model):
             _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        # --- MARCA ---
-        brand_data = data.get("brand") or {}
-        brand = brand_data.get("name", {}).get("es", "") if isinstance(brand_data, dict) else ""
-        # Si en tu Odoo hay modelo de marca, aquí lo puedes asociar
+        # --- MARCA (comentado por ahora) ---
+        # brand_data = data.get("brand") or {}
+        # brand = brand_data.get("name", {}).get("es", "") if isinstance(brand_data, dict) else ""
 
         # --- PLANTILLA PRINCIPAL ---
         name = data.get("designation", {}).get("es", "Producto sin nombre")
-        full_name = f"{brand} {name}".strip()
+        # full_name = f"{brand} {name}".strip()  # Si quieres añadir la marca en el nombre en el futuro
+        full_name = name
         description = data.get("description", {}).get("es", "")
         default_code = data.get("catalogReference", "NS300")
 
@@ -98,7 +98,6 @@ class ProductTemplate(models.Model):
             for size in color.get("sizes", []):
                 all_sizes.add(size.get("size"))
 
-        # --- ATRIBUTOS ---
         color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1) or self.env['product.attribute'].create({'name': 'Color'})
         size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1) or self.env['product.attribute'].create({'name': 'Talla'})
 
@@ -150,16 +149,16 @@ class ProductTemplate(models.Model):
                     _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
                     break
 
-        # --- LLAMADAS MASIVAS INVENTARIO Y PRECIO ---
+        # --- PRECIO DE COSTE, STOCK Y PRECIO DE VENTA POR VARIANTE ---
         try:
             inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
             price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
-            headers_inv = {
+            headers = {
                 "x-api-key": api_key,
                 "x-toptex-authorization": token
             }
-            inv_resp = requests.get(inventory_url, headers=headers_inv)
-            price_resp = requests.get(price_url, headers=headers_inv)
+            inv_resp = requests.get(inventory_url, headers=headers)
+            price_resp = requests.get(price_url, headers=headers)
             inventory_data = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
             price_data = price_resp.json().get("items", []) if price_resp.status_code == 200 else []
         except Exception as e:
@@ -181,41 +180,43 @@ class ProductTemplate(models.Model):
                         return float(prices[0].get("price", 0.0))
             return 0.0
 
-        # --- ASIGNACIÓN FOTOS, STOCK, PRECIOS POR VARIANTE ---
+        # --- DATOS PARA CADA VARIANTE ---
         for variant in product_template.product_variant_ids:
             color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
             size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
             color_name = color_val.name if color_val else ""
             size_name = size_val.name if size_val else ""
 
-        # --- Imagen específica de la variante ---
-        color_data = next((c for c in colors if c.get("colors", {}).get("es") == color_name), None)
-        img_url = None
-        if color_data:
-            img_url = color_data.get("url_image") or color_data.get("images", [{}])[0].get("url_image")
-        if img_url:
-            image_bin = get_image_binary_from_url(img_url)
-            if image_bin:
-                variant.image_1920 = image_bin
-                _logger.info(f"🖼️ Imagen de variante '{variant.name}' asignada desde: {img_url}")
+            # --- Imagen específica de la variante ---
+            color_data = next((c for c in colors if c.get("colors", {}).get("es") == color_name), None)
+            img_url = None
+            if color_data:
+                img_url = color_data.get("url_image") or (color_data.get("images", [{}])[0].get("url_image") if color_data.get("images") else None)
+            if img_url:
+                image_bin = get_image_binary_from_url(img_url)
+                if image_bin:
+                    variant.image_1920 = image_bin
+                    _logger.info(f"🖼️ Imagen de variante '{variant.name}' asignada desde: {img_url}")
 
-        # --- Precios y stock ---
-        coste = get_price_cost(color_name, size_name)
-        stock = get_inv_stock(color_name, size_name)
-        variant.standard_price = coste
-        variant.lst_price = coste * 1.25 if coste > 0 else 9.8  # O tu lógica de precio venta
+            # --- Precios y stock ---
+            coste = get_price_cost(color_name, size_name)
+            stock = get_inv_stock(color_name, size_name)
+            variant.standard_price = coste
+            variant.lst_price = coste * 1.25 if coste > 0 else 9.8
 
-        # --- Stock real en Odoo ---
-        quant = self.env['stock.quant'].search([
-            ('product_id', '=', variant.id),
-            ('location_id.usage', '=', 'internal')
-        ], limit=1)
-        if quant:
-            quant.quantity = stock
-        else:
-            self.env['stock.quant'].create({
-            'product_id': variant.id,
-            'location_id': self.env.ref('stock.stock_location_stock').id,
-            'quantity': stock,
-        })
-    _logger.info(f"💰 Variante: {variant.name} | Coste: {coste} | Stock: {stock}")
+            # --- Stock real en Odoo ---
+            quant = self.env['stock.quant'].search([
+                ('product_id', '=', variant.id),
+                ('location_id.usage', '=', 'internal')
+            ], limit=1)
+            if quant:
+                quant.quantity = stock
+            else:
+                self.env['stock.quant'].create({
+                    'product_id': variant.id,
+                    'location_id': self.env.ref('stock.stock_location_stock').id,
+                    'quantity': stock,
+                })
+            _logger.info(f"💰 Variante: {variant.name} | Coste: {coste} | Stock: {stock}")
+
+        _logger.info(f"✅ Producto NS300 creado y listo para ventas B2B/B2C en Odoo!")
