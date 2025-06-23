@@ -42,7 +42,7 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # Autenticación
+        # Obtener token
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
@@ -97,9 +97,11 @@ class ProductTemplate(models.Model):
             for size in color.get("sizes", []):
                 all_sizes.add(size.get("size"))
 
+        # Creamos atributos si no existen
         color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1) or self.env['product.attribute'].create({'name': 'Color'})
         size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1) or self.env['product.attribute'].create({'name': 'Talla'})
 
+        # Creamos valores de atributos
         color_vals = {}
         for c in all_colors:
             val = self.env['product.attribute.value'].search([('name', '=', c), ('attribute_id', '=', color_attr.id)], limit=1)
@@ -114,6 +116,7 @@ class ProductTemplate(models.Model):
                 val = self.env['product.attribute.value'].create({'name': s, 'attribute_id': size_attr.id})
             size_vals[s] = val
 
+        # Atributos para la plantilla
         attribute_lines = [
             {
                 'attribute_id': color_attr.id,
@@ -125,10 +128,11 @@ class ProductTemplate(models.Model):
             }
         ]
 
+        # --- PLANTILLA ---
         template_vals = {
             'name': full_name,
             'default_code': default_code,
-            'type': 'consu',  # NO "product", solo consu + is_storable para stock
+            'type': 'consu',  # Consu + is_storable para gestión de stock
             'is_storable': True,
             'description_sale': description,
             'categ_id': self.env.ref("product.product_category_all").id,
@@ -170,13 +174,11 @@ class ProductTemplate(models.Model):
                         return float(prices[0].get("price", 0.0))
             return 0.0
 
-        # --- DATOS PARA VARIANTES ---
         for variant in product_template.product_variant_ids:
             color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
             size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
             color_name = color_val.name if color_val else ""
             size_name = size_val.name if size_val else ""
-
             coste = get_price_cost(color_name, size_name)
             variant.standard_price = coste
             variant.lst_price = coste * 1.25 if coste > 0 else 9.8
@@ -184,7 +186,6 @@ class ProductTemplate(models.Model):
 
         _logger.info(f"✅ Producto NS300 creado y listo para ventas B2B/B2C en Odoo!")
 
-    # ------ NUEVO MÉTODO PRO PARA IMÁGENES POR VARIANTE ------
     def sync_images_by_variant(self):
         """
         Asigna imágenes a cada variante usando los packshots del JSON de TopTex.
@@ -194,6 +195,7 @@ class ProductTemplate(models.Model):
         proxy_url = icp.get_param('toptex_proxy_url')
         token = icp.get_param('toptex_token')
         if not all([api_key, proxy_url, token]):
+            _logger.error("❌ Faltan credenciales para obtener imágenes por variante.")
             return
 
         product_url = f"{proxy_url}/v3/products?catalog_reference={self.default_code}"
@@ -219,11 +221,52 @@ class ProductTemplate(models.Model):
                             img = packshots.get(key, {})
                             if img.get("url_packshot"):
                                 img_url = img["url_packshot"]
+                                _logger.info(f"🔗 Imagen encontrada para {color_name}/{key}: {img_url}")
                                 break
+                        if not img_url:
+                            _logger.warning(f"❌ No hay packshot para variante {color_name}")
                         if img_url:
                             image_bin = get_image_binary_from_url(img_url)
                             if image_bin:
                                 variant.image_1920 = image_bin
-                                _logger.info(f"🖼️ Imagen asignada a variante {variant.name}: {img_url}")
+                                _logger.info(f"🖼️ Imagen asignada a variante {variant.name}")
         except Exception as e:
             _logger.error(f"Error asignando imagenes por variante: {e}")
+
+    def sync_stock_from_api(self):
+        """
+        Actualiza el stock de cada variante usando la API de TopTex.
+        """
+        icp = self.env['ir.config_parameter'].sudo()
+        api_key = icp.get_param('toptex_api_key')
+        proxy_url = icp.get_param('toptex_proxy_url')
+        token = icp.get_param('toptex_token')
+        if not all([api_key, proxy_url, token]):
+            _logger.error("❌ Faltan credenciales para obtener stock por variante.")
+            return
+
+        inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference={self.default_code}"
+        headers = {
+            "x-api-key": api_key,
+            "x-toptex-authorization": token
+        }
+        try:
+            inv_resp = requests.get(inventory_url, headers=headers)
+            if inv_resp.status_code == 200:
+                inventory_data = inv_resp.json().get("items", [])
+                for variant in self.product_variant_ids:
+                    color = variant.product_template_attribute_value_ids.filtered(
+                        lambda v: v.attribute_id.name.lower() == "color"
+                    ).name
+                    size = variant.product_template_attribute_value_ids.filtered(
+                        lambda v: v.attribute_id.name.lower() == "talla"
+                    ).name
+                    stock = 0
+                    for item in inventory_data:
+                        if item.get("color") == color and item.get("size") == size:
+                            stock = item.get("stock", 0)
+                            break
+                    variant.qty_available = stock
+                    _logger.info(f"📦 Stock para variante {variant.name}: {stock}")
+        except Exception as e:
+            _logger.error(f"Error actualizando stock: {e}")
