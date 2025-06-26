@@ -1,152 +1,218 @@
+import json
 import logging
 import requests
-import io
 import base64
+import io
 from PIL import Image
-from odoo import models, api, fields
+from odoo import models, api
+from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
-
-def get_token(api_key, proxy_url, username, password):
-    """Autentica y devuelve el token JWT de Toptex."""
-    auth_url = f"{proxy_url}/v3/authenticate"
-    payload = {
-        "username": username,
-        "password": password,
-    }
-    headers = {
-        "x-api-key": api_key,
-        "Content-Type": "application/json"
-    }
-    resp = requests.post(auth_url, json=payload, headers=headers, timeout=10)
-    resp.raise_for_status()
-    data = resp.json()
-    return data["token"]
 
 def get_image_binary_from_url(url):
     try:
         _logger.info(f"🖼️ Descargando imagen desde {url}")
         response = requests.get(url, stream=True, timeout=10)
-        if response.status_code == 200:
-            image = Image.open(io.BytesIO(response.content)).convert("RGB")
+        content_type = response.headers.get("Content-Type", "")
+        if response.status_code == 200 and "image" in content_type:
+            image = Image.open(io.BytesIO(response.content))
+            image = image.convert("RGB")
             buffer = io.BytesIO()
             image.save(buffer, format="JPEG")
             image_bytes = buffer.getvalue()
             _logger.info(f"✅ Imagen convertida a binario ({len(image_bytes)} bytes)")
             return base64.b64encode(image_bytes)
         else:
-            _logger.warning(f"⚠️ Contenido no válido al descargar {url}")
+            _logger.warning(f"⚠️ Contenido no válido como imagen: {url}")
     except Exception as e:
-        _logger.warning(f"❌ Error procesando imagen de {url}: {e}")
+        _logger.warning(f"❌ Error al procesar imagen desde {url}: {str(e)}")
     return None
 
 class ProductTemplate(models.Model):
-    _inherit = "product.template"
+    _inherit = 'product.template'
 
     @api.model
-    def sync_images_by_variant(self):
-        """
-        Sincroniza imágenes por variante de color usando el JSON de Toptex.
-        """
+    def sync_product_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
-        api_key = icp.get_param('toptex_api_key')
-        proxy_url = icp.get_param('toptex_proxy_url')
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
+        api_key = icp.get_param('toptex_api_key')
+        proxy_url = icp.get_param('toptex_proxy_url')
 
-        if not all([api_key, proxy_url, username, password]):
-            _logger.error("❌ Faltan credenciales para imágenes por variante.")
+        if not all([username, password, api_key, proxy_url]):
+            raise UserError("❌ Faltan credenciales o parámetros del sistema.")
+
+        # --- 1. AUTENTICACIÓN ---
+        auth_url = f"{proxy_url}/v3/authenticate"
+        auth_payload = {"username": username, "password": password}
+        auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
+        try:
+            auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
+            if auth_response.status_code != 200:
+                raise UserError(f"❌ Error autenticando: {auth_response.status_code} - {auth_response.text}")
+            token = auth_response.json().get("token")
+            if not token:
+                raise UserError("❌ No se recibió un token válido.")
+            _logger.info("🔐 Token recibido correctamente.")
+        except Exception as e:
+            _logger.error(f"❌ Error autenticando con TopTex: {e}")
             return
 
-        token = get_token(api_key, proxy_url, username, password)
-        product_url = f"{proxy_url}/v3/products?catalog_reference={self.default_code}&usage_right=b2b,b2c"
+        # --- 2. OBTENCIÓN DE PRODUCTO NS300 ---
+        product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
             "x-toptex-authorization": token,
+            "Accept-Encoding": "gzip, deflate, br"
         }
-
         try:
-            response = requests.get(product_url, headers=headers, timeout=15)
+            response = requests.get(product_url, headers=headers)
+            _logger.info(f"📥 Respuesta cruda:\n{response.text}")
             if response.status_code != 200:
-                _logger.error(f"❌ Error Toptex imágenes: {response.status_code}")
-                return
-            data = response.json()
-            colors = data.get("colors", [])
-            for variant in self.product_variant_ids:
-                # Busca color_name en los atributos de la variante
-                color_val = next(
-                    (v for v in variant.product_template_attribute_value_ids if v.attribute_id.name.lower() == "color"),
-                    None
-                )
-                color_name = color_val.name if color_val else ""
-                color_data = next((c for c in colors if c.get("colors", {}).get("es") == color_name), None)
-                if color_data:
-                    packshots = color_data.get("packshots", {})
-                    img_url = None
-                    for key in ["FACE", "BACK", "SIDE"]:
-                        img = packshots.get(key, {})
-                        if img.get("url_packshot"):
-                            img_url = img["url_packshot"]
-                            break
-                    if img_url:
-                        image_bin = get_image_binary_from_url(img_url)
-                        if image_bin:
-                            variant.image_1920 = image_bin
-                            _logger.info(f"🟢 Imagen asignada a variante {variant.name} desde {img_url}")
+                raise UserError(f"❌ Error al obtener el producto: {response.status_code} - {response.text}")
+            data_list = response.json()
+            data = data_list if isinstance(data_list, dict) else data_list[0] if data_list else {}
+            _logger.info(f"📦 JSON interpretado:\n{json.dumps(data, indent=2)}")
         except Exception as e:
-            _logger.error(f"Error asignando imágenes por variante: {e}")
-
-    @api.model
-    def sync_stock_from_api(self):
-        """
-        Actualiza el stock de cada variante usando el JSON de inventario de Toptex.
-        """
-        icp = self.env['ir.config_parameter'].sudo()
-        api_key = icp.get_param('toptex_api_key')
-        proxy_url = icp.get_param('toptex_proxy_url')
-        username = icp.get_param('toptex_username')
-        password = icp.get_param('toptex_password')
-
-        if not all([api_key, proxy_url, username, password]):
-            _logger.error("❌ Faltan credenciales para obtener stock por variante.")
+            _logger.error(f"❌ Error al obtener producto desde API: {e}")
             return
 
-        token = get_token(api_key, proxy_url, username, password)
-        inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={self.default_code}"
-        headers = {
-            "x-api-key": api_key,
-            "x-toptex-authorization": token,
-        }
+        # --- 3. MARCA ---
+        brand_data = data.get("brand") or {}
+        brand = brand_data.get("name", {}).get("es", "") if isinstance(brand_data, dict) else ""
 
+        # --- 4. PLANTILLA PRINCIPAL ---
+        name = data.get("designation", {}).get("es", "Producto sin nombre")
+        full_name = f"{brand} {name}".strip()
+        description = data.get("description", {}).get("es", "")
+        default_code = data.get("catalogReference", "NS300")
+
+        # --- 5. ATRIBUTOS Y VALORES ---
+        colors = data.get("colors", [])
+        all_sizes = set()
+        all_colors = set()
+        for color in colors:
+            color_name = color.get("colors", {}).get("es", "")
+            all_colors.add(color_name)
+            for size in color.get("sizes", []):
+                all_sizes.add(size.get("size"))
+
+        color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1) or self.env['product.attribute'].create({'name': 'Color'})
+        size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1) or self.env['product.attribute'].create({'name': 'Talla'})
+
+        color_vals = {}
+        for c in all_colors:
+            val = self.env['product.attribute.value'].search([('name', '=', c), ('attribute_id', '=', color_attr.id)], limit=1)
+            if not val:
+                val = self.env['product.attribute.value'].create({'name': c, 'attribute_id': color_attr.id})
+            color_vals[c] = val
+
+        size_vals = {}
+        for s in all_sizes:
+            val = self.env['product.attribute.value'].search([('name', '=', s), ('attribute_id', '=', size_attr.id)], limit=1)
+            if not val:
+                val = self.env['product.attribute.value'].create({'name': s, 'attribute_id': size_attr.id})
+            size_vals[s] = val
+
+        attribute_lines = [
+            {
+                'attribute_id': color_attr.id,
+                'value_ids': [(6, 0, [v.id for v in color_vals.values()])]
+            },
+            {
+                'attribute_id': size_attr.id,
+                'value_ids': [(6, 0, [v.id for v in size_vals.values()])]
+            }
+        ]
+
+        # --- 6. CREAR PLANTILLA ---
+        template_vals = {
+            'name': full_name,
+            'default_code': default_code,
+            'type': 'consu',  # Siempre consu + is_storable True
+            'is_storable': True,
+            'description_sale': description,
+            'categ_id': self.env.ref("product.product_category_all").id,
+            'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
+        }
+        _logger.info(f"🛠️ Datos para crear plantilla: {template_vals}")
+        product_template = self.create(template_vals)
+        _logger.info(f"✅ Plantilla creada: {product_template.name}")
+
+        # --- 7. IMAGEN PRINCIPAL ---
+        images = data.get("images", [])
+        for img in images:
+            img_url = img.get("url_image", "")
+            if img_url:
+                image_bin = get_image_binary_from_url(img_url)
+                if image_bin:
+                    product_template.image_1920 = image_bin
+                    _logger.info(f"🖼️ Imagen principal asignada desde: {img_url}")
+                    break
+
+        # --- 8. PRECIOS (coste, venta) ---
         try:
-            response = requests.get(inv_url, headers=headers, timeout=15)
-            if response.status_code != 200:
-                _logger.error(f"❌ Error Toptex stock: {response.status_code}")
-                return
-            data = response.json()
-            items = data.get("items", [])
-            for variant in self.product_variant_ids:
-                color_val = next(
-                    (v for v in variant.product_template_attribute_value_ids if v.attribute_id.name.lower() == "color"),
-                    None
-                )
-                size_val = next(
-                    (v for v in variant.product_template_attribute_value_ids if v.attribute_id.name.lower() == "size"),
-                    None
-                )
-                color_code = color_val.name if color_val else ""
-                size_code = size_val.name if size_val else ""
-                # Busca stock por SKU/color/size
-                stock_item = next(
-                    (item for item in items
-                     if item.get("color") == color_code and item.get("size") == size_code),
-                    None
-                )
-                stock_qty = 0
-                if stock_item:
-                    # Suma stock de todos los almacenes
-                    stock_qty = sum([w.get("stock", 0) for w in stock_item.get("warehouses", [])])
-                variant.qty_available = stock_qty
-                _logger.info(f"📦 Variante: {variant.name} | Stock: {stock_qty}")
+            price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
+            headers_prices = {
+                "x-api-key": api_key,
+                "x-toptex-authorization": token
+            }
+            price_resp = requests.get(price_url, headers=headers_prices)
+            price_data = price_resp.json().get("items", []) if price_resp.status_code == 200 else []
         except Exception as e:
-            _logger.error(f"Error actualizando stock de variantes: {e}")
+            _logger.error(f"❌ Error en precios: {e}")
+            price_data = []
+
+        def get_price_cost(color, size):
+            for item in price_data:
+                if item.get("color") == color and item.get("size") == size:
+                    prices = item.get("prices", [])
+                    if prices:
+                        return float(prices[0].get("price", 0.0))
+            return 0.0
+
+        # --- 9. STOCK (NUEVO: LLAMADA DIRECTA) ---
+        try:
+            inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
+            headers_inventory = {
+                "x-api-key": api_key,
+                "x-toptex-authorization": token
+            }
+            inv_resp = requests.get(inventory_url, headers=headers_inventory)
+            inventory_data = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
+        except Exception as e:
+            _logger.error(f"❌ Error en inventario: {e}")
+            inventory_data = []
+
+        def get_stock(color, size):
+            for item in inventory_data:
+                if item.get("color") == color and item.get("size") == size:
+                    return item.get("stock", 0)
+            return 0
+
+        # --- 10. DATOS PARA VARIANTES (IMÁGENES INCLUIDO) ---
+        for variant in product_template.product_variant_ids:
+            color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
+            size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
+            color_name = color_val.name if color_val else ""
+            size_name = size_val.name if size_val else ""
+
+            # --- Imagen específica de la variante ---
+            color_data = next((c for c in colors if c.get("colors", {}).get("es") == color_name), None)
+            if color_data:
+                img_url = color_data.get("url_image", "")
+                if img_url:
+                    image_bin = get_image_binary_from_url(img_url)
+                    if image_bin:
+                        variant.image_1920 = image_bin
+                        _logger.info(f"🖼️ Imagen asignada a variante: {variant.name}")
+
+            # --- Precios y stock ---
+            coste = get_price_cost(color_name, size_name)
+            stock = get_stock(color_name, size_name)
+            variant.standard_price = coste
+            variant.lst_price = coste * 1.25 if coste > 0 else 9.8  # Margen ejemplo
+            variant.qty_available = stock
+            _logger.info(f"💰 Variante: {variant.name} | Coste: {coste} | Stock: {stock}")
+
+        _logger.info(f"✅ Producto NS300 creado y listo para ventas B2B/B2C en Odoo!")
