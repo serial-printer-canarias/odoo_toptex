@@ -215,9 +215,15 @@ class ProductTemplate(models.Model):
             return
 
         inventory_items = inv_resp.json().get("items", [])
-        template = self.search([('default_code', '=', 'NS300')], limit=1)
+
+        # Busca el template por código O por nombre parcial (más flexible)
+        template = self.search([
+            '|',
+            ('default_code', '=', 'NS300'),
+            ('name', 'ilike', 'NS300')
+        ], limit=1)
         if not template:
-            _logger.error("No se encuentra el producto template NS300.")
+            _logger.error("No se encuentra el producto template NS300 (ni por código ni por nombre).")
             return
 
         StockQuant = self.env['stock.quant']
@@ -268,7 +274,11 @@ class ProductTemplate(models.Model):
             for color in colors
         }
 
-        template = self.search([('default_code', '=', 'NS300')], limit=1)
+        template = self.search([
+            '|',
+            ('default_code', '=', 'NS300'),
+            ('name', 'ilike', 'NS300')
+        ], limit=1)
         if not template:
             _logger.error("No se encuentra el producto template NS300.")
             return
