@@ -144,7 +144,22 @@ class ProductTemplate(models.Model):
                     product_template.image_1920 = image_bin
                     break
 
-        # Precio de coste y venta
+        # --- BLOQUE INVENTARIO PARA ASIGNAR SKU CORRECTO A VARIANTES ---
+        try:
+            inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
+            inv_resp = requests.get(inventory_url, headers=headers)
+            inventory_items = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
+        except Exception as e:
+            _logger.error(f"❌ Error al obtener inventario: {e}")
+            inventory_items = []
+
+        def get_sku(color, size):
+            for item in inventory_items:
+                if item.get("color") == color and item.get("size") == size:
+                    return item.get("sku")
+            return ""
+
+        # Precios
         try:
             price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
             price_resp = requests.get(price_url, headers=headers)
@@ -166,12 +181,16 @@ class ProductTemplate(models.Model):
             size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
             color_name = color_val.name if color_val else ""
             size_name = size_val.name if size_val else ""
+            # --- FIJA EL DEFAULT_CODE/SKU EN LA VARIANTE ---
+            sku = get_sku(color_name, size_name)
+            if sku:
+                variant.default_code = sku
             coste = get_price_cost(color_name, size_name)
             variant.standard_price = coste
             variant.lst_price = coste * 1.25 if coste > 0 else 9.8
             _logger.info(f"💰 Variante: {variant.name} | Coste: {coste}")
 
-        _logger.info(f"✅ Producto NS300 creado correctamente con variantes y atributos.")
+        _logger.info(f"✅ Producto NS300 creado correctamente con variantes, SKU y atributos.")
 
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
@@ -213,7 +232,7 @@ class ProductTemplate(models.Model):
                 ], limit=1)
                 if quant:
                     quant.quantity = stock
-                    quant.inventory_quantity = stock  # Si tu Odoo lo requiere
+                    quant.inventory_quantity = stock
                     _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
                 else:
                     _logger.warning(f"❌ No se encontró stock.quant para {sku}")
