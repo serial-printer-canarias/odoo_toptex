@@ -16,7 +16,13 @@ def get_image_binary_from_url(url):
         content_type = response.headers.get("Content-Type", "")
         if response.status_code == 200 and "image" in content_type:
             image = Image.open(io.BytesIO(response.content))
-            image = image.convert("RGB")
+            # --- Fondo blanco si hay transparencia ---
+            if image.mode in ('RGBA', 'LA'):
+                background = Image.new('RGB', image.size, (255, 255, 255))
+                background.paste(image, mask=image.split()[-1])
+                image = background
+            else:
+                image = image.convert("RGB")
             buffer = io.BytesIO()
             image.save(buffer, format="JPEG")
             image_bytes = buffer.getvalue()
@@ -195,13 +201,24 @@ class ProductTemplate(models.Model):
             _logger.error("No se encuentra el producto template NS300.")
             return
 
+        StockQuant = self.env['stock.quant']
         for item in inventory_items:
             sku = item.get("sku")
             stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
             product = template.product_variant_ids.filtered(lambda v: v.default_code == sku)
             if product:
-                product.qty_available = stock
-                _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
+                quant = StockQuant.search([
+                    ('product_id', '=', product.id),
+                    ('location_id.usage', '=', 'internal')
+                ], limit=1)
+                if quant:
+                    quant.quantity = stock
+                    quant.inventory_quantity = stock  # Si tu Odoo lo requiere
+                    _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
+                else:
+                    _logger.warning(f"❌ No se encontró stock.quant para {sku}")
+            else:
+                _logger.warning(f"❌ Variante no encontrada para SKU {sku}")
 
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
