@@ -190,10 +190,15 @@ class ProductTemplate(models.Model):
             return
 
         inventory_items = inv_resp.json().get("items", [])
+        template = self.search([('default_code', '=', 'NS300')], limit=1)
+        if not template:
+            _logger.error("No se encuentra el producto template NS300.")
+            return
+
         for item in inventory_items:
             sku = item.get("sku")
             stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
-            product = self.env["product.product"].search([("default_code", "=", sku)], limit=1)
+            product = template.product_variant_ids.filtered(lambda v: v.default_code == sku)
             if product:
                 product.qty_available = stock
                 _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
@@ -227,7 +232,12 @@ class ProductTemplate(models.Model):
             for color in colors
         }
 
-        for variant in self.env['product.product'].search([('product_tmpl_id.catalog_reference', '=', 'ns300')]):
+        template = self.search([('default_code', '=', 'NS300')], limit=1)
+        if not template:
+            _logger.error("No se encuentra el producto template NS300.")
+            return
+
+        for variant in template.product_variant_ids:
             color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name.lower() == 'color')
             color_name = color_val.name if color_val else ""
             img_url = color_images.get(color_name)
