@@ -16,7 +16,6 @@ def get_image_binary_from_url(url):
         content_type = response.headers.get("Content-Type", "")
         if response.status_code == 200 and "image" in content_type:
             image = Image.open(io.BytesIO(response.content))
-            # --- Fondo blanco si hay transparencia ---
             if image.mode in ('RGBA', 'LA'):
                 background = Image.new('RGB', image.size, (255, 255, 255))
                 background.paste(image, mask=image.split()[-1])
@@ -123,16 +122,21 @@ class ProductTemplate(models.Model):
             }
         ]
 
+        # --- CREA O ACTUALIZA TEMPLATE SIEMPRE CON default_code ---
         template_vals = {
             'name': full_name,
-            'default_code': default_code,
+            'default_code': default_code,  # SIEMPRE mapea el código TopTex aquí!
             'type': 'consu',
             'is_storable': True,
             'description_sale': description,
             'categ_id': self.env.ref("product.product_category_all").id,
             'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
         }
-        product_template = self.create(template_vals)
+        template = self.search([('default_code', '=', default_code)], limit=1)
+        if template:
+            template.write(template_vals)
+        else:
+            template = self.create(template_vals)
 
         # Imagen principal
         images = data.get("images", [])
@@ -141,7 +145,7 @@ class ProductTemplate(models.Model):
             if img_url:
                 image_bin = get_image_binary_from_url(img_url)
                 if image_bin:
-                    product_template.image_1920 = image_bin
+                    template.image_1920 = image_bin
                     break
 
         # --- BLOQUE INVENTARIO PARA ASIGNAR SKU CORRECTO A VARIANTES ---
@@ -176,7 +180,7 @@ class ProductTemplate(models.Model):
                         return float(prices[0].get("price", 0.0))
             return 0.0
 
-        for variant in product_template.product_variant_ids:
+        for variant in template.product_variant_ids:
             color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
             size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
             color_name = color_val.name if color_val else ""
@@ -216,14 +220,10 @@ class ProductTemplate(models.Model):
 
         inventory_items = inv_resp.json().get("items", [])
 
-        # Busca el template por código O por nombre parcial (más flexible)
-        template = self.search([
-            '|',
-            ('default_code', '=', 'NS300'),
-            ('name', 'ilike', 'NS300')
-        ], limit=1)
+        # Busca el template SIEMPRE por default_code
+        template = self.search([('default_code', '=', 'NS300')], limit=1)
         if not template:
-            _logger.error("No se encuentra el producto template NS300 (ni por código ni por nombre).")
+            _logger.error("No se encuentra el producto template NS300 (por default_code).")
             return
 
         StockQuant = self.env['stock.quant']
@@ -274,11 +274,7 @@ class ProductTemplate(models.Model):
             for color in colors
         }
 
-        template = self.search([
-            '|',
-            ('default_code', '=', 'NS300'),
-            ('name', 'ilike', 'NS300')
-        ], limit=1)
+        template = self.search([('default_code', '=', 'NS300')], limit=1)
         if not template:
             _logger.error("No se encuentra el producto template NS300.")
             return
