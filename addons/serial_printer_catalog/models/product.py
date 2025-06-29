@@ -16,6 +16,7 @@ def get_image_binary_from_url(url):
         content_type = response.headers.get("Content-Type", "")
         if response.status_code == 200 and "image" in content_type:
             image = Image.open(io.BytesIO(response.content))
+            # Fondo blanco si hay transparencia
             if image.mode in ('RGBA', 'LA'):
                 background = Image.new('RGB', image.size, (255, 255, 255))
                 background.paste(image, mask=image.split()[-1])
@@ -37,7 +38,7 @@ class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     @api.model
-    def crear_producto_ns300(self):
+    def sync_product_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
@@ -47,7 +48,7 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # AUTENTICACIÓN
+        # Autenticación
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
@@ -59,7 +60,7 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un token válido.")
         _logger.info("🔐 Token recibido correctamente.")
 
-        # DATOS PRODUCTO NS300
+        # Descarga info producto NS300
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -70,7 +71,7 @@ class ProductTemplate(models.Model):
         if response.status_code != 200:
             raise UserError(f"❌ Error al obtener el producto: {response.status_code} - {response.text}")
         data_list = response.json()
-        data = data_list if isinstance(data_list, dict) else data_list[0] if data_list else {}
+        data = data_list[0] if isinstance(data_list, list) and data_list else data_list if isinstance(data_list, dict) else {}
 
         # --- MARCA ---
         brand_data = data.get("brand") or {}
@@ -82,7 +83,12 @@ class ProductTemplate(models.Model):
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
-        default_code = data.get("catalogReference", "NS300")  # <-- Internal Reference plantilla
+        catalog_ref = data.get("catalogReference", "NS300")
+
+        # --- BORRAR PREVIOS PARA REIMPORTAR LIMPIO ---
+        prev_templates = self.env['product.template'].search([('default_code', '=', catalog_ref)])
+        if prev_templates:
+            prev_templates.unlink()
 
         # --- VARIANTES ---
         colors = data.get("colors", [])
@@ -124,7 +130,7 @@ class ProductTemplate(models.Model):
 
         template_vals = {
             'name': full_name,
-            'default_code': default_code,
+            'default_code': catalog_ref,  # <--- AQUÍ VA EL INTERNAL REFERENCE SIEMPRE NS300
             'type': 'consu',
             'is_storable': True,
             'description_sale': description,
@@ -132,9 +138,9 @@ class ProductTemplate(models.Model):
             'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
         }
         product_template = self.create(template_vals)
-        product_template.default_code = default_code
+        _logger.info(f"✅ Producto template {catalog_ref} creado: {product_template.id} {product_template.default_code}")
 
-        # IMAGEN PRINCIPAL
+        # Imagen principal
         images = data.get("images", [])
         for img in images:
             img_url = img.get("url_image", "")
@@ -144,7 +150,7 @@ class ProductTemplate(models.Model):
                     product_template.image_1920 = image_bin
                     break
 
-        # INVENTARIO PARA SKUs
+        # --- BLOQUE INVENTARIO PARA ASIGNAR SKU CORRECTO A VARIANTES ---
         try:
             inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
             inv_resp = requests.get(inventory_url, headers=headers)
@@ -159,7 +165,7 @@ class ProductTemplate(models.Model):
                     return item.get("sku")
             return ""
 
-        # PRECIOS
+        # Precios
         try:
             price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
             price_resp = requests.get(price_url, headers=headers)
@@ -181,19 +187,17 @@ class ProductTemplate(models.Model):
             size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
             color_name = color_val.name if color_val else ""
             size_name = size_val.name if size_val else ""
+            # FIJA EL SKU EN LA VARIANTE
             sku = get_sku(color_name, size_name)
             if sku:
                 variant.default_code = sku
-            else:
-                variant.default_code = f"{default_code}_{color_name}_{size_name}"
             coste = get_price_cost(color_name, size_name)
             variant.standard_price = coste
             variant.lst_price = coste * 1.25 if coste > 0 else 9.8
-            _logger.info(f"💰 Variante: {variant.name} | SKU: {variant.default_code} | Coste: {coste}")
+            _logger.info(f"💰 Variante: {variant.name} | SKU: {sku} | Coste: {coste}")
 
-        _logger.info(f"✅ Producto NS300 creado correctamente con variantes, SKU y atributos.")
+        _logger.info(f"✅ Producto {catalog_ref} creado correctamente con variantes, SKU y atributos.")
 
-    @api.model
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
@@ -218,13 +222,12 @@ class ProductTemplate(models.Model):
 
         inventory_items = inv_resp.json().get("items", [])
 
+        # Busca el template por default_code/catalog_ref
         template = self.search([
-            '|',
-            ('default_code', '=', 'NS300'),
-            ('name', 'ilike', 'NS300')
+            ('default_code', '=', 'NS300')
         ], limit=1)
         if not template:
-            _logger.error("No se encuentra el producto template NS300 (ni por código ni por nombre).")
+            _logger.error("No se encuentra el producto template NS300 (por default_code/catalog_ref).")
             return
 
         StockQuant = self.env['stock.quant']
@@ -242,17 +245,17 @@ class ProductTemplate(models.Model):
                     quant.inventory_quantity = stock
                     _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
                 else:
+                    # Si no hay quant, lo creamos:
                     StockQuant.create({
                         'product_id': product.id,
-                        'location_id': self.env.ref('stock.stock_location_stock').id,
+                        'location_id': self.env['stock.location'].search([('usage', '=', 'internal')], limit=1).id,
                         'quantity': stock,
-                        'inventory_quantity': stock
+                        'inventory_quantity': stock,
                     })
                     _logger.info(f"📦 Stock.quant creado para {sku} con stock {stock}")
             else:
                 _logger.warning(f"❌ Variante no encontrada para SKU {sku}")
 
-    @api.model
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
@@ -283,12 +286,10 @@ class ProductTemplate(models.Model):
         }
 
         template = self.search([
-            '|',
-            ('default_code', '=', 'NS300'),
-            ('name', 'ilike', 'NS300')
+            ('default_code', '=', 'NS300')
         ], limit=1)
         if not template:
-            _logger.error("No se encuentra el producto template NS300.")
+            _logger.error("No se encuentra el producto template NS300 (para imágenes).")
             return
 
         for variant in template.product_variant_ids:
