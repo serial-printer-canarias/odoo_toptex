@@ -59,7 +59,7 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un token válido.")
         _logger.info("🔐 Token recibido correctamente.")
 
-        # --- Descarga info producto NS300 ---
+        # --- Descargar info producto NS300 ---
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -82,7 +82,7 @@ class ProductTemplate(models.Model):
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
-        default_code = data.get("catalogReference", "NS300")
+        default_code = data.get("catalogReference", "NS300")   # <-- ESTE ES EL INTERNAL REFERENCE
 
         # --- VARIANTES ---
         colors = data.get("colors", [])
@@ -124,7 +124,7 @@ class ProductTemplate(models.Model):
 
         template_vals = {
             'name': full_name,
-            'default_code': default_code,  # Aquí mapeamos bien el catalogReference
+            'default_code': default_code,  # <-- Internal Reference plantilla
             'type': 'consu',
             'is_storable': True,
             'description_sale': description,
@@ -133,7 +133,7 @@ class ProductTemplate(models.Model):
         }
         product_template = self.create(template_vals)
 
-        # --- Imagen principal SOLO UNA vez (la primera que encuentre) ---
+        # Imagen principal plantilla
         images = data.get("images", [])
         for img in images:
             img_url = img.get("url_image", "")
@@ -143,7 +143,7 @@ class ProductTemplate(models.Model):
                     product_template.image_1920 = image_bin
                     break
 
-        # --- INVENTARIO: obtiene SKUs reales de variantes ---
+        # --- INVENTARIO para SKU de cada variante ---
         try:
             inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
             inv_resp = requests.get(inventory_url, headers=headers)
@@ -158,7 +158,7 @@ class ProductTemplate(models.Model):
                     return item.get("sku")
             return ""
 
-        # --- PRECIOS ---
+        # --- PRECIOS por variante ---
         try:
             price_url = f"{proxy_url}/v3/products/price?catalog_reference=ns300"
             price_resp = requests.get(price_url, headers=headers)
@@ -175,12 +175,12 @@ class ProductTemplate(models.Model):
                         return float(prices[0].get("price", 0.0))
             return 0.0
 
-        # --- RECORRE Y ASIGNA SKU, COSTE, PRECIO a cada variante ---
         for variant in product_template.product_variant_ids:
             color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
             size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
             color_name = color_val.name if color_val else ""
             size_name = size_val.name if size_val else ""
+            # --- SKU en default_code de variante ---
             sku = get_sku(color_name, size_name)
             if sku:
                 variant.default_code = sku
@@ -191,7 +191,6 @@ class ProductTemplate(models.Model):
 
         _logger.info(f"✅ Producto NS300 creado correctamente con variantes, SKU y atributos.")
 
-    # ---- SERVER ACTION STOCK ----
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
@@ -216,16 +215,20 @@ class ProductTemplate(models.Model):
 
         inventory_items = inv_resp.json().get("items", [])
 
+        # --- Busca la plantilla por default_code (NS300) ---
         template = self.search([
-            '|',
-            ('default_code', '=', 'NS300'),
-            ('name', 'ilike', 'NS300')
+            ('default_code', '=', 'NS300')
         ], limit=1)
         if not template:
             _logger.error("No se encuentra el producto template NS300 (ni por código ni por nombre).")
             return
 
         StockQuant = self.env['stock.quant']
+        location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
+        if not location:
+            _logger.error("❌ No hay ubicación interna disponible para crear stock.")
+            return
+
         for item in inventory_items:
             sku = item.get("sku")
             stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
@@ -233,18 +236,23 @@ class ProductTemplate(models.Model):
             if product:
                 quant = StockQuant.search([
                     ('product_id', '=', product.id),
-                    ('location_id.usage', '=', 'internal')
+                    ('location_id', '=', location.id)
                 ], limit=1)
                 if quant:
                     quant.quantity = stock
                     quant.inventory_quantity = stock
                     _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
                 else:
-                    _logger.warning(f"❌ No se encontró stock.quant para {sku}")
+                    StockQuant.create({
+                        'product_id': product.id,
+                        'location_id': location.id,
+                        'quantity': stock,
+                        'inventory_quantity': stock,
+                    })
+                    _logger.info(f"🆕 Stock.quant creado para {sku} con stock {stock}")
             else:
                 _logger.warning(f"❌ Variante no encontrada para SKU {sku}")
 
-    # ---- SERVER ACTION IMAGENES POR VARIANTE ----
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
@@ -275,9 +283,7 @@ class ProductTemplate(models.Model):
         }
 
         template = self.search([
-            '|',
-            ('default_code', '=', 'NS300'),
-            ('name', 'ilike', 'NS300')
+            ('default_code', '=', 'NS300')
         ], limit=1)
         if not template:
             _logger.error("No se encuentra el producto template NS300.")
