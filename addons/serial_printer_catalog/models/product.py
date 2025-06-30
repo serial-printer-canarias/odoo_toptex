@@ -16,7 +16,6 @@ def get_image_binary_from_url(url):
         content_type = response.headers.get("Content-Type", "")
         if response.status_code == 200 and "image" in content_type:
             image = Image.open(io.BytesIO(response.content))
-            # Fondo blanco si hay transparencia
             if image.mode in ('RGBA', 'LA'):
                 background = Image.new('RGB', image.size, (255, 255, 255))
                 background.paste(image, mask=image.split()[-1])
@@ -48,7 +47,7 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # --- Autenticación ---
+        # Autenticación
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
@@ -60,7 +59,7 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un token válido.")
         _logger.info("🔐 Token recibido correctamente.")
 
-        # --- Descarga info producto NS300 ---
+        # Descarga info producto NS300
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -83,7 +82,7 @@ class ProductTemplate(models.Model):
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
-        default_code = data.get("catalogReference", "NS300")   # <-- AQUÍ COGEMOS EL INTERNAL REFERENCE
+        default_code = data.get("catalogReference", "NS300")
 
         # --- VARIANTES ---
         colors = data.get("colors", [])
@@ -123,17 +122,26 @@ class ProductTemplate(models.Model):
             }
         ]
 
-        # --- CREA EL PRODUCTO PLANTILLA CON INTERNAL REFERENCE ---
-        template_vals = {
-            'name': full_name,
-            'default_code': default_code,  # <--- AQUÍ SE ASIGNA
-            'type': 'consu',
-            'is_storable': True,
-            'description_sale': description,
-            'categ_id': self.env.ref("product.product_category_all").id,
-            'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
-        }
-        product_template = self.create(template_vals)
+        # --- BLOQUE CRUCIAL: buscar o crear el template, SIEMPRE con default_code ---
+        product_template = self.search([
+            '|',
+            ('default_code', '=', default_code),
+            ('name', 'ilike', default_code)
+        ], limit=1)
+        if product_template:
+            product_template.default_code = default_code
+            # Puedes actualizar otros datos aquí si quieres, como name/desc/atributos.
+        else:
+            template_vals = {
+                'name': full_name,
+                'default_code': default_code,
+                'type': 'consu',
+                'is_storable': True,
+                'description_sale': description,
+                'categ_id': self.env.ref("product.product_category_all").id,
+                'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
+            }
+            product_template = self.create(template_vals)
 
         # Imagen principal
         images = data.get("images", [])
@@ -182,7 +190,6 @@ class ProductTemplate(models.Model):
             size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
             color_name = color_val.name if color_val else ""
             size_name = size_val.name if size_val else ""
-            # --- FIJA EL DEFAULT_CODE/SKU EN LA VARIANTE ---
             sku = get_sku(color_name, size_name)
             if sku:
                 variant.default_code = sku
@@ -217,7 +224,7 @@ class ProductTemplate(models.Model):
 
         inventory_items = inv_resp.json().get("items", [])
 
-        # Busca el template por código (default_code) O por nombre parcial
+        # Busca el template por código O por nombre parcial (más flexible)
         template = self.search([
             '|',
             ('default_code', '=', 'NS300'),
@@ -242,14 +249,14 @@ class ProductTemplate(models.Model):
                     quant.inventory_quantity = stock
                     _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
                 else:
-                    # Si no existe el quant, lo creamos
+                    # Si no existe, lo crea (esto asegura stock para futuras sync)
                     StockQuant.create({
                         'product_id': product.id,
                         'location_id': self.env.ref('stock.stock_location_stock').id,
                         'quantity': stock,
-                        'inventory_quantity': stock
+                        'inventory_quantity': stock,
                     })
-                    _logger.info(f"🆕 Stock.quant creado para {sku} con stock {stock}")
+                    _logger.info(f"🟦 Stock.quant creado para {sku} con stock {stock}")
             else:
                 _logger.warning(f"❌ Variante no encontrada para SKU {sku}")
 
