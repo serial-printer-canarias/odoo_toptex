@@ -83,12 +83,9 @@ class ProductTemplate(models.Model):
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
-        catalog_ref = data.get("catalogReference", "NS300")
-
-        # --- BORRAR PREVIOS PARA REIMPORTAR LIMPIO ---
-        prev_templates = self.env['product.template'].search([('default_code', '=', catalog_ref)])
-        if prev_templates:
-            prev_templates.unlink()
+        default_code = data.get("catalogReference", "NS300")
+        if not default_code:
+            default_code = "NS300"
 
         # --- VARIANTES ---
         colors = data.get("colors", [])
@@ -130,7 +127,7 @@ class ProductTemplate(models.Model):
 
         template_vals = {
             'name': full_name,
-            'default_code': catalog_ref,  # <--- AQUÍ VA EL INTERNAL REFERENCE SIEMPRE NS300
+            'default_code': default_code,  # 👈 Este es el Internal Reference SIEMPRE
             'type': 'consu',
             'is_storable': True,
             'description_sale': description,
@@ -138,7 +135,6 @@ class ProductTemplate(models.Model):
             'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
         }
         product_template = self.create(template_vals)
-        _logger.info(f"✅ Producto template {catalog_ref} creado: {product_template.id} {product_template.default_code}")
 
         # Imagen principal
         images = data.get("images", [])
@@ -150,7 +146,7 @@ class ProductTemplate(models.Model):
                     product_template.image_1920 = image_bin
                     break
 
-        # --- BLOQUE INVENTARIO PARA ASIGNAR SKU CORRECTO A VARIANTES ---
+        # --- INVENTARIO PARA VARIANTES (SKU) ---
         try:
             inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference=ns300"
             inv_resp = requests.get(inventory_url, headers=headers)
@@ -187,16 +183,16 @@ class ProductTemplate(models.Model):
             size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
             color_name = color_val.name if color_val else ""
             size_name = size_val.name if size_val else ""
-            # FIJA EL SKU EN LA VARIANTE
+            # --- FIJA EL SKU EN LA VARIANTE ---
             sku = get_sku(color_name, size_name)
             if sku:
                 variant.default_code = sku
             coste = get_price_cost(color_name, size_name)
             variant.standard_price = coste
             variant.lst_price = coste * 1.25 if coste > 0 else 9.8
-            _logger.info(f"💰 Variante: {variant.name} | SKU: {sku} | Coste: {coste}")
+            _logger.info(f"💰 Variante: {variant.name} | Coste: {coste}")
 
-        _logger.info(f"✅ Producto {catalog_ref} creado correctamente con variantes, SKU y atributos.")
+        _logger.info(f"✅ Producto NS300 creado correctamente con variantes, SKU y atributos.")
 
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
@@ -222,12 +218,14 @@ class ProductTemplate(models.Model):
 
         inventory_items = inv_resp.json().get("items", [])
 
-        # Busca el template por default_code/catalog_ref
+        # Busca el template por default_code
         template = self.search([
-            ('default_code', '=', 'NS300')
+            '|',
+            ('default_code', '=', 'NS300'),
+            ('name', 'ilike', 'NS300')
         ], limit=1)
         if not template:
-            _logger.error("No se encuentra el producto template NS300 (por default_code/catalog_ref).")
+            _logger.error("No se encuentra el producto template NS300 (ni por código ni por nombre).")
             return
 
         StockQuant = self.env['stock.quant']
@@ -245,14 +243,14 @@ class ProductTemplate(models.Model):
                     quant.inventory_quantity = stock
                     _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
                 else:
-                    # Si no hay quant, lo creamos:
+                    # Si no existe el quant, lo crea
                     StockQuant.create({
                         'product_id': product.id,
-                        'location_id': self.env['stock.location'].search([('usage', '=', 'internal')], limit=1).id,
+                        'location_id': self.env.ref('stock.stock_location_stock').id,
                         'quantity': stock,
                         'inventory_quantity': stock,
                     })
-                    _logger.info(f"📦 Stock.quant creado para {sku} con stock {stock}")
+                    _logger.info(f"➕ Stock.quant creado para {sku} con stock {stock}")
             else:
                 _logger.warning(f"❌ Variante no encontrada para SKU {sku}")
 
@@ -286,10 +284,12 @@ class ProductTemplate(models.Model):
         }
 
         template = self.search([
-            ('default_code', '=', 'NS300')
+            '|',
+            ('default_code', '=', 'NS300'),
+            ('name', 'ilike', 'NS300')
         ], limit=1)
         if not template:
-            _logger.error("No se encuentra el producto template NS300 (para imágenes).")
+            _logger.error("No se encuentra el producto template NS300.")
             return
 
         for variant in template.product_variant_ids:
