@@ -16,7 +16,7 @@ def get_image_binary_from_url(url):
         content_type = response.headers.get("Content-Type", "")
         if response.status_code == 200 and "image" in content_type:
             image = Image.open(io.BytesIO(response.content))
-            # --- Fondo blanco si hay transparencia ---
+            # Fondo blanco si hay transparencia
             if image.mode in ('RGBA', 'LA'):
                 background = Image.new('RGB', image.size, (255, 255, 255))
                 background.paste(image, mask=image.split()[-1])
@@ -48,7 +48,7 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # Autenticación
+        # --- Autenticación ---
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
@@ -60,7 +60,7 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un token válido.")
         _logger.info("🔐 Token recibido correctamente.")
 
-        # Descarga info producto NS300
+        # --- Descarga info producto NS300 ---
         product_url = f"{proxy_url}/v3/products?catalog_reference=ns300&usage_right=b2b_b2c"
         headers = {
             "x-api-key": api_key,
@@ -83,7 +83,7 @@ class ProductTemplate(models.Model):
         name = data.get("designation", {}).get("es", "Producto sin nombre")
         full_name = f"{brand} {name}".strip()
         description = data.get("description", {}).get("es", "")
-        default_code = data.get("catalogReference", "NS300")
+        default_code = data.get("catalogReference", "NS300")   # <-- AQUÍ COGEMOS EL INTERNAL REFERENCE
 
         # --- VARIANTES ---
         colors = data.get("colors", [])
@@ -123,9 +123,10 @@ class ProductTemplate(models.Model):
             }
         ]
 
+        # --- CREA EL PRODUCTO PLANTILLA CON INTERNAL REFERENCE ---
         template_vals = {
             'name': full_name,
-            'default_code': default_code,
+            'default_code': default_code,  # <--- AQUÍ SE ASIGNA
             'type': 'consu',
             'is_storable': True,
             'description_sale': description,
@@ -133,10 +134,6 @@ class ProductTemplate(models.Model):
             'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
         }
         product_template = self.create(template_vals)
-        # -- GARANTIZAR que se guarda el Internal Reference
-        if product_template.default_code != default_code:
-            product_template.write({'default_code': default_code})
-        _logger.info(f"✅ Internal Reference creado para plantilla: {product_template.default_code}")
 
         # Imagen principal
         images = data.get("images", [])
@@ -220,7 +217,7 @@ class ProductTemplate(models.Model):
 
         inventory_items = inv_resp.json().get("items", [])
 
-        # Busca el template por código O por nombre parcial (más flexible)
+        # Busca el template por código (default_code) O por nombre parcial
         template = self.search([
             '|',
             ('default_code', '=', 'NS300'),
@@ -245,18 +242,14 @@ class ProductTemplate(models.Model):
                     quant.inventory_quantity = stock
                     _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
                 else:
-                    # Crear el quant si no existe
-                    stock_location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
-                    if stock_location:
-                        self.env['stock.quant'].create({
-                            'product_id': product.id,
-                            'location_id': stock_location.id,
-                            'quantity': stock,
-                            'inventory_quantity': stock,
-                        })
-                        _logger.info(f"📦 Stock.quant creado para {sku} con stock {stock}")
-                    else:
-                        _logger.warning(f"❌ No se encontró ubicación interna para crear stock.quant de {sku}")
+                    # Si no existe el quant, lo creamos
+                    StockQuant.create({
+                        'product_id': product.id,
+                        'location_id': self.env.ref('stock.stock_location_stock').id,
+                        'quantity': stock,
+                        'inventory_quantity': stock
+                    })
+                    _logger.info(f"🆕 Stock.quant creado para {sku} con stock {stock}")
             else:
                 _logger.warning(f"❌ Variante no encontrada para SKU {sku}")
 
