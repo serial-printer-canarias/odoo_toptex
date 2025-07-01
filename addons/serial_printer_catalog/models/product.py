@@ -9,11 +9,14 @@ _logger = logging.getLogger(__name__)
 
 def get_image_binary_from_url(url):
     try:
-        response = requests.get(url, stream=True, timeout=10)
+        _logger.info(f"🖼️ Descargando imagen desde {url}")
+        response = requests.get(url, stream=True, timeout=20)
         if response.status_code == 200:
             return base64.b64encode(response.content)
+        else:
+            _logger.warning(f"❌ No se pudo descargar la imagen: {url}")
     except Exception as e:
-        _logger.warning(f"Error al descargar imagen desde {url}: {e}")
+        _logger.warning(f"❌ Error al procesar imagen desde {url}: {e}")
     return None
 
 def get_toptex_token(proxy_url, username, password, api_key):
@@ -21,7 +24,7 @@ def get_toptex_token(proxy_url, username, password, api_key):
     payload = {"username": username, "password": password}
     headers = {"x-api-key": api_key, "Content-Type": "application/json"}
     try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=15)
+        resp = requests.post(url, json=payload, headers=headers, timeout=20)
         if resp.status_code == 200:
             return resp.json().get("token")
         else:
@@ -35,63 +38,67 @@ class ProductTemplate(models.Model):
 
     @api.model
     def sync_toptex_catalog(self):
-        # Lee parametros del sistema
         icp = self.env['ir.config_parameter'].sudo()
         api_key = icp.get_param('toptex_api_key', '')
         username = icp.get_param('toptex_username', '')
         password = icp.get_param('toptex_password', '')
         proxy_url = icp.get_param('toptex_proxy_url', 'https://toptex-proxy.onrender.com')
 
-        # Obtén token dinámicamente
         token = get_toptex_token(proxy_url, username, password, api_key)
         if not token:
-            raise UserError("No se pudo autenticar con TopTex.")
+            raise UserError("No se pudo autenticar con TopTex. Revisa usuario, contraseña o apikey.")
 
         api_url = f"{proxy_url}/v3/products/all/?usage_right=b2b_b2c&display_prices=1&result_in_file=1"
         headers = {
             "x-api-key": api_key,
             "x-toptex-authorization": token
         }
-
+        _logger.info("🟢 Solicitando link del catálogo masivo TopTex…")
         resp = requests.get(api_url, headers=headers, timeout=60)
         if resp.status_code != 200:
-            _logger.error(f"❌ Error al obtener link de catálogo: {resp.text}")
+            _logger.error(f"❌ Error al pedir link catálogo: {resp.text}")
             raise UserError("No se pudo obtener el link de catálogo TopTex.")
         link = resp.json().get("link", "")
         if not link:
-            _logger.error("❌ No se encontró el campo link en la respuesta de TopTex.")
+            _logger.error("❌ Link no recibido en la respuesta de TopTex")
             raise UserError("No se encontró el link de catálogo TopTex.")
 
+        _logger.info(f"📦 Descargando catálogo masivo: {link}")
         catalog_response = requests.get(link, timeout=300)
         if catalog_response.status_code != 200:
-            _logger.error(f"❌ Error al descargar el JSON del catálogo: {catalog_response.text}")
+            _logger.error(f"❌ Error al descargar JSON catálogo: {catalog_response.text}")
             raise UserError("No se pudo descargar el JSON del catálogo TopTex.")
         catalog = catalog_response.json().get("products") or catalog_response.json().get("items") or catalog_response.json()
         if isinstance(catalog, dict):
             catalog = [catalog]
 
+        ProductBrand = self.env['product.brand']
+        ProductCategory = self.env['product.category']
+        Attr = self.env['product.attribute']
+        AttrVal = self.env['product.attribute.value']
+
         count_total, count_error = 0, 0
         for prod in catalog:
             try:
-                # Marca
+                # ----------- MARCA ------------
                 brand_name = prod.get("brand", {}).get("name", "") or "Sin Marca"
-                brand = self.env["product.brand"].search([("name", "=", brand_name)], limit=1)
+                brand = ProductBrand.search([("name", "=", brand_name)], limit=1)
                 if not brand:
-                    brand = self.env["product.brand"].create({"name": brand_name})
+                    brand = ProductBrand.create({"name": brand_name})
 
-                # Categoría
+                # ----------- CATEGORÍA ------------
                 categ_name = prod.get("category", {}).get("name", "") or "Sin Categoría"
-                categ = self.env["product.category"].search([("name", "=", categ_name)], limit=1)
+                categ = ProductCategory.search([("name", "=", categ_name)], limit=1)
                 if not categ:
-                    categ = self.env["product.category"].create({"name": categ_name})
+                    categ = ProductCategory.create({"name": categ_name})
 
-                # Atributos Color/Talla
-                attr_color = self.env["product.attribute"].search([("name", "ilike", "color")], limit=1)
+                # ----------- ATRIBUTOS PRINCIPALES ------------
+                attr_color = Attr.search([("name", "ilike", "color")], limit=1)
                 if not attr_color:
-                    attr_color = self.env["product.attribute"].create({"name": "Color"})
-                attr_size = self.env["product.attribute"].search([("name", "ilike", "talla")], limit=1)
+                    attr_color = Attr.create({"name": "Color"})
+                attr_size = Attr.search([("name", "ilike", "talla")], limit=1)
                 if not attr_size:
-                    attr_size = self.env["product.attribute"].create({"name": "Talla"})
+                    attr_size = Attr.create({"name": "Talla"})
 
                 attribute_lines = []
                 colors = prod.get("colors", [])
@@ -100,25 +107,24 @@ class ProductTemplate(models.Model):
                 for color in colors:
                     color_name = color.get("color", {}).get("name", "").strip()
                     if color_name:
-                        value_color = self.env["product.attribute.value"].search([
+                        value_color = AttrVal.search([
                             ("name", "=", color_name), ("attribute_id", "=", attr_color.id)
                         ], limit=1)
                         if not value_color:
-                            value_color = self.env["product.attribute.value"].create({
+                            value_color = AttrVal.create({
                                 "name": color_name, "attribute_id": attr_color.id
                             })
                         color_values.append(value_color.id)
                         for sz in color.get("sizes", []):
                             sizes.add(sz.get("size", "").strip())
-
                 size_values = []
                 for sz in sizes:
                     if sz:
-                        value_size = self.env["product.attribute.value"].search([
+                        value_size = AttrVal.search([
                             ("name", "=", sz), ("attribute_id", "=", attr_size.id)
                         ], limit=1)
                         if not value_size:
-                            value_size = self.env["product.attribute.value"].create({
+                            value_size = AttrVal.create({
                                 "name": sz, "attribute_id": attr_size.id
                             })
                         size_values.append(value_size.id)
@@ -128,12 +134,12 @@ class ProductTemplate(models.Model):
                 if size_values:
                     attribute_lines.append((0, 0, {"attribute_id": attr_size.id, "value_ids": [(6, 0, size_values)]}))
 
-                # Datos producto
+                # ----------- CAMPOS DEL PRODUCTO PLANTILLA ------------
                 default_code = prod.get("catalog_reference", "") or prod.get("catalogReference", "")
-                description = prod.get("description", "")
                 name = prod.get("name", "") or prod.get("designation", "")
+                description = prod.get("description", "")
 
-                # Imagen principal SOLO la primera de la primera variante (para plantilla, no por variantes)
+                # ----------- IMAGEN PRINCIPAL ------------
                 image_url = ""
                 if colors and colors[0].get("packshots", []):
                     image_url = colors[0]["packshots"][0].get("FACE", {}).get("urlPackshot", "")
@@ -151,13 +157,20 @@ class ProductTemplate(models.Model):
                     if image_bin:
                         vals["image_1920"] = image_bin
 
+                # ----------- CREAR/ACTUALIZAR PRODUCTO ------------
                 template = self.env["product.template"].search([("default_code", "=", default_code)], limit=1)
                 if not template:
                     template = self.env["product.template"].create(vals)
-                    _logger.info(f"✅ Producto {default_code} creado.")
+                    _logger.info(f"✅ Producto {default_code} creado: {name}")
                 else:
                     template.write(vals)
-                    _logger.info(f"✅ Producto {default_code} actualizado.")
+                    _logger.info(f"✅ Producto {default_code} actualizado: {name}")
+
+                # ----------- CAMPOS EXTRA: PRECIOS VARIANTES Y SKU (coste y precio venta) ------------
+                # Este bloque lo puedes activar si tienes los endpoints de precios masivos de TopTex
+                # for variant in template.product_variant_ids:
+                #     # Aquí puedes asignar el coste y precio venta a cada variante si tienes info
+                #     pass
 
                 count_total += 1
 
@@ -177,7 +190,7 @@ class ProductTemplate(models.Model):
 
         token = get_toptex_token(proxy_url, username, password, api_key)
         if not token:
-            raise UserError("No se pudo autenticar con TopTex.")
+            raise UserError("No se pudo autenticar con TopTex (stock).")
 
         inventory_url = f"{proxy_url}/v3/products/inventory?result_in_file=1"
         headers = {
@@ -235,7 +248,7 @@ class ProductTemplate(models.Model):
 
         token = get_toptex_token(proxy_url, username, password, api_key)
         if not token:
-            raise UserError("No se pudo autenticar con TopTex.")
+            raise UserError("No se pudo autenticar con TopTex (imágenes variantes).")
 
         api_url = f"{proxy_url}/v3/products/all/?usage_right=b2b_b2c&display_prices=1&result_in_file=1"
         headers = {
@@ -244,17 +257,17 @@ class ProductTemplate(models.Model):
         }
         resp = requests.get(api_url, headers=headers, timeout=60)
         if resp.status_code != 200:
-            _logger.error(f"❌ Error al pedir link de catálogo: {resp.text}")
+            _logger.error(f"❌ Error al pedir link de catálogo para imágenes: {resp.text}")
             raise UserError("No se pudo obtener el link de catálogo TopTex para imágenes.")
         link = resp.json().get("link", "")
         if not link:
-            _logger.error("❌ No se encontró el campo link en la respuesta de TopTex.")
+            _logger.error("❌ No se encontró el campo link en la respuesta de TopTex (img).")
             raise UserError("No se encontró el link de catálogo TopTex.")
 
         catalog_response = requests.get(link, timeout=300)
         if catalog_response.status_code != 200:
-            _logger.error(f"❌ Error al descargar el JSON del catálogo: {catalog_response.text}")
-            raise UserError("No se pudo descargar el JSON del catálogo TopTex.")
+            _logger.error(f"❌ Error al descargar JSON catálogo para imágenes: {catalog_response.text}")
+            raise UserError("No se pudo descargar el JSON del catálogo TopTex (imágenes variantes).")
         catalog = catalog_response.json().get("products") or catalog_response.json().get("items") or catalog_response.json()
         if isinstance(catalog, dict):
             catalog = [catalog]
