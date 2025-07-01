@@ -1,9 +1,9 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_product_template,access.product.template,product.model_product_template,,1,1,1,1
-access_product_product,access.product.product,product.model_product_product,,1,1,1,1
-access_product_category,access.product.category,product.model_product_category,,1,1,1,1
-access_product_brand,access.product.brand,product_brand.model_product_brand,,1,1,1,1
-access_product_attribute,access.product.attribute,product.model_product_attribute,,1,1,1,1
-access_product_attribute_value,access.product.attribute.value,product.model_product_attribute_value,,1,1,1,1
-access_stock_quant,access.stock.quant,stock.model_stock_quant,,1,1,1,1
-access_ir_config_parameter,access.ir.config.parameter,base.model_ir_config_parameter,,1,1,1,1
+access_product_template,access.product.template,model_product_template,,1,1,1,1
+access_product_product,access.product.product,model_product_product,,1,1,1,1
+access_product_category,access.product.category,model_product_category,,1,1,1,1
+access_product_brand,access.product.brand,model_product_brand,,1,1,1,1
+access_product_attribute,access.product.attribute,model_product_attribute,,1,1,1,1
+access_product_attribute_value,access.product.attribute.value,model_product_attribute_value,,1,1,1,1
+access_stock_quant,access.stock.quant,model_stock_quant,,1,1,1,1
+access_ir_config_parameter,access.ir.config.parameter,model_ir_config_parameter,,1,1,1,1
