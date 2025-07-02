@@ -6,4 +6,4 @@ access_product_brand,access.product.brand,model_product_brand,,1,1,1,1
 access_product_attribute,access.product.attribute,model_product_attribute,,1,1,1,1
 access_product_attribute_value,access.product.attribute.value,model_product_attribute_value,,1,1,1,1
 access_stock_quant,access.stock.quant,model_stock_quant,,1,1,1,1
-access_ir_config_parameter,access.ir.config.parameter,model_ir_config_parameter,,1,1,1,1
+access_ir_config_parameter,access.ir.config_parameter,model_ir_config_parameter,,1,1,1,1
