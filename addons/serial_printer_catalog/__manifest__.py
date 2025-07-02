@@ -9,7 +9,7 @@
     'depends': ['base', 'product'],
     'data': [
         'ir.model.access.csv',
-        # 'data/cron_product.xml',  # Solo si usas el cron, si no, bórralo o comenta
+        'data/cron_product.xml',  # Solo si usas el cron, si no, bórralo o comenta
     ],
     'installable': True,
     'application': False,
