@@ -1,3 +1,0 @@
-id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_serial_printer_catalog_template,access_serial_printer_catalog_template,product.template,base.group_system,1,1,1,1
-access_serial_printer_catalog_product,access_serial_printer_catalog_product,product.product,base.group_system,1,1,1,1
