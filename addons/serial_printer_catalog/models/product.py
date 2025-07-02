@@ -5,7 +5,6 @@ import base64
 from PIL import Image
 from io import BytesIO
 from odoo import models, api
-from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
@@ -29,7 +28,7 @@ class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     @api.model
-    def sync_product_from_api(self):
+    def sync_catalog_all_toptex(self):
         IrConfig = self.env['ir.config_parameter'].sudo()
         api_key = IrConfig.get_param('toptex_api_key', '')
         username = IrConfig.get_param('toptex_username', '')
@@ -37,35 +36,45 @@ class ProductTemplate(models.Model):
         proxy_url = IrConfig.get_param('toptex_proxy_url', '')
 
         if not all([api_key, username, password, proxy_url]):
-            raise UserError('Faltan parámetros API TopTex')
+            raise Exception('❌ Faltan parámetros API TopTex')
 
+        # --- AUTENTICACIÓN ---
         headers = {'x-api-key': api_key, 'Content-Type': 'application/json'}
         auth_payload = {'username': username, 'password': password}
         auth_url = f'{proxy_url}/v3/authenticate'
         auth_resp = requests.post(auth_url, json=auth_payload, headers=headers)
         if auth_resp.status_code != 200:
             _logger.error(f"❌ Error autenticando TopTex: {auth_resp.text}")
-            raise UserError(f"Error autenticando: {auth_resp.text}")
+            raise Exception(f"Error autenticando: {auth_resp.text}")
         token = auth_resp.json().get('token', '')
         if not token:
-            raise UserError('No se recibió token TopTex')
+            raise Exception('❌ No se recibió token TopTex')
         headers['x-toptex-authorization'] = token
 
+        # --- LLAMADA AL CATALOGO ENTERO ---
         catalog_url = f'{proxy_url}/v3/products/all?usage_right=b2b_b2c&display_prices=1&result_in_file=1'
         cat_resp = requests.get(catalog_url, headers=headers)
         if cat_resp.status_code != 200:
             _logger.error(f"❌ Error obteniendo catálogo: {cat_resp.text}")
-            raise UserError(f"Error obteniendo catálogo: {cat_resp.text}")
+            raise Exception(f"Error obteniendo catálogo: {cat_resp.text}")
         file_link = cat_resp.json().get('link', '')
         if not file_link:
-            raise UserError('No se obtuvo el link del JSON de productos')
+            raise Exception('No se obtuvo el link del JSON de productos')
         json_resp = requests.get(file_link, headers=headers)
         if json_resp.status_code != 200:
-            raise UserError(f"Error descargando el JSON catálogo: {json_resp.text}")
+            raise Exception(f"Error descargando el JSON catálogo: {json_resp.text}")
         data = json_resp.json()
         catalog = data if isinstance(data, list) else data.get('items', data)
         count_products = 0
+
+        # --- CACHE DE MARCAS Y ATRIBUTOS ---
         brands_cache = {}
+        color_attr = self.env['product.attribute'].sudo().search([('name', '=', 'Color')], limit=1)
+        if not color_attr:
+            color_attr = self.env['product.attribute'].sudo().create({'name': 'Color'})
+        size_attr = self.env['product.attribute'].sudo().search([('name', '=', 'Talla')], limit=1)
+        if not size_attr:
+            size_attr = self.env['product.attribute'].sudo().create({'name': 'Talla'})
 
         for prod in catalog:
             # --- CAMPOS PRINCIPALES ---
@@ -85,6 +94,7 @@ class ProductTemplate(models.Model):
             oeko_tex = prod.get("oekoTex", "")
 
             # --- MARCA ---
+            brand_obj = False
             if brand_name:
                 if brand_name not in brands_cache:
                     brand_obj = self.env['product.brand'].sudo().search([('name', '=', brand_name)], limit=1)
@@ -94,8 +104,6 @@ class ProductTemplate(models.Model):
                     brands_cache[brand_name] = brand_obj
                 else:
                     brand_obj = brands_cache[brand_name]
-            else:
-                brand_obj = False
 
             # --- CATEGORÍA ---
             cat_name = prod.get('category', '')
@@ -106,14 +114,6 @@ class ProductTemplate(models.Model):
                     categ_obj = self.env['product.category'].sudo().create({'name': 'All'})
 
             # --- ATRIBUTOS COLOR/TALLA ---
-            color_attr = self.env['product.attribute'].sudo().search([('name', '=', 'Color')], limit=1)
-            if not color_attr:
-                color_attr = self.env['product.attribute'].sudo().create({'name': 'Color'})
-            size_attr = self.env['product.attribute'].sudo().search([('name', '=', 'Talla')], limit=1)
-            if not size_attr:
-                size_attr = self.env['product.attribute'].sudo().create({'name': 'Talla'})
-
-            # --- VALORES DE COLOR/TALLA ---
             color_vals, size_vals = set(), set()
             for color in prod.get('colors', []):
                 c_name = color.get('colors', {}).get('es', '') or color.get('color', '')
@@ -214,106 +214,5 @@ class ProductTemplate(models.Model):
                     tmpl.sudo().write({'image_1920': img_bin})
                     _logger.info(f"🖼️ Imagen principal asignada a {default_code}")
 
-        _logger.info(f"✅ FIN: Asignación de {count_products} productos (PRO) TopTex (con .sudo()).")
+        _logger.info(f"✅ FIN: Asignación de {count_products} productos (PRO) TopTex.")
         return True
-
-    @api.model
-    def sync_stock_from_api(self):
-        IrConfig = self.env['ir.config_parameter'].sudo()
-        api_key = IrConfig.get_param('toptex_api_key', '')
-        username = IrConfig.get_param('toptex_username', '')
-        password = IrConfig.get_param('toptex_password', '')
-        proxy_url = IrConfig.get_param('toptex_proxy_url', '')
-
-        headers = {'x-api-key': api_key, 'Content-Type': 'application/json'}
-        auth_payload = {'username': username, 'password': password}
-        auth_url = f'{proxy_url}/v3/authenticate'
-        auth_resp = requests.post(auth_url, json=auth_payload, headers=headers)
-        token = auth_resp.json().get('token', '')
-        if not token:
-            _logger.error("❌ Error autenticando para stock.")
-            return
-
-        stock_url = f'{proxy_url}/v3/products/inventory?result_in_file=1'
-        stock_resp = requests.get(stock_url, headers={**headers, 'x-toptex-authorization': token})
-        if stock_resp.status_code != 200:
-            _logger.error(f"❌ Error obteniendo inventario: {stock_resp.text}")
-            return
-        file_link = stock_resp.json().get('link', '')
-        if not file_link:
-            return
-        json_resp = requests.get(file_link, headers={**headers, 'x-toptex-authorization': token})
-        if json_resp.status_code != 200:
-            return
-        data = json_resp.json()
-        inventory = data if isinstance(data, list) else data.get('items', data)
-        count_stock = 0
-        for item in inventory:
-            sku = item.get('sku', '')
-            stock = item.get('inventory', 0)
-            if not sku:
-                continue
-            product = self.env['product.product'].sudo().search([('default_code', '=', sku)], limit=1)
-            if product:
-                quants = self.env['stock.quant'].sudo().search([('product_id', '=', product.id), ('location_id.usage', '=', 'internal')])
-                if quants:
-                    for quant in quants:
-                        quant.sudo().inventory_quantity = stock
-                        count_stock += 1
-                        _logger.info(f"📦 Stock actualizado para {sku}: {stock}")
-                else:
-                    _logger.warning(f"❌ No hay stock.quant para {sku}")
-            else:
-                _logger.warning(f"❌ No se encuentra variante para SKU {sku}")
-        _logger.info(f"✅ FIN actualización stock ({count_stock}) variantes")
-
-    @api.model
-    def sync_variant_images_from_api(self):
-        IrConfig = self.env['ir.config_parameter'].sudo()
-        api_key = IrConfig.get_param('toptex_api_key', '')
-        username = IrConfig.get_param('toptex_username', '')
-        password = IrConfig.get_param('toptex_password', '')
-        proxy_url = IrConfig.get_param('toptex_proxy_url', '')
-
-        headers = {'x-api-key': api_key, 'Content-Type': 'application/json'}
-        auth_payload = {'username': username, 'password': password}
-        auth_url = f'{proxy_url}/v3/authenticate'
-        auth_resp = requests.post(auth_url, json=auth_payload, headers=headers)
-        token = auth_resp.json().get('token', '')
-        if not token:
-            _logger.error("❌ Error autenticando para imágenes.")
-            return
-
-        catalog_url = f'{proxy_url}/v3/products/all?usage_right=b2b_b2c&display_prices=1&result_in_file=1'
-        cat_resp = requests.get(catalog_url, headers={**headers, 'x-toptex-authorization': token})
-        if cat_resp.status_code != 200:
-            _logger.error(f"❌ Error obteniendo catálogo para imágenes: {cat_resp.text}")
-            return
-        file_link = cat_resp.json().get('link', '')
-        if not file_link:
-            return
-        json_resp = requests.get(file_link, headers={**headers, 'x-toptex-authorization': token})
-        if json_resp.status_code != 200:
-            return
-        data = json_resp.json()
-        catalog = data if isinstance(data, list) else data.get('items', data)
-        count_img = 0
-
-        for prod in catalog:
-            for color in prod.get('colors', []):
-                img_url = None
-                packshots = color.get('packshots', {})
-                if "FACE" in packshots:
-                    img_url = packshots["FACE"].get("url_packshot", "")
-                if not img_url:
-                    continue
-                for sz in color.get('sizes', []):
-                    sku = sz.get('sku', '')
-                    product = self.env['product.product'].sudo().search([('default_code', '=', sku)], limit=1)
-                    if product and img_url:
-                        image_bin = get_image_binary_from_url(img_url)
-                        if image_bin:
-                            product.sudo().write({'image_1920': image_bin})
-                            count_img += 1
-                            _logger.info(f"🖼️ Imagen variante asignada a SKU: {sku}")
-        _logger.info(f"✅ FIN asignación imágenes por variante ({count_img})")
