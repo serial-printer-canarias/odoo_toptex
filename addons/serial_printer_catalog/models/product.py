@@ -2,8 +2,6 @@ import json
 import logging
 import requests
 import base64
-from PIL import Image
-from io import BytesIO
 from odoo import models, api
 from odoo.exceptions import UserError
 
@@ -13,16 +11,11 @@ def get_image_binary_from_url(url):
     try:
         response = requests.get(url, stream=True, timeout=10)
         if response.status_code == 200 and 'image' in response.headers.get('Content-Type', ''):
-            image = Image.open(BytesIO(response.content)).convert("RGB")
-            buffer = BytesIO()
-            image.save(buffer, format="JPEG")
-            img_str = base64.b64encode(buffer.getvalue())
-            _logger.info(f"✅ Imagen descargada: {url}")
-            return img_str
+            return base64.b64encode(response.content)
         else:
-            _logger.warning(f"⚠️ Respuesta no válida de imagen: {url}")
+            _logger.warning(f"⚠️ Imagen no válida: {url}")
     except Exception as e:
-        _logger.warning(f"❌ Error descargando imagen desde {url}: {e}")
+        _logger.warning(f"❌ Error descargando imagen: {url} -> {e}")
     return False
 
 class ProductTemplate(models.Model):
@@ -42,51 +35,57 @@ class ProductTemplate(models.Model):
         headers = {'x-api-key': api_key, 'Content-Type': 'application/json'}
         auth_payload = {'username': username, 'password': password}
         auth_url = f'{proxy_url}/v3/authenticate'
+        _logger.info(f"🟢 AUTH TopTex: {auth_url}")
         auth_resp = requests.post(auth_url, json=auth_payload, headers=headers)
         if auth_resp.status_code != 200:
-            _logger.error(f"❌ Error autenticando TopTex: {auth_resp.text}")
             raise UserError(f"Error autenticando: {auth_resp.text}")
         token = auth_resp.json().get('token', '')
         if not token:
             raise UserError('No se recibió token TopTex')
         headers['x-toptex-authorization'] = token
 
-        # ↓↓↓ LLAMADA AL CATALOGO (link) ↓↓↓
         catalog_url = f'{proxy_url}/v3/products/all?usage_right=b2b_b2c&display_prices=1&result_in_file=1'
+        _logger.info(f"🟢 CATALOG URL: {catalog_url}")
         cat_resp = requests.get(catalog_url, headers=headers)
         if cat_resp.status_code != 200:
-            _logger.error(f"❌ Error obteniendo catálogo: {cat_resp.text}")
             raise UserError(f"Error obteniendo catálogo: {cat_resp.text}")
         file_link = cat_resp.json().get('link', '')
+        _logger.info(f"Link temporal: {file_link}")
         if not file_link:
             raise UserError('No se obtuvo el link del JSON de productos')
-
-        # ↓↓↓ DESCARGA EL JSON DEL LINK ↓↓↓
         json_resp = requests.get(file_link, headers=headers)
         if json_resp.status_code != 200:
             raise UserError(f"Error descargando el JSON catálogo: {json_resp.text}")
-        data = json_resp.json()
-        _logger.warning(f"🟡 RESPUESTA BRUTA: {json.dumps(data)[:1000]}")
+        try:
+            data = json_resp.json()
+        except Exception as e:
+            _logger.error(f"Error parseando JSON: {e}")
+            return
 
         catalog = data if isinstance(data, list) else data.get('items', data)
+        _logger.info(f"Productos recibidos: {len(catalog) if isinstance(catalog, list) else 'no-list'}")
+        if not catalog or (isinstance(catalog, list) and len(catalog) == 0):
+            _logger.error("Catálogo vacío")
+            return
+
         count_products = 0
         brands_cache = {}
+        # Preparar atributos (solo 1 vez)
+        color_attr = self.env['product.attribute'].sudo().search([('name', '=', 'Color')], limit=1)
+        if not color_attr:
+            color_attr = self.env['product.attribute'].sudo().create({'name': 'Color'})
+        size_attr = self.env['product.attribute'].sudo().search([('name', '=', 'Talla')], limit=1)
+        if not size_attr:
+            size_attr = self.env['product.attribute'].sudo().create({'name': 'Talla'})
 
         for prod in catalog:
+            # DATOS BÁSICOS
             default_code = prod.get('catalogReference', '') or prod.get('reference', '')
             brand_name = prod.get('brand', '')
             if isinstance(brand_name, dict):
                 brand_name = brand_name.get('name', '') or brand_name.get('es', '') or ''
-            designation = prod.get('designation', {})
-            name = designation.get('es') or designation.get('en') or ''
+            name = prod.get('designation', {}).get('es', '') or prod.get('designation', {}).get('en', '')
             description = prod.get('description', {}).get('es', '') or prod.get('description', {}).get('en', '')
-            composition = prod.get('composition', {}).get('es', '') or ''
-            gramaje = prod.get('averageWeight', '')
-            argumentos = prod.get('salesArguments', {}).get('es', '') or ''
-            main_materials = ", ".join([m.get("es", "") for m in prod.get("mainMaterials", [])])
-            pictos = ", ".join([p.get("es", "") for p in prod.get("pictograms", [])])
-            organic = ", ".join([o.get("es", "") for o in prod.get("organic", [])])
-            oeko_tex = prod.get("oekoTex", "")
 
             # MARCA
             if brand_name:
@@ -109,15 +108,7 @@ class ProductTemplate(models.Model):
                 if not categ_obj:
                     categ_obj = self.env['product.category'].sudo().create({'name': 'All'})
 
-            # ATRIBUTOS COLOR/TALLA
-            color_attr = self.env['product.attribute'].sudo().search([('name', '=', 'Color')], limit=1)
-            if not color_attr:
-                color_attr = self.env['product.attribute'].sudo().create({'name': 'Color'})
-            size_attr = self.env['product.attribute'].sudo().search([('name', '=', 'Talla')], limit=1)
-            if not size_attr:
-                size_attr = self.env['product.attribute'].sudo().create({'name': 'Talla'})
-
-            # VALORES DE COLOR/TALLA
+            # ATRIBUTOS Color/Talla (preparar valores)
             color_vals, size_vals = set(), set()
             for color in prod.get('colors', []):
                 c_name = color.get('colors', {}).get('es', '') or color.get('color', '')
@@ -144,29 +135,17 @@ class ProductTemplate(models.Model):
                 (0, 0, {'attribute_id': size_attr.id, 'value_ids': [(6, 0, size_val_objs)]}),
             ]
 
-            # EXTRAS
-            extra_vals = {
-                'x_composicion': composition,
-                'x_gramaje': gramaje,
-                'x_argumentos': argumentos,
-                'x_materiales': main_materials,
-                'x_pictogramas': pictos,
-                'x_certificado_organic': organic,
-                'x_oeko_tex': oeko_tex,
-            }
-
-            # PLANTILLA
+            # CREAR/ACTUALIZAR PRODUCTO
             template_vals = {
                 'name': f"{brand_name} {name}",
                 'default_code': default_code,
                 'description_sale': description,
                 'type': 'consu',
                 'is_storable': True,
-                'categ_id': categ_obj.id,
+                'categ_id': categ_obj.id if categ_obj else False,
                 'brand_id': brand_obj.id if brand_obj else False,
                 'attribute_line_ids': attribute_lines,
             }
-            template_vals.update(extra_vals)
 
             tmpl = self.env['product.template'].sudo().search([('default_code', '=', default_code)], limit=1)
             if not tmpl:
@@ -177,14 +156,19 @@ class ProductTemplate(models.Model):
                 tmpl.sudo().write(template_vals)
                 _logger.info(f"🔄 Producto actualizado: {default_code}")
 
-            # VARIANTES
+            # VARIANTES (actualizar datos clave y EAN)
             for color in prod.get('colors', []):
                 color_name = color.get('colors', {}).get('es', '') or color.get('color', '')
+                img_url = None
+                packshots = color.get('packshots', {})
+                if "FACE" in packshots:
+                    img_url = packshots["FACE"].get("url_packshot", "")
                 for sz in color.get('sizes', []):
                     size_name = sz.get('size', '')
                     sku = sz.get('sku', '')
                     precio_coste = sz.get('publicUnitPrice', 0.0)
                     ean = sz.get('ean', '')
+                    # Buscar variante por SKU (o combinación)
                     variant = self.env['product.product'].sudo().search([
                         ('product_tmpl_id', '=', tmpl.id),
                         ('product_template_attribute_value_ids.attribute_id', '=', color_attr.id),
@@ -199,6 +183,12 @@ class ProductTemplate(models.Model):
                             'barcode': ean,
                         })
                         _logger.info(f"✅ Variante actualizada SKU: {sku}")
+                        # Imagen variante
+                        if img_url:
+                            img_bin = get_image_binary_from_url(img_url)
+                            if img_bin:
+                                variant.sudo().write({'image_1920': img_bin})
+                                _logger.info(f"🖼️ Imagen asignada a SKU: {sku}")
                     else:
                         _logger.warning(f"❌ Variante no encontrada para SKU: {sku}")
 
