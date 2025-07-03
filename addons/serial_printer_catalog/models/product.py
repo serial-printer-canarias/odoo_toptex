@@ -1,9 +1,9 @@
+import urllib.request
 import json
 import logging
 import requests
 import base64
 import io
-import time
 from PIL import Image
 from odoo import models, api
 from odoo.exceptions import UserError
@@ -34,11 +34,25 @@ def get_image_binary_from_url(url):
         _logger.warning(f"❌ Error al procesar imagen desde {url}: {str(e)}")
     return None
 
+def descargar_json(url):
+    try:
+        with urllib.request.urlopen(url) as response:
+            if response.status == 200:
+                data = response.read().decode('utf-8')
+                json_data = json.loads(data)
+                _logger.info("✅ JSON de catálogo descargado correctamente")
+                return json_data
+            else:
+                _logger.error(f"❌ Error al descargar JSON. Código: {response.status}")
+    except Exception as e:
+        _logger.error(f"❌ Excepción al descargar JSON: {e}")
+    return None
+
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     @api.model
-    def sync_product_from_api(self):
+    def sync_catalog_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
@@ -48,7 +62,7 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # --- Autenticación ---
+        # --- 1. Autenticación ---
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_payload = {"username": username, "password": password}
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
@@ -60,7 +74,7 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un token válido.")
         _logger.info("🔐 Token recibido correctamente.")
 
-        # --- DESCARGA LINK DEL CATALOGO COMPLETO ---
+        # --- 2. Obtener link temporal del catálogo completo ---
         catalog_url = f"{proxy_url}/v3/products/all?usage_right=b2b_b2c&result_in_file=1"
         headers = {
             "x-api-key": api_key,
@@ -69,43 +83,126 @@ class ProductTemplate(models.Model):
         }
         catalog_response = requests.get(catalog_url, headers=headers)
         if catalog_response.status_code != 200:
-            raise UserError(f"❌ Error al obtener el link del catálogo: {catalog_response.status_code} - {catalog_response.text}")
+            raise UserError(f"❌ Error al obtener link de catálogo: {catalog_response.status_code} - {catalog_response.text}")
 
-        link_json = catalog_response.json()
-        link = link_json.get('link')
-        if not link:
-            raise UserError("❌ No se recibió el link temporal para descargar el JSON del catálogo.")
-        _logger.warning(f"🔗 Link temporal de descarga: {link}")
+        catalog_json = catalog_response.json()
+        link_json = catalog_json.get("link") or catalog_json.get("url") or None
+        if not link_json:
+            raise UserError("❌ No se recibió enlace de catálogo all.")
+        _logger.info(f"🔗 Link temporal catálogo all: {link_json}")
 
-        # --- DESCARGA EL JSON DESDE LINK TEMPORAL ---
-        products_json = []
-        for intento in range(3):
-            file_resp = requests.get(link, timeout=20)
-            _logger.info(f"⏳ Intento {intento+1}: status={file_resp.status_code}")
+        # --- 3. Descargar catálogo desde el link temporal ---
+        catalogo_all = descargar_json(link_json)
+        if not catalogo_all:
+            raise UserError("❌ No se pudo descargar el JSON de catálogo all.")
+        _logger.info(f"📦 Catálogo descargado: {len(catalogo_all)} productos encontrados.")
+
+        # --- 4. Procesar productos (creación/actualización en Odoo) ---
+        color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1) or self.env['product.attribute'].create({'name': 'Color'})
+        size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1) or self.env['product.attribute'].create({'name': 'Talla'})
+        created_count = 0
+        for producto in catalogo_all:
             try:
-                products_json = file_resp.json()
+                brand = producto.get("brand", {}).get("name", {}).get("es", "") or "TopTex"
+                name = producto.get("designation", {}).get("es", producto.get("productReference", "Producto sin nombre"))
+                description = producto.get("description", {}).get("es", "")
+                default_code = producto.get("catalogReference") or producto.get("productReference") or ""
+                colors_data = producto.get("colors", [])
+                all_colors = set()
+                all_sizes = set()
+
+                # Analiza variantes de color y talla
+                for color in colors_data:
+                    color_name = color.get("colors", {}).get("es", "") or color.get("colors", {}).get("en", "")
+                    all_colors.add(color_name)
+                    for sz in color.get("sizes", []):
+                        all_sizes.add(sz.get("size"))
+
+                # Atributos/valores en Odoo
+                color_vals = {}
+                for c in all_colors:
+                    val = self.env['product.attribute.value'].search([('name', '=', c), ('attribute_id', '=', color_attr.id)], limit=1)
+                    if not val:
+                        val = self.env['product.attribute.value'].create({'name': c, 'attribute_id': color_attr.id})
+                    color_vals[c] = val
+
+                size_vals = {}
+                for s in all_sizes:
+                    val = self.env['product.attribute.value'].search([('name', '=', s), ('attribute_id', '=', size_attr.id)], limit=1)
+                    if not val:
+                        val = self.env['product.attribute.value'].create({'name': s, 'attribute_id': size_attr.id})
+                    size_vals[s] = val
+
+                attribute_lines = []
+                if all_colors:
+                    attribute_lines.append({
+                        'attribute_id': color_attr.id,
+                        'value_ids': [(6, 0, [v.id for v in color_vals.values()])]
+                    })
+                if all_sizes:
+                    attribute_lines.append({
+                        'attribute_id': size_attr.id,
+                        'value_ids': [(6, 0, [v.id for v in size_vals.values()])]
+                    })
+
+                # Plantilla principal Odoo
+                template_vals = {
+                    'name': f"{brand} {name}".strip(),
+                    'default_code': default_code,
+                    'type': 'consu',
+                    'is_storable': True,
+                    'description_sale': description,
+                    'categ_id': self.env.ref("product.product_category_all").id,
+                    'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
+                }
+                template = self.create(template_vals)
+
+                # Imagen principal (la primera válida de cualquier variante)
+                images = producto.get("images", [])
+                img_asignada = False
+                for img in images:
+                    url_img = img.get("url_image")
+                    if url_img:
+                        image_bin = get_image_binary_from_url(url_img)
+                        if image_bin:
+                            template.image_1920 = image_bin
+                            img_asignada = True
+                            break
+
+                # Variantes, SKUs, precio, imágenes por variante
+                for variant in template.product_variant_ids:
+                    color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
+                    size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
+                    color_name = color_val.name if color_val else ""
+                    size_name = size_val.name if size_val else ""
+                    sku = ""
+                    price = 0.0
+                    # Busca info de variantes para SKU/precio/imágenes
+                    for color in colors_data:
+                        color_es = color.get("colors", {}).get("es", "") or color.get("colors", {}).get("en", "")
+                        if color_es == color_name:
+                            for sz in color.get("sizes", []):
+                                if sz.get("size") == size_name:
+                                    sku = sz.get("sku", "")
+                                    # Precio
+                                    prices = sz.get("prices", [])
+                                    if prices:
+                                        price = float(prices[0].get("price", 0.0))
+                                    # Imagen por variante (FACE principal)
+                                    packshots = color.get("packshots", {})
+                                    face = packshots.get("FACE", {})
+                                    url_face = face.get("url_packshot")
+                                    if url_face:
+                                        variant.image_1920 = get_image_binary_from_url(url_face)
+                    if sku:
+                        variant.default_code = sku
+                    if price:
+                        variant.standard_price = price
+                        variant.lst_price = price * 1.25
+
+                created_count += 1
+                _logger.info(f"✅ Producto {name} ({default_code}) creado correctamente con variantes.")
             except Exception as e:
-                _logger.error(f"❌ Error al parsear JSON del catálogo: {e}")
-                products_json = []
-            if products_json:
-                break
-            time.sleep(1)
+                _logger.error(f"❌ Error procesando producto: {e}")
 
-        _logger.warning(f"RESPUESTA CRUDA DEL JSON DE PRODUCTOS: {products_json}")
-
-        if not products_json or not isinstance(products_json, list):
-            raise UserError("❌ El catálogo descargado no es una lista de productos válida.")
-
-        _logger.info(f"Procesando {len(products_json)} productos Toptex...")
-
-        # Aquí empieza el mapeo, ejemplo SOLO para log. Aquí haces tu bucle, mapeo y creación igual que para NS300 pero con lista.
-        for idx, product in enumerate(products_json):
-            try:
-                # Mapea datos principales, variantes, imágenes, stock, etc.
-                # Este ejemplo SOLO loguea el nombre y código, debes mappear todo como en NS300 (usa tu código de variantes/atributos/stock)
-                _logger.info(f"[{idx+1}/{len(products_json)}] Producto: {product.get('designation', {}).get('es', '')} | Ref: {product.get('catalogReference', '')}")
-                # ... TODO: lógica de creación de productos igual que NS300 pero adaptado al array ...
-            except Exception as e:
-                _logger.error(f"❌ Error procesando producto {idx+1}: {e}")
-
-        _logger.info("✅ Fin de la sincronización de catálogo Toptex.")
+        _logger.info(f"🎉 Catálogo completo cargado: {created_count} productos procesados.")
