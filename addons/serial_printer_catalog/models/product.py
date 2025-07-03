@@ -51,6 +51,7 @@ class ProductTemplate(models.Model):
             raise UserError('No se recibió token TopTex')
         headers['x-toptex-authorization'] = token
 
+        # ↓↓↓ LLAMADA AL CATALOGO (link) ↓↓↓
         catalog_url = f'{proxy_url}/v3/products/all?usage_right=b2b_b2c&display_prices=1&result_in_file=1'
         cat_resp = requests.get(catalog_url, headers=headers)
         if cat_resp.status_code != 200:
@@ -59,12 +60,12 @@ class ProductTemplate(models.Model):
         file_link = cat_resp.json().get('link', '')
         if not file_link:
             raise UserError('No se obtuvo el link del JSON de productos')
+
+        # ↓↓↓ DESCARGA EL JSON DEL LINK ↓↓↓
         json_resp = requests.get(file_link, headers=headers)
         if json_resp.status_code != 200:
             raise UserError(f"Error descargando el JSON catálogo: {json_resp.text}")
         data = json_resp.json()
-
-        # LOG de depuración: aquí ves la respuesta cruda del catálogo para analizarla
         _logger.warning(f"🟡 RESPUESTA BRUTA: {json.dumps(data)[:1000]}")
 
         catalog = data if isinstance(data, list) else data.get('items', data)
