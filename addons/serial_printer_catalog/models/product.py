@@ -1,9 +1,7 @@
-import json
 import logging
 import requests
 from odoo import models, api
 from odoo.exceptions import UserError
-import time
 
 _logger = logging.getLogger(__name__)
 
@@ -11,8 +9,7 @@ class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     @api.model
-    def sync_toptex_products(self):
-        # 1. Credenciales desde parámetros del sistema
+    def sync_product_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
@@ -22,7 +19,7 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # 2. Autenticación
+        # 1. Autenticación
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
         auth_payload = {"username": username, "password": password}
@@ -34,11 +31,12 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un token válido.")
         _logger.info("🔐 Token recibido correctamente.")
 
-        # 3. Obtener el enlace temporal del catálogo
+        # 2. Petición para obtener el enlace temporal de productos
         catalog_url = f"{proxy_url}/v3/products/all?usage_right=b2b_b2c&result_in_file=1"
         headers = {
             "x-api-key": api_key,
             "x-toptex-authorization": token,
+            "Accept-Encoding": "gzip, deflate, br"
         }
         link_response = requests.get(catalog_url, headers=headers)
         if link_response.status_code != 200:
@@ -49,56 +47,42 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un enlace de descarga de catálogo.")
         _logger.info(f"🔗 Link temporal de catálogo: {file_url}")
 
-        # 4. Descargar el JSON esperando (polling) hasta que esté listo
-        json_ready = False
-        wait_time = 10
-        max_attempts = 50  # Hasta 8-10 minutos máximo
-        attempt = 0
-        products_data = None
-        while not json_ready and attempt < max_attempts:
+        # 3. Descargar el JSON de productos (esperar si es necesario)
+        import time
+        for intento in range(15):  # hasta 7 min: 15 x 30s
             file_response = requests.get(file_url, headers=headers)
             try:
                 products_data = file_response.json()
-                if isinstance(products_data, list):
-                    json_ready = True
-                    _logger.info(f"✅ JSON listo con {len(products_data)} productos recibidos tras {attempt * wait_time} segundos.")
-                else:
-                    _logger.info(f"⏳ JSON no listo. Esperando {wait_time} segundos más…")
-                    time.sleep(wait_time)
-            except Exception as e:
-                _logger.info(f"⏳ JSON no listo (parse error). Esperando {wait_time} segundos más…")
-                time.sleep(wait_time)
-            attempt += 1
-        if not json_ready:
-            raise UserError("❌ No se pudo descargar el JSON de productos a tiempo.")
+                if isinstance(products_data, list) and products_data:
+                    break
+            except Exception:
+                pass
+            _logger.info(f"⏳ Esperando a que el archivo esté listo... Intento {intento + 1}/15")
+            time.sleep(30)
+        else:
+            raise UserError("❌ El JSON de productos no está listo tras esperar 7 minutos.")
 
-        _logger.info(f"🟢 Procesando {len(products_data)} productos TopTex...")
+        _logger.info(f"💾 JSON listo con {len(products_data)} productos recibidos")
 
-        # 5. Mapeo y creación de productos (solo variantes, marca, tallas, color, precio venta/coste)
+        # 4. Crear las plantillas CON VARIANTES y PRECIOS
+        creados = 0
         for prod in products_data:
-            # Marca
-            brand = prod.get("brand", {}).get("name", {}).get("es", "") or "TopTex"
-            # Nombre
+            brand = prod.get("brand", "TopTex")
             name = prod.get("designation", {}).get("es", "Producto sin nombre")
-            # Código referencia
             default_code = prod.get("catalogReference", prod.get("productReference", ""))
-            # Descripción (solo español)
             description = prod.get("description", {}).get("es", "")
-            # Colores y tallas
             colors = prod.get("colors", [])
-
-            # Obtener todos los colores/tallas disponibles
             all_colors = set()
             all_sizes = set()
             for color in colors:
-                color_name = color.get("color", {}).get("es", "")
+                color_name = color.get("colors", {}).get("es", "")
                 if color_name:
                     all_colors.add(color_name)
-                    for size in color.get("sizes", []):
-                        if size.get("size"):
-                            all_sizes.add(size.get("size"))
+                for sz in color.get("sizes", []):
+                    if sz.get("size"):
+                        all_sizes.add(sz.get("size"))
 
-            # Crear atributos (solo si no existen)
+            # Atributos y valores (color y talla)
             color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
             if not color_attr:
                 color_attr = self.env['product.attribute'].create({'name': 'Color'})
@@ -119,21 +103,19 @@ class ProductTemplate(models.Model):
                     val = self.env['product.attribute.value'].create({'name': s, 'attribute_id': size_attr.id})
                 size_vals[s] = val
 
-            # Líneas de atributo para la plantilla
             attribute_lines = []
-            if all_colors:
+            if color_vals:
                 attribute_lines.append({
                     'attribute_id': color_attr.id,
                     'value_ids': [(6, 0, [v.id for v in color_vals.values()])]
                 })
-            if all_sizes:
+            if size_vals:
                 attribute_lines.append({
                     'attribute_id': size_attr.id,
                     'value_ids': [(6, 0, [v.id for v in size_vals.values()])]
                 })
 
-            # Plantilla de producto
-            template_vals = {
+            vals = {
                 'name': f"{brand} {name}".strip(),
                 'default_code': default_code,
                 'type': 'consu',
@@ -142,31 +124,36 @@ class ProductTemplate(models.Model):
                 'categ_id': self.env.ref("product.product_category_all").id,
                 'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
             }
-            template = self.env['product.template'].create(template_vals)
-            _logger.info(f"✅ Creada plantilla {template.name} [{template.default_code}]")
+            existe = self.env['product.template'].search([('default_code', '=', default_code)], limit=1)
+            if not existe:
+                template = self.create(vals)
+                creados += 1
+                _logger.info(f"✅ Creada plantilla {template.name} [{template.id}]")
 
-            # Mapeo variantes
-            for variant in template.product_variant_ids:
-                color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
-                size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
-                color_name = color_val.name if color_val else ""
-                size_name = size_val.name if size_val else ""
-                # Buscar precios por variante (color/talla)
-                found = False
-                for color in colors:
-                    col_name = color.get("color", {}).get("es", "")
-                    if col_name == color_name:
-                        for sz in color.get("sizes", []):
-                            if sz.get("size") == size_name:
-                                # SKU/Referencia única
-                                variant.default_code = sz.get("sku", "") or default_code
-                                # Precio de coste
-                                variant.standard_price = float(sz.get("costPrice", 0.0))
-                                # Precio de venta (si tienes info de 'prices', si no lo puedes dejar como coste x margen fijo)
-                                variant.lst_price = float(sz.get("costPrice", 0.0)) * 1.35  # ejemplo 35% margen
-                                found = True
-                                break
-                    if found:
-                        break
+                # PRECIOS Y CÓDIGOS PARA VARIANTES
+                for variant in template.product_variant_ids:
+                    color_name = ''
+                    size_name = ''
+                    for attr in variant.product_template_attribute_value_ids:
+                        if attr.attribute_id.id == color_attr.id:
+                            color_name = attr.name
+                        if attr.attribute_id.id == size_attr.id:
+                            size_name = attr.name
+                    # Busca info de esta combinación color/talla
+                    for color in colors:
+                        col_name = color.get("colors", {}).get("es", "")
+                        if col_name == color_name:
+                            for sz in color.get("sizes", []):
+                                if sz.get("size") == size_name:
+                                    # PRECIOS
+                                    prices = sz.get("prices", [])
+                                    if prices:
+                                        price_cost = float(prices[0].get("price", 0.0))
+                                        variant.standard_price = price_cost
+                                        variant.lst_price = price_cost * 1.25
+                                    # SKU individual
+                                    variant.default_code = sz.get("sku", default_code)
+            else:
+                _logger.info(f"⏭️ Ya existe plantilla {existe.name} [{existe.id}]")
 
-        _logger.info("✅ Sincronización y creación de productos/variantes finalizada (sin imágenes ni stock).")
+        _logger.info(f"🚀 FIN: {creados} plantillas de producto creadas (TopTex).")
