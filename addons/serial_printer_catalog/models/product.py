@@ -1,9 +1,9 @@
 import json
 import logging
 import requests
+import time
 import base64
 import io
-import time
 from PIL import Image
 from odoo import models, api
 from odoo.exceptions import UserError
@@ -13,7 +13,7 @@ _logger = logging.getLogger(__name__)
 def get_image_binary_from_url(url):
     try:
         _logger.info(f"🖼️ Descargando imagen desde {url}")
-        response = requests.get(url, stream=True, timeout=30)
+        response = requests.get(url, stream=True, timeout=10)
         if response.status_code == 200 and "image" in response.headers.get("Content-Type", ""):
             image = Image.open(io.BytesIO(response.content))
             if image.mode in ('RGBA', 'LA'):
@@ -33,7 +33,8 @@ class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     @api.model
-    def sync_product_from_api(self):
+    def sync_products_toptex(self):
+        # --- PARTE 1: Autenticación y Descarga del JSON ---
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
@@ -55,7 +56,7 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un token válido.")
         _logger.info("🔐 Token recibido correctamente.")
 
-        # 2. Petición para obtener el enlace temporal de productos
+        # 2. Obtener enlace temporal de productos
         catalog_url = f"{proxy_url}/v3/products/all?usage_right=b2b_b2c&result_in_file=1"
         headers = {
             "x-api-key": api_key,
@@ -71,132 +72,144 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un enlace de descarga de catálogo.")
         _logger.info(f"🔗 Link temporal de catálogo: {file_url}")
 
-        # 3. Espera hasta que el JSON esté listo y descárgalo (soporta archivos grandes)
-        max_wait = 7 * 60  # 7 minutos máximo
-        wait_interval = 30
-        total_waited = 0
+        # 3. Esperar hasta que el JSON esté disponible
+        max_wait = 7 * 60  # 7 minutos en segundos
+        wait_interval = 20
+        waited = 0
         products_data = None
 
-        while total_waited < max_wait:
-            file_response = requests.get(file_url, headers=headers, timeout=180)
+        while waited < max_wait:
+            _logger.info(f"⏳ Esperando JSON... ({waited}s/{max_wait}s)")
+            file_response = requests.get(file_url, headers=headers)
             try:
                 products_data = file_response.json()
-                # Si ya hay 'items' o es lista no vacía, ya está bien generado
-                if (isinstance(products_data, dict) and products_data.get('items')) or (isinstance(products_data, list) and products_data):
+                if isinstance(products_data, dict) and 'items' in products_data:
                     break
-            except Exception as e:
-                _logger.info(f"JSON aún no listo, esperando {wait_interval}s: {e}")
+            except Exception:
+                pass
             time.sleep(wait_interval)
-            total_waited += wait_interval
+            waited += wait_interval
 
-        # Asegura que siempre use la lista "items"
-        if isinstance(products_data, dict) and products_data.get('items'):
-            products_data = products_data['items']
+        if not products_data or 'items' not in products_data:
+            raise UserError("❌ El JSON de productos no estuvo disponible después de esperar.")
 
-        if not isinstance(products_data, list) or not products_data:
-            raise UserError("🚨 El catálogo descargado no es una lista de productos válida después de esperar el JSON.")
+        product_list = products_data.get("items", [])
+        if not product_list:
+            raise UserError("❌ El catálogo descargado no es una lista de productos válida.")
 
-        _logger.info(f"💾 RESPUESTA CRUDA DEL JSON DE PRODUCTOS: {len(products_data)} productos encontrados.")
+        _logger.info(f"🟢 Procesando {len(product_list)} productos TopTex...")
 
-        # 4. Procesar y mapear cada producto de Toptex
-        for prod in products_data:
+        # --- PARTE 2: Crear Productos Plantilla y Variantes (sin imagen ni stock) ---
+
+        color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
+        if not color_attr:
+            color_attr = self.env['product.attribute'].create({'name': 'Color'})
+        size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1)
+        if not size_attr:
+            size_attr = self.env['product.attribute'].create({'name': 'Talla'})
+
+        for prod in product_list:
             brand = prod.get("brand", "TopTex")
             name = prod.get("designation", {}).get("es", "Producto sin nombre")
             default_code = prod.get("catalogReference", prod.get("productReference", ""))
             description = prod.get("description", {}).get("es", "")
             colors = prod.get("colors", [])
-            images = prod.get("images", [])
-            family = prod.get("family", {}).get("es", "Sin familia")
-
-            # Preparar atributos (Color, Talla)
+            # Recoge todos los colores/tallas de variantes
             all_colors = set()
             all_sizes = set()
             for color in colors:
                 color_name = color.get("colors", {}).get("es", "")
-                if color_name:
-                    all_colors.add(color_name)
+                all_colors.add(color_name)
                 for size in color.get("sizes", []):
-                    sz = size.get("size")
-                    if sz:
-                        all_sizes.add(sz)
+                    all_sizes.add(size.get("size", ""))
 
-            # Crear atributos si no existen
-            color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
-            if not color_attr:
-                color_attr = self.env['product.attribute'].create({'name': 'Color'})
-            size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1)
-            if not size_attr:
-                size_attr = self.env['product.attribute'].create({'name': 'Talla'})
+            # Crea los valores de atributos si no existen
             color_vals = {}
             for c in all_colors:
+                if not c: continue
                 val = self.env['product.attribute.value'].search([('name', '=', c), ('attribute_id', '=', color_attr.id)], limit=1)
                 if not val:
                     val = self.env['product.attribute.value'].create({'name': c, 'attribute_id': color_attr.id})
                 color_vals[c] = val
             size_vals = {}
             for s in all_sizes:
+                if not s: continue
                 val = self.env['product.attribute.value'].search([('name', '=', s), ('attribute_id', '=', size_attr.id)], limit=1)
                 if not val:
                     val = self.env['product.attribute.value'].create({'name': s, 'attribute_id': size_attr.id})
                 size_vals[s] = val
 
+            # Construir attribute_lines solo si hay valores
             attribute_lines = []
-            if all_colors:
+            if color_vals:
                 attribute_lines.append({
                     'attribute_id': color_attr.id,
                     'value_ids': [(6, 0, [v.id for v in color_vals.values()])]
                 })
-            if all_sizes:
+            if size_vals:
                 attribute_lines.append({
                     'attribute_id': size_attr.id,
                     'value_ids': [(6, 0, [v.id for v in size_vals.values()])]
                 })
 
-            # Buscar/categoría por nombre (opcional)
-            categ = self.env['product.category'].search([('name', '=', family)], limit=1)
-            if not categ:
-                categ = self.env.ref("product.product_category_all")
+            # ¿Ya existe producto plantilla?
+            tmpl = self.env['product.template'].search([('default_code', '=', default_code)], limit=1)
+            if not tmpl:
+                template_vals = {
+                    'name': f"{brand} {name}".strip(),
+                    'default_code': default_code,
+                    'type': 'consu',
+                    'is_storable': True,
+                    'description_sale': description,
+                    'categ_id': self.env.ref("product.product_category_all").id,
+                    'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
+                }
+                tmpl = self.create(template_vals)
 
-            # Crear plantilla de producto
-            template_vals = {
-                'name': f"{brand} {name}".strip(),
-                'default_code': default_code,
-                'type': 'consu',
-                'is_storable': True,
-                'description_sale': description,
-                'categ_id': categ.id,
-                'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
-            }
-            template = self.create(template_vals)
+        _logger.info("✅ Productos plantilla y variantes creados. Ahora imágenes y stock...")
 
-            # Imagen principal (la primera que encuentre)
+        # --- PARTE 3: Añadir imágenes y stock a variantes ya creadas ---
+
+        for prod in product_list:
+            default_code = prod.get("catalogReference", prod.get("productReference", ""))
+            tmpl = self.env['product.template'].search([('default_code', '=', default_code)], limit=1)
+            if not tmpl:
+                continue
+            colors = prod.get("colors", [])
+            images = prod.get("images", [])
+            # Imagen principal plantilla (la primera imagen general)
             if images:
                 img_url = images[0].get("url_image")
                 if img_url:
-                    image_bin = get_image_binary_from_url(img_url)
-                    if image_bin:
-                        template.image_1920 = image_bin
-
-            # Mapear variantes: SKU, precio, stock, imagen individual
-            for variant in template.product_variant_ids:
+                    img_bin = get_image_binary_from_url(img_url)
+                    if img_bin:
+                        tmpl.image_1920 = img_bin
+            # Buscar variantes y asignar imágenes y stock/price
+            for variant in tmpl.product_variant_ids:
+                # Atributos de la variante
                 color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
                 size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
                 color_name = color_val.name if color_val else ""
                 size_name = size_val.name if size_val else ""
-                # Buscar datos para esta variante
-                for c in colors:
-                    col_name = c.get("colors", {}).get("es", "")
+                for color in colors:
+                    col_name = color.get("colors", {}).get("es", "")
                     if col_name == color_name:
-                        for sz in c.get("sizes", []):
+                        for sz in color.get("sizes", []):
                             if sz.get("size") == size_name:
                                 # SKU
                                 variant.default_code = sz.get("sku", "")
-                                # Precio de coste y venta
+                                # Precio coste/venta
                                 prices = sz.get("prices", [])
                                 if prices:
                                     variant.standard_price = float(prices[0].get("price", 0.0))
                                     variant.lst_price = float(prices[0].get("price", 0.0)) * 1.25
-                                # Stock (si lo trae el json)
+                                # Imagen variante (FACE de color)
+                                img_url = color.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
+                                if img_url:
+                                    img_bin = get_image_binary_from_url(img_url)
+                                    if img_bin:
+                                        variant.image_1920 = img_bin
+                                # Stock (puedes personalizar a tu lógica)
                                 stock = sz.get("stock", 0)
                                 quant = self.env['stock.quant'].search([
                                     ('product_id', '=', variant.id),
@@ -205,11 +218,5 @@ class ProductTemplate(models.Model):
                                 if quant:
                                     quant.quantity = stock
                                     quant.inventory_quantity = stock
-                                # Imagen por variante (si existe)
-                                img_url = c.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
-                                if img_url:
-                                    image_bin = get_image_binary_from_url(img_url)
-                                    if image_bin:
-                                        variant.image_1920 = image_bin
 
         _logger.info("✅ Sincronización completa de productos TopTex.")
