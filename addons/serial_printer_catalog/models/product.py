@@ -1,44 +1,22 @@
 import json
 import logging
 import requests
-import base64
-import io
-import time
-from PIL import Image
 from odoo import models, api
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
-def get_image_binary_from_url(url):
-    try:
-        _logger.info(f"🖼️ Descargando imagen desde {url}")
-        response = requests.get(url, stream=True, timeout=30)
-        if response.status_code == 200 and "image" in response.headers.get("Content-Type", ""):
-            image = Image.open(io.BytesIO(response.content))
-            if image.mode in ('RGBA', 'LA'):
-                background = Image.new('RGB', image.size, (255, 255, 255))
-                background.paste(image, mask=image.split()[-1])
-                image = background
-            else:
-                image = image.convert("RGB")
-            buffer = io.BytesIO()
-            image.save(buffer, format="JPEG")
-            return base64.b64encode(buffer.getvalue())
-    except Exception as e:
-        _logger.warning(f"❌ Error al procesar imagen desde {url}: {str(e)}")
-    return None
-
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     @api.model
-    def sync_toptex_catalog(self):
+    def sync_product_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
         api_key = icp.get_param('toptex_api_key')
         proxy_url = icp.get_param('toptex_proxy_url')
+
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
@@ -70,140 +48,94 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un enlace de descarga de catálogo.")
         _logger.info(f"🔗 Link temporal de catálogo: {file_url}")
 
-        # 3. Esperar a que el archivo esté generado (máx 10 minutos)
-        max_wait = 600  # 10 min
-        sleep_time = 30
-        elapsed = 0
-        products_data = {}
-        while elapsed < max_wait:
+        # 3. Esperar hasta que el JSON esté listo y descargar (hasta 7 minutos)
+        import time
+        for intento in range(30):  # Hasta 7 minutos de espera (14 s * 30 = 420 s)
             file_response = requests.get(file_url, headers=headers)
-            try:
-                products_data = file_response.json()
-                if "items" in products_data and isinstance(products_data["items"], list) and products_data["items"]:
-                    break
-            except Exception:
-                pass
-            _logger.info(f"⏳ Esperando generación del JSON ({elapsed}s)...")
-            time.sleep(sleep_time)
-            elapsed += sleep_time
+            if file_response.status_code == 200:
+                try:
+                    products_data = file_response.json()
+                    if isinstance(products_data, dict) and 'items' in products_data:
+                        products_data = products_data['items']
+                    if isinstance(products_data, list) and products_data:
+                        break
+                except Exception as e:
+                    pass  # El archivo todavía no está disponible, reintentamos
+            time.sleep(14)
         else:
-            raise UserError("❌ El archivo JSON de productos no estuvo listo tras 10 minutos.")
+            raise UserError("❌ El archivo JSON de productos no estuvo listo a tiempo. Intenta de nuevo más tarde.")
 
-        _logger.info(f"💾 JSON DE PRODUCTOS RECIBIDO ({len(products_data['items'])} productos)")
+        _logger.info(f"💾 RESPUESTA CRUDA DEL JSON DE PRODUCTOS: {len(products_data)} productos recibidos.")
 
-        # --- Atributos de producto
-        color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
-        if not color_attr:
-            color_attr = self.env['product.attribute'].create({'name': 'Color'})
-        size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1)
-        if not size_attr:
-            size_attr = self.env['product.attribute'].create({'name': 'Talla'})
+        # 4. CREACIÓN SOLO DE PLANTILLAS Y VARIANTES (sin imágenes aún)
+        color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1) or self.env['product.attribute'].create({'name': 'Color'})
+        size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1) or self.env['product.attribute'].create({'name': 'Talla'})
 
-        # --- Crear productos
-        for prod in products_data["items"]:
-            brand = prod.get("brand", "") or "TopTex"
-            name = prod.get("designation", {}).get("es") or prod.get("designation", {}).get("en") or "Producto"
+        for prod in products_data:
+            name = prod.get("designation", {}).get("es", "Producto sin nombre")
             default_code = prod.get("catalogReference", prod.get("productReference", ""))
+            brand = prod.get("brand", "TopTex")
             description = prod.get("description", {}).get("es", "")
             colors = prod.get("colors", [])
-            images = prod.get("images", [])
             all_colors = set()
             all_sizes = set()
             for color in colors:
-                color_name = color.get("colors", {}).get("es", "") or color.get("colors", {}).get("en", "")
+                color_name = color.get("colors", {}).get("es", "")
                 all_colors.add(color_name)
-                for size in color.get("sizes", []):
-                    all_sizes.add(size.get("size"))
+                for sz in color.get("sizes", []):
+                    all_sizes.add(sz.get("size"))
 
-            # Crear valores de atributo si no existen
             color_vals = {}
             for c in all_colors:
-                if not c:
-                    continue
                 val = self.env['product.attribute.value'].search([('name', '=', c), ('attribute_id', '=', color_attr.id)], limit=1)
                 if not val:
                     val = self.env['product.attribute.value'].create({'name': c, 'attribute_id': color_attr.id})
                 color_vals[c] = val
             size_vals = {}
             for s in all_sizes:
-                if not s:
-                    continue
                 val = self.env['product.attribute.value'].search([('name', '=', s), ('attribute_id', '=', size_attr.id)], limit=1)
                 if not val:
                     val = self.env['product.attribute.value'].create({'name': s, 'attribute_id': size_attr.id})
                 size_vals[s] = val
 
             attribute_lines = []
-            if color_vals:
+            if all_colors:
                 attribute_lines.append({
                     'attribute_id': color_attr.id,
                     'value_ids': [(6, 0, [v.id for v in color_vals.values()])]
                 })
-            if size_vals:
+            if all_sizes:
                 attribute_lines.append({
                     'attribute_id': size_attr.id,
                     'value_ids': [(6, 0, [v.id for v in size_vals.values()])]
                 })
 
-            # Evitar duplicados
-            template = self.env['product.template'].search([('default_code', '=', default_code)], limit=1)
-            if not template:
-                template_vals = {
-                    'name': f"{brand} {name}".strip(),
-                    'default_code': default_code,
-                    'type': 'consu',
-                    'is_storable': True,
-                    'description_sale': description,
-                    'categ_id': self.env.ref("product.product_category_all").id,
-                    'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
-                    'list_price': 0.0,   # se pondrá por variante
-                    'standard_price': 0.0,  # se pondrá por variante
-                }
-                template = self.create(template_vals)
+            template_vals = {
+                'name': f"{brand} {name}".strip(),
+                'default_code': default_code,
+                'type': 'consu',
+                'is_storable': True,
+                'description_sale': description,
+                'categ_id': self.env.ref("product.product_category_all").id,
+                'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
+            }
+            template = self.create(template_vals)
 
-            # Crear variantes con precios y stock
-            for color in colors:
-                color_name = color.get("colors", {}).get("es", "") or color.get("colors", {}).get("en", "")
-                for size in color.get("sizes", []):
-                    size_name = size.get("size")
-                    variant = template.product_variant_ids.filtered(
-                        lambda v: 
-                            color_name in v.product_template_attribute_value_ids.mapped('name') and 
-                            size_name in v.product_template_attribute_value_ids.mapped('name')
-                    )
-                    if not variant:
-                        continue
-                    # SKU
-                    variant.default_code = size.get("sku", "") or ""
-                    # Precios
-                    price_items = size.get("prices", [])
-                    if price_items:
-                        cost = float(price_items[0].get("price", 0.0))
-                        variant.standard_price = cost
-                        variant.lst_price = round(cost * 1.25, 2)
-                    # Stock si viene (opcional)
-                    stock = size.get("stock", 0)
-                    quant = self.env['stock.quant'].search([
-                        ('product_id', '=', variant.id),
-                        ('location_id.usage', '=', 'internal')
-                    ], limit=1)
-                    if quant:
-                        quant.quantity = stock
-                        quant.inventory_quantity = stock
+            # Mapear variantes: SKU y precio
+            for variant in template.product_variant_ids:
+                color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
+                size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
+                color_name = color_val.name if color_val else ""
+                size_name = size_val.name if size_val else ""
+                for c in colors:
+                    col_name = c.get("colors", {}).get("es", "")
+                    if col_name == color_name:
+                        for sz in c.get("sizes", []):
+                            if sz.get("size") == size_name:
+                                variant.default_code = sz.get("sku", "")
+                                prices = sz.get("prices", [])
+                                if prices:
+                                    variant.standard_price = float(prices[0].get("price", 0.0))
+                                    variant.lst_price = float(prices[0].get("price", 0.0)) * 1.25
 
-                    # Imagen por variante (face)
-                    img_url = color.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
-                    if img_url:
-                        image_bin = get_image_binary_from_url(img_url)
-                        if image_bin:
-                            variant.image_1920 = image_bin
-
-            # Imagen principal de producto (la primera disponible)
-            if images:
-                img_url = images[0].get("url_image")
-                if img_url:
-                    image_bin = get_image_binary_from_url(img_url)
-                    if image_bin:
-                        template.image_1920 = image_bin
-
-        _logger.info("✅ Productos, variantes, imágenes y stock TopTex sincronizados correctamente.")
+        _logger.info("✅ Sincronización completa de plantillas y variantes TopTex.")
