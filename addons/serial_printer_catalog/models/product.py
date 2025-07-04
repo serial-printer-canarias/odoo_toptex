@@ -1,17 +1,39 @@
 import json
 import logging
 import requests
+import base64
+import io
+import time
+from PIL import Image
 from odoo import models, api
 from odoo.exceptions import UserError
-import time
 
 _logger = logging.getLogger(__name__)
+
+def get_image_binary_from_url(url):
+    try:
+        _logger.info(f"🖼️ Descargando imagen desde {url}")
+        response = requests.get(url, stream=True, timeout=30)
+        if response.status_code == 200 and "image" in response.headers.get("Content-Type", ""):
+            image = Image.open(io.BytesIO(response.content))
+            if image.mode in ('RGBA', 'LA'):
+                background = Image.new('RGB', image.size, (255, 255, 255))
+                background.paste(image, mask=image.split()[-1])
+                image = background
+            else:
+                image = image.convert("RGB")
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG")
+            return base64.b64encode(buffer.getvalue())
+    except Exception as e:
+        _logger.warning(f"❌ Error al procesar imagen desde {url}: {str(e)}")
+    return None
 
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     @api.model
-    def create_products_toptex(self):
+    def sync_toptex_catalog(self):
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
@@ -52,6 +74,7 @@ class ProductTemplate(models.Model):
         max_wait = 600  # 10 min
         sleep_time = 30
         elapsed = 0
+        products_data = {}
         while elapsed < max_wait:
             file_response = requests.get(file_url, headers=headers)
             try:
@@ -83,6 +106,7 @@ class ProductTemplate(models.Model):
             default_code = prod.get("catalogReference", prod.get("productReference", ""))
             description = prod.get("description", {}).get("es", "")
             colors = prod.get("colors", [])
+            images = prod.get("images", [])
             all_colors = set()
             all_sizes = set()
             for color in colors:
@@ -122,29 +146,26 @@ class ProductTemplate(models.Model):
                 })
 
             # Evitar duplicados
-            existing = self.env['product.template'].search([('default_code', '=', default_code)], limit=1)
-            if existing:
-                continue
+            template = self.env['product.template'].search([('default_code', '=', default_code)], limit=1)
+            if not template:
+                template_vals = {
+                    'name': f"{brand} {name}".strip(),
+                    'default_code': default_code,
+                    'type': 'consu',
+                    'is_storable': True,
+                    'description_sale': description,
+                    'categ_id': self.env.ref("product.product_category_all").id,
+                    'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
+                    'list_price': 0.0,   # se pondrá por variante
+                    'standard_price': 0.0,  # se pondrá por variante
+                }
+                template = self.create(template_vals)
 
-            template_vals = {
-                'name': f"{brand} {name}".strip(),
-                'default_code': default_code,
-                'type': 'consu',
-                'is_storable': True,
-                'description_sale': description,
-                'categ_id': self.env.ref("product.product_category_all").id,
-                'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
-                'list_price': 0.0,   # se pondrá por variante
-                'standard_price': 0.0,  # se pondrá por variante
-            }
-            template = self.create(template_vals)
-
-            # Crear variantes con precios
+            # Crear variantes con precios y stock
             for color in colors:
                 color_name = color.get("colors", {}).get("es", "") or color.get("colors", {}).get("en", "")
                 for size in color.get("sizes", []):
                     size_name = size.get("size")
-                    # Buscar variante (odoo la crea automáticamente al asignar líneas de atributo)
                     variant = template.product_variant_ids.filtered(
                         lambda v: 
                             color_name in v.product_template_attribute_value_ids.mapped('name') and 
@@ -157,7 +178,32 @@ class ProductTemplate(models.Model):
                     # Precios
                     price_items = size.get("prices", [])
                     if price_items:
-                        variant.standard_price = float(price_items[0].get("price", 0.0))
-                        variant.lst_price = float(price_items[0].get("price", 0.0)) * 1.25
+                        cost = float(price_items[0].get("price", 0.0))
+                        variant.standard_price = cost
+                        variant.lst_price = round(cost * 1.25, 2)
+                    # Stock si viene (opcional)
+                    stock = size.get("stock", 0)
+                    quant = self.env['stock.quant'].search([
+                        ('product_id', '=', variant.id),
+                        ('location_id.usage', '=', 'internal')
+                    ], limit=1)
+                    if quant:
+                        quant.quantity = stock
+                        quant.inventory_quantity = stock
 
-        _logger.info("✅ Productos y variantes TopTex creados correctamente.")
+                    # Imagen por variante (face)
+                    img_url = color.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
+                    if img_url:
+                        image_bin = get_image_binary_from_url(img_url)
+                        if image_bin:
+                            variant.image_1920 = image_bin
+
+            # Imagen principal de producto (la primera disponible)
+            if images:
+                img_url = images[0].get("url_image")
+                if img_url:
+                    image_bin = get_image_binary_from_url(img_url)
+                    if image_bin:
+                        template.image_1920 = image_bin
+
+        _logger.info("✅ Productos, variantes, imágenes y stock TopTex sincronizados correctamente.")
