@@ -1,4 +1,6 @@
 import logging
+import requests
+import time
 from odoo import models, api, _
 from odoo.exceptions import UserError
 
@@ -47,7 +49,6 @@ class ProductTemplate(models.Model):
         _logger.info(f"🔗 Link temporal de catálogo: {file_url}")
 
         # 3. Esperar hasta que el archivo JSON esté disponible (polling)
-        import time
         max_wait = 420  # 7 minutos
         waited = 0
         products_data = None
@@ -68,18 +69,16 @@ class ProductTemplate(models.Model):
 
         _logger.info(f"🟢 Procesando {len(products_data)} productos TopTex...")
 
-        # 4. Procesar y mapear cada producto SOLO info principal y variantes (no imágenes, no stock)
+        # 4. Procesar y mapear cada producto: color + talla + precio
         for prod in products_data:
             # MARCA
             brand = prod.get("brand") or {}
-            brand_name = ""
-            if brand:
-                brand_name = (
-                    brand.get("name", {}).get("es")
-                    or brand.get("name", {}).get("en")
-                    or brand.get("name", {}).get("fr")
-                    or "TopTex"
-                )
+            brand_name = (
+                brand.get("name", {}).get("es")
+                or brand.get("name", {}).get("en")
+                or brand.get("name", {}).get("fr")
+                or "TopTex"
+            )
 
             # NOMBRE, REFERENCIA, DESCRIPCIÓN
             name = prod.get("designation", {}).get("es") or prod.get("designation", {}).get("en") or "Producto sin nombre"
@@ -87,8 +86,10 @@ class ProductTemplate(models.Model):
             description = prod.get("description", {}).get("es") or ""
 
             # VARIANTES (COLORES Y TALLAS)
-            all_colors = set()
-            all_sizes = set()
+            all_colors = []
+            all_sizes = []
+            color_map = {}
+            size_map = {}
             for color in prod.get("colors", []):
                 color_name = (
                     color.get("colors", {}).get("es")
@@ -96,12 +97,14 @@ class ProductTemplate(models.Model):
                     or color.get("colors", {}).get("fr")
                     or ""
                 )
-                if color_name:
-                    all_colors.add(color_name)
+                if color_name and color_name not in all_colors:
+                    all_colors.append(color_name)
+                    color_map[color_name] = color  # Guarda el objeto color original por nombre
                 for size in color.get("sizes", []):
                     size_name = size.get("size")
-                    if size_name:
-                        all_sizes.add(size_name)
+                    if size_name and size_name not in all_sizes:
+                        all_sizes.append(size_name)
+                        size_map[size_name] = size  # Guarda el objeto size original por nombre
 
             # Crear atributos y valores
             color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
@@ -129,17 +132,7 @@ class ProductTemplate(models.Model):
             if size_vals:
                 attribute_lines.append({'attribute_id': size_attr.id, 'value_ids': [(6, 0, size_vals)]})
 
-            # Buscar categoría si existe
             categ = self.env.ref("product.product_category_all")
-            # PRECIOS (coste y venta, primero por defecto para plantilla, luego por variante se mejora)
-            price_cost = 0.0
-            price_sale = 0.0
-            # Intenta pillar el primer precio de la lista, por si lo necesitas para la plantilla:
-            price_list = prod.get("prices", [])
-            if price_list and isinstance(price_list, list):
-                price_cost = float(price_list[0].get("price", 0.0))
-                price_sale = price_cost * 1.25  # o usar otro markup
-
             template_vals = {
                 'name': f"{brand_name} {name}".strip(),
                 'default_code': default_code,
@@ -148,14 +141,31 @@ class ProductTemplate(models.Model):
                 'description_sale': description,
                 'categ_id': categ.id if categ else False,
                 'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
-                'standard_price': price_cost,
-                'lst_price': price_sale,
             }
             template = self.env['product.template'].create(template_vals)
             _logger.info(f"✅ Creada plantilla {template.name} [{template.id}]")
 
-            # -- Precios por variante (sólo ejemplo, se puede mejorar):
-            # for variant in template.product_variant_ids:
-            #    # Aquí podrías buscar la combinación color/talla para poner precios individualizados
+            # -- Mapeo avanzado: asigna precios por cada variante COLOR + TALLA
+            for variant in template.product_variant_ids:
+                color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
+                size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
+                color_name = color_val.name if color_val else ""
+                size_name = size_val.name if size_val else ""
+                # Busca el objeto color y el objeto size original:
+                color_obj = color_map.get(color_name)
+                if color_obj:
+                    size_obj = None
+                    for sz in color_obj.get("sizes", []):
+                        if sz.get("size") == size_name:
+                            size_obj = sz
+                            break
+                    if size_obj:
+                        prices = size_obj.get("prices", [])
+                        if prices and isinstance(prices, list):
+                            price_cost = float(prices[0].get("price", 0.0))
+                            price_sale = price_cost * 1.25
+                            variant.standard_price = price_cost
+                            variant.lst_price = price_sale
+                        variant.default_code = size_obj.get("sku", "") or default_code
 
-        _logger.info("✅ Sincronización de productos terminada. (SOLO plantillas y variantes)")
+        _logger.info("✅ Sincronización completa de productos TopTex (variantes, colores, tallas, precios, descripción, marca, referencia, categoría).")
