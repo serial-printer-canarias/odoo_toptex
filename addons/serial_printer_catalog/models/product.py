@@ -1,14 +1,21 @@
 import logging
 import requests
+from odoo import models, api, fields
+from odoo.exceptions import UserError
 import base64
 import time
-from odoo import models, api
-from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
+class ProductBrand(models.Model):
+    _name = 'product.brand'
+    _description = 'Product Brand'
+    name = fields.Char('Brand', required=True)
+
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
+
+    brand_id = fields.Many2one('product.brand', string='Brand')
 
     @api.model
     def sync_product_from_api(self):
@@ -50,8 +57,9 @@ class ProductTemplate(models.Model):
         _logger.info(f"🔗 Link temporal de catálogo: {file_url}")
 
         # 3. Descargar el JSON de productos (esperar si es necesario)
-        MAX_INTENTOS = 70  # 35 minutos
-        for intento in range(MAX_INTENTOS):
+        products_data = []
+        max_wait = 60  # Hasta 30 minutos
+        for intento in range(max_wait):
             file_response = requests.get(file_url, headers=headers)
             try:
                 products_data = file_response.json()
@@ -59,74 +67,74 @@ class ProductTemplate(models.Model):
                     break
             except Exception:
                 pass
-            _logger.info(f"⏳ JSON no listo. Esperando 30 segundos más... Intento {intento + 1}/{MAX_INTENTOS}")
+            _logger.info(f"⏳ Esperando a que el archivo esté listo... Intento {intento + 1}/{max_wait}")
             time.sleep(30)
         else:
-            raise UserError(f"❌ El JSON de productos no está listo tras esperar {MAX_INTENTOS*30//60} minutos.")
+            raise UserError("❌ El JSON de productos no está listo tras esperar 30 minutos.")
 
         _logger.info(f"💾 JSON listo con {len(products_data)} productos recibidos")
 
-        # 4. Recolecta atributos necesarios para variantes
         attr_obj = self.env['product.attribute']
-        attr_value_obj = self.env['product.attribute.value']
+        val_obj = self.env['product.attribute.value']
+        brand_obj = self.env['product.brand']
+        stock_obj = self.env['stock.quant']
 
-        # Asegura atributos Color y Talla
-        attr_color = attr_obj.search([('name', '=', 'Color')], limit=1)
-        if not attr_color:
-            attr_color = attr_obj.create({'name': 'Color'})
-        attr_size = attr_obj.search([('name', '=', 'Talla')], limit=1)
-        if not attr_size:
-            attr_size = attr_obj.create({'name': 'Talla'})
+        def get_or_create_attr_and_values(attr_name, values_list):
+            attr = attr_obj.search([('name', '=', attr_name)], limit=1)
+            if not attr:
+                attr = attr_obj.create({'name': attr_name, 'create_variant': 'always'})
+            value_ids = []
+            for val in values_list:
+                v = val_obj.search([('name', '=', val), ('attribute_id', '=', attr.id)], limit=1)
+                if not v:
+                    v = val_obj.create({'name': val, 'attribute_id': attr.id})
+                value_ids.append(v.id)
+            return attr, value_ids
 
         creados = 0
         for prod in products_data:
-            brand = prod.get("brand", "TopTex")
+            # ----- Marca -----
+            brand_name = prod.get("brand", "TopTex")
+            brand_rec = brand_obj.search([('name', '=', brand_name)], limit=1)
+            if not brand_rec:
+                brand_rec = brand_obj.create({'name': brand_name})
+
+            # ----- Nombre y descripción -----
             name = prod.get("designation", {}).get("es", "Producto sin nombre")
             default_code = prod.get("catalogReference", prod.get("productReference", ""))
             description = prod.get("description", {}).get("es", "")
-            price = prod.get("price", {}).get("b2b", 0.0)
-            cost = prod.get("cost", 0.0)
-            image_url = prod.get("photos", [{}])[0].get("url", "")
+            price = float(prod.get("publicPrice", 0.0))
+            cost = float(prod.get("costPrice", 0.0))
 
-            # Variantes
-            colores = [v.get('value') for v in prod.get('declination', []) if v.get('type') == 'color']
-            tallas = [v.get('value') for v in prod.get('declination', []) if v.get('type') == 'size']
+            # --- Colores ---
             color_values = []
-            size_values = []
-            for c in colores:
-                val = attr_value_obj.search([('name', '=', c), ('attribute_id', '=', attr_color.id)], limit=1)
-                if not val:
-                    val = attr_value_obj.create({'name': c, 'attribute_id': attr_color.id})
-                color_values.append(val.id)
-            for t in tallas:
-                val = attr_value_obj.search([('name', '=', t), ('attribute_id', '=', attr_size.id)], limit=1)
-                if not val:
-                    val = attr_value_obj.create({'name': t, 'attribute_id': attr_size.id})
-                size_values.append(val.id)
-            attribute_line_ids = []
+            if "colors" in prod and prod["colors"]:
+                color_values = [c.get("name", "") for c in prod["colors"] if c.get("name", "")]
+            color_attr, color_ids = (None, [])
             if color_values:
-                attribute_line_ids.append((0, 0, {
-                    'attribute_id': attr_color.id,
-                    'value_ids': [(6, 0, color_values)]
-                }))
-            if size_values:
-                attribute_line_ids.append((0, 0, {
-                    'attribute_id': attr_size.id,
-                    'value_ids': [(6, 0, size_values)]
-                }))
+                color_attr, color_ids = get_or_create_attr_and_values("Color", color_values)
 
-            # Imagen principal
-            image_64 = False
+            # --- Tallas ---
+            size_values = []
+            if "sizes" in prod and prod["sizes"]:
+                size_values = [s.get("name", "") for s in prod["sizes"] if s.get("name", "")]
+            size_attr, size_ids = (None, [])
+            if size_values:
+                size_attr, size_ids = get_or_create_attr_and_values("Talla", size_values)
+
+            # --- Imagen principal ---
+            image_url = prod.get("image", "")
+            image_base64 = False
             if image_url:
                 try:
                     img_resp = requests.get(image_url)
                     if img_resp.status_code == 200:
-                        image_64 = base64.b64encode(img_resp.content)
+                        image_base64 = base64.b64encode(img_resp.content)
                 except Exception as e:
-                    _logger.warning(f"No se pudo descargar la imagen para {name}: {e}")
+                    _logger.warning(f"Error descargando imagen: {image_url}")
 
             vals = {
-                'name': f"{brand} {name}".strip(),
+                'name': f"{brand_name} {name}".strip(),
                 'default_code': default_code,
                 'type': 'consu',
                 'is_storable': True,
@@ -134,53 +142,68 @@ class ProductTemplate(models.Model):
                 'categ_id': self.env.ref("product.product_category_all").id,
                 'list_price': price,
                 'standard_price': cost,
-                'attribute_line_ids': attribute_line_ids,
-                'image_1920': image_64,
+                'image_1920': image_base64 if image_base64 else False,
+                'brand_id': brand_rec.id,
+                'attribute_line_ids': [],
             }
-            # Marca si tienes módulo de marcas
-            if 'brand_id' in self._fields:
-                brand_obj = self.env['product.brand'].search([('name', '=', brand)], limit=1)
-                if not brand_obj:
-                    brand_obj = self.env['product.brand'].create({'name': brand})
-                vals['brand_id'] = brand_obj.id
+
+            attribute_lines = []
+            if color_attr and color_ids:
+                attribute_lines.append((0, 0, {
+                    'attribute_id': color_attr.id,
+                    'value_ids': [(6, 0, color_ids)],
+                }))
+            if size_attr and size_ids:
+                attribute_lines.append((0, 0, {
+                    'attribute_id': size_attr.id,
+                    'value_ids': [(6, 0, size_ids)],
+                }))
+            if attribute_lines:
+                vals['attribute_line_ids'] = attribute_lines
 
             existe = self.env['product.template'].search([('default_code', '=', default_code)], limit=1)
             if not existe:
                 template = self.create(vals)
                 creados += 1
                 _logger.info(f"✅ Creada plantilla {template.name} [{template.id}]")
+
+                # ------- Imágenes por variante -------
+                if color_attr and "variant_images" in prod:
+                    for color in prod.get("variant_images", []):
+                        color_name = color.get("color")
+                        img_url = color.get("image_url")
+                        if not (color_name and img_url):
+                            continue
+                        variant = self.env['product.product'].search([
+                            ('product_tmpl_id', '=', template.id),
+                            ('product_template_attribute_value_ids.name', '=', color_name)
+                        ], limit=1)
+                        if variant:
+                            try:
+                                img_resp = requests.get(img_url)
+                                if img_resp.status_code == 200:
+                                    variant.image_1920 = base64.b64encode(img_resp.content)
+                            except Exception:
+                                pass
+
+                # ------- STOCK por variante -------
+                if 'stock' in prod and prod['stock']:
+                    for s in prod['stock']:
+                        domain = [('product_tmpl_id', '=', template.id)]
+                        if color_attr and s.get('color'):
+                            domain += [('product_template_attribute_value_ids.attribute_id', '=', color_attr.id),
+                                       ('product_template_attribute_value_ids.name', '=', s.get('color'))]
+                        if size_attr and s.get('size'):
+                            domain += [('product_template_attribute_value_ids.attribute_id', '=', size_attr.id),
+                                       ('product_template_attribute_value_ids.name', '=', s.get('size'))]
+                        variant = self.env['product.product'].search(domain, limit=1)
+                        if variant:
+                            stock_obj.sudo().create({
+                                'product_id': variant.id,
+                                'location_id': 1,  # Cambia si tu location_id es diferente
+                                'quantity': s.get('quantity', 0)
+                            })
             else:
                 _logger.info(f"⏭️ Ya existe plantilla {existe.name} [{existe.id}]")
 
-        _logger.info(f"🚀 FIN: {creados} plantillas de producto creadas con variantes, precios y foto principal (TopTex).")
-
-        ###### LLAMADA A SERVER ACTION: Imagenes por variante ######
-        _logger.info("🟣 Llamando a server action: imagenes_por_variante")
-        self._ejecutar_server_action_por_nombre('imagenes_por_variante', tiempo_espera=2100)
-
-        ###### LLAMADA A SERVER ACTION: stock_por_variante ######
-        _logger.info("🟣 Llamando a server action: stock_por_variante")
-        self._ejecutar_server_action_por_nombre('stock_por_variante', tiempo_espera=2100)
-
-    # -------- Función auxiliar para ejecutar server actions --------
-    def _ejecutar_server_action_por_nombre(self, server_action_xmlid, tiempo_espera=2100):
-        # tiempo_espera en segundos, default 2100 = 35min máximo
-        start = time.time()
-        action_obj = self.env['ir.actions.server']
-        action = action_obj.sudo().search([('name', '=', server_action_xmlid)], limit=1)
-        if not action:
-            _logger.error(f"❌ Server Action '{server_action_xmlid}' no encontrada.")
-            return False
-        ok = False
-        intentos = 0
-        while not ok and (time.time() - start) < tiempo_espera:
-            try:
-                action.run()
-                ok = True
-                _logger.info(f"✅ Server Action '{server_action_xmlid}' ejecutada correctamente.")
-            except Exception as e:
-                intentos += 1
-                _logger.warning(f"Intento {intentos}: Error al ejecutar server action '{server_action_xmlid}': {e}")
-                time.sleep(30)
-        if not ok:
-            _logger.error(f"❌ No se pudo ejecutar Server Action '{server_action_xmlid}' tras {tiempo_espera//60} minutos.")
+        _logger.info(f"🚀 FIN: {creados} plantillas de producto creadas con variantes, precios, imágenes y stock (TopTex).")
