@@ -1,6 +1,7 @@
 import logging
 import requests
 import base64
+import time
 from odoo import models, api
 from odoo.exceptions import UserError
 
@@ -49,8 +50,8 @@ class ProductTemplate(models.Model):
         _logger.info(f"🔗 Link temporal de catálogo: {file_url}")
 
         # 3. Descargar el JSON de productos (esperar si es necesario)
-        import time
-        for intento in range(20):  # Hasta 10 minutos
+        MAX_INTENTOS = 70  # 35 minutos
+        for intento in range(MAX_INTENTOS):
             file_response = requests.get(file_url, headers=headers)
             try:
                 products_data = file_response.json()
@@ -58,18 +59,18 @@ class ProductTemplate(models.Model):
                     break
             except Exception:
                 pass
-            _logger.info(f"⏳ JSON no listo. Esperando 10 segundos más...")
-            time.sleep(10)
+            _logger.info(f"⏳ JSON no listo. Esperando 30 segundos más... Intento {intento + 1}/{MAX_INTENTOS}")
+            time.sleep(30)
         else:
-            raise UserError("❌ El JSON de productos no está listo tras esperar 200 segundos.")
+            raise UserError(f"❌ El JSON de productos no está listo tras esperar {MAX_INTENTOS*30//60} minutos.")
 
         _logger.info(f"💾 JSON listo con {len(products_data)} productos recibidos")
 
-        # 4. Recolecta todos los atributos necesarios para variantes
+        # 4. Recolecta atributos necesarios para variantes
         attr_obj = self.env['product.attribute']
         attr_value_obj = self.env['product.attribute.value']
 
-        # Asegúrate que existen los atributos 'Color' y 'Talla'
+        # Asegura atributos Color y Talla
         attr_color = attr_obj.search([('name', '=', 'Color')], limit=1)
         if not attr_color:
             attr_color = attr_obj.create({'name': 'Color'})
@@ -77,7 +78,6 @@ class ProductTemplate(models.Model):
         if not attr_size:
             attr_size = attr_obj.create({'name': 'Talla'})
 
-        # 5. Procesar productos
         creados = 0
         for prod in products_data:
             brand = prod.get("brand", "TopTex")
@@ -88,7 +88,7 @@ class ProductTemplate(models.Model):
             cost = prod.get("cost", 0.0)
             image_url = prod.get("photos", [{}])[0].get("url", "")
 
-            # === Variantes ===
+            # Variantes
             colores = [v.get('value') for v in prod.get('declination', []) if v.get('type') == 'color']
             tallas = [v.get('value') for v in prod.get('declination', []) if v.get('type') == 'size']
             color_values = []
@@ -115,7 +115,7 @@ class ProductTemplate(models.Model):
                     'value_ids': [(6, 0, size_values)]
                 }))
 
-            # === Imagen principal ===
+            # Imagen principal
             image_64 = False
             if image_url:
                 try:
@@ -136,9 +136,8 @@ class ProductTemplate(models.Model):
                 'standard_price': cost,
                 'attribute_line_ids': attribute_line_ids,
                 'image_1920': image_64,
-                'brand_id': False, # Si tienes módulo de marcas, aquí la lógica de asignación
             }
-            # Marca si tienes product_brand en tu Odoo
+            # Marca si tienes módulo de marcas
             if 'brand_id' in self._fields:
                 brand_obj = self.env['product.brand'].search([('name', '=', brand)], limit=1)
                 if not brand_obj:
@@ -154,3 +153,34 @@ class ProductTemplate(models.Model):
                 _logger.info(f"⏭️ Ya existe plantilla {existe.name} [{existe.id}]")
 
         _logger.info(f"🚀 FIN: {creados} plantillas de producto creadas con variantes, precios y foto principal (TopTex).")
+
+        ###### LLAMADA A SERVER ACTION: Imagenes por variante ######
+        _logger.info("🟣 Llamando a server action: imagenes_por_variante")
+        self._ejecutar_server_action_por_nombre('imagenes_por_variante', tiempo_espera=2100)
+
+        ###### LLAMADA A SERVER ACTION: stock_por_variante ######
+        _logger.info("🟣 Llamando a server action: stock_por_variante")
+        self._ejecutar_server_action_por_nombre('stock_por_variante', tiempo_espera=2100)
+
+    # -------- Función auxiliar para ejecutar server actions --------
+    def _ejecutar_server_action_por_nombre(self, server_action_xmlid, tiempo_espera=2100):
+        # tiempo_espera en segundos, default 2100 = 35min máximo
+        start = time.time()
+        action_obj = self.env['ir.actions.server']
+        action = action_obj.sudo().search([('name', '=', server_action_xmlid)], limit=1)
+        if not action:
+            _logger.error(f"❌ Server Action '{server_action_xmlid}' no encontrada.")
+            return False
+        ok = False
+        intentos = 0
+        while not ok and (time.time() - start) < tiempo_espera:
+            try:
+                action.run()
+                ok = True
+                _logger.info(f"✅ Server Action '{server_action_xmlid}' ejecutada correctamente.")
+            except Exception as e:
+                intentos += 1
+                _logger.warning(f"Intento {intentos}: Error al ejecutar server action '{server_action_xmlid}': {e}")
+                time.sleep(30)
+        if not ok:
+            _logger.error(f"❌ No se pudo ejecutar Server Action '{server_action_xmlid}' tras {tiempo_espera//60} minutos.")
