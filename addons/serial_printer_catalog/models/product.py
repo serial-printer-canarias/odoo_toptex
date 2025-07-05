@@ -41,15 +41,14 @@ class ProductTemplate(models.Model):
         link_response = requests.get(catalog_url, headers=headers)
         if link_response.status_code != 200:
             raise UserError(f"❌ Error obteniendo enlace de catálogo: {link_response.status_code} - {link_response.text}")
-        link_data = link_response.json()
-        file_url = link_data.get('link')
+        file_url = link_response.json().get('link')
         if not file_url:
             raise UserError("❌ No se recibió un enlace de descarga de catálogo.")
         _logger.info(f"🔗 Link temporal de catálogo: {file_url}")
 
-        # 3. Descargar el JSON de productos (esperar si es necesario)
+        # 3. Descargar el JSON de productos (espera si no está listo)
         import time
-        for intento in range(15):  # hasta 7 min: 15 x 30s
+        for intento in range(24):  # hasta 12 minutos
             file_response = requests.get(file_url, headers=headers)
             try:
                 products_data = file_response.json()
@@ -57,64 +56,57 @@ class ProductTemplate(models.Model):
                     break
             except Exception:
                 pass
-            _logger.info(f"⏳ Esperando a que el archivo esté listo... Intento {intento + 1}/15")
+            _logger.info(f"⏳ JSON no listo. Esperando 30 segundos más... ({intento+1}/24)")
             time.sleep(30)
         else:
-            raise UserError("❌ El JSON de productos no está listo tras esperar 7 minutos.")
+            raise UserError("❌ El JSON de productos no está listo tras esperar 12 minutos.")
 
         _logger.info(f"💾 JSON listo con {len(products_data)} productos recibidos")
 
-        # 4. Crear las plantillas CON VARIANTES y PRECIOS
+        # 4. Prepara atributos
+        color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
+        if not color_attr:
+            color_attr = self.env['product.attribute'].create({'name': 'Color'})
+        talla_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1)
+        if not talla_attr:
+            talla_attr = self.env['product.attribute'].create({'name': 'Talla'})
+
         creados = 0
         for prod in products_data:
             brand = prod.get("brand", "TopTex")
             name = prod.get("designation", {}).get("es", "Producto sin nombre")
             default_code = prod.get("catalogReference", prod.get("productReference", ""))
             description = prod.get("description", {}).get("es", "")
+            # Mapea colores/tallas del JSON (ajusta si varía la estructura)
             colors = prod.get("colors", [])
             all_colors = set()
-            all_sizes = set()
+            all_tallas = set()
+            # Parsear variantes
             for color in colors:
-                color_name = color.get("colors", {}).get("es", "")
-                if color_name:
-                    all_colors.add(color_name)
-                for sz in color.get("sizes", []):
-                    if sz.get("size"):
-                        all_sizes.add(sz.get("size"))
-
-            # Atributos y valores (color y talla)
-            color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
-            if not color_attr:
-                color_attr = self.env['product.attribute'].create({'name': 'Color'})
-            size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1)
-            if not size_attr:
-                size_attr = self.env['product.attribute'].create({'name': 'Talla'})
-
-            color_vals = {}
+                color_name = color.get("colors", {}).get("es", "") or color.get("colorName", "")
+                if color_name: all_colors.add(color_name)
+                for size in color.get("sizes", []):
+                    talla = size.get("size", "")
+                    if talla: all_tallas.add(talla)
+            # Crea valores de atributo si faltan
+            color_val_objs = []
             for c in all_colors:
                 val = self.env['product.attribute.value'].search([('name', '=', c), ('attribute_id', '=', color_attr.id)], limit=1)
                 if not val:
                     val = self.env['product.attribute.value'].create({'name': c, 'attribute_id': color_attr.id})
-                color_vals[c] = val
-            size_vals = {}
-            for s in all_sizes:
-                val = self.env['product.attribute.value'].search([('name', '=', s), ('attribute_id', '=', size_attr.id)], limit=1)
+                color_val_objs.append(val)
+            talla_val_objs = []
+            for t in all_tallas:
+                val = self.env['product.attribute.value'].search([('name', '=', t), ('attribute_id', '=', talla_attr.id)], limit=1)
                 if not val:
-                    val = self.env['product.attribute.value'].create({'name': s, 'attribute_id': size_attr.id})
-                size_vals[s] = val
-
+                    val = self.env['product.attribute.value'].create({'name': t, 'attribute_id': talla_attr.id})
+                talla_val_objs.append(val)
+            # Definir las líneas de atributos
             attribute_lines = []
-            if color_vals:
-                attribute_lines.append({
-                    'attribute_id': color_attr.id,
-                    'value_ids': [(6, 0, [v.id for v in color_vals.values()])]
-                })
-            if size_vals:
-                attribute_lines.append({
-                    'attribute_id': size_attr.id,
-                    'value_ids': [(6, 0, [v.id for v in size_vals.values()])]
-                })
-
+            if color_val_objs:
+                attribute_lines.append({'attribute_id': color_attr.id, 'value_ids': [(6, 0, [v.id for v in color_val_objs])]})
+            if talla_val_objs:
+                attribute_lines.append({'attribute_id': talla_attr.id, 'value_ids': [(6, 0, [v.id for v in talla_val_objs])]})
             vals = {
                 'name': f"{brand} {name}".strip(),
                 'default_code': default_code,
@@ -122,38 +114,30 @@ class ProductTemplate(models.Model):
                 'is_storable': True,
                 'description_sale': description,
                 'categ_id': self.env.ref("product.product_category_all").id,
-                'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
+                'attribute_line_ids': [(0, 0, l) for l in attribute_lines],
             }
             existe = self.env['product.template'].search([('default_code', '=', default_code)], limit=1)
             if not existe:
                 template = self.create(vals)
                 creados += 1
+                # Asigna precios de coste/venta por variante (opcional, solo si hay info)
+                for color in colors:
+                    color_name = color.get("colors", {}).get("es", "") or color.get("colorName", "")
+                    for size in color.get("sizes", []):
+                        talla = size.get("size", "")
+                        precio = 0.0
+                        if size.get("prices"):
+                            precio = float(size["prices"][0].get("price", 0.0))
+                        # Buscar variante exacta
+                        variante = template.product_variant_ids.filtered(
+                            lambda v: color_name in v.name and talla in v.name
+                        )
+                        if variante:
+                            variante.standard_price = precio
+                            variante.lst_price = round(precio * 1.25, 2)  # Ejemplo: margen 25%
+                            variante.default_code = size.get("sku", "")
                 _logger.info(f"✅ Creada plantilla {template.name} [{template.id}]")
-
-                # PRECIOS Y CÓDIGOS PARA VARIANTES
-                for variant in template.product_variant_ids:
-                    color_name = ''
-                    size_name = ''
-                    for attr in variant.product_template_attribute_value_ids:
-                        if attr.attribute_id.id == color_attr.id:
-                            color_name = attr.name
-                        if attr.attribute_id.id == size_attr.id:
-                            size_name = attr.name
-                    # Busca info de esta combinación color/talla
-                    for color in colors:
-                        col_name = color.get("colors", {}).get("es", "")
-                        if col_name == color_name:
-                            for sz in color.get("sizes", []):
-                                if sz.get("size") == size_name:
-                                    # PRECIOS
-                                    prices = sz.get("prices", [])
-                                    if prices:
-                                        price_cost = float(prices[0].get("price", 0.0))
-                                        variant.standard_price = price_cost
-                                        variant.lst_price = price_cost * 1.25
-                                    # SKU individual
-                                    variant.default_code = sz.get("sku", default_code)
             else:
                 _logger.info(f"⏭️ Ya existe plantilla {existe.name} [{existe.id}]")
 
-        _logger.info(f"🚀 FIN: {creados} plantillas de producto creadas (TopTex).")
+        _logger.info(f"🚀 FIN: {creados} plantillas de producto creadas con variantes, color y talla (TopTex).")
