@@ -50,7 +50,7 @@ class ProductTemplate(models.Model):
 
         # 3. Descargar el JSON de productos (espera si es necesario)
         products_data = []
-        for intento in range(20):  # hasta 10 min: 20 x 30s
+        for intento in range(70):  # hasta 35 min: 70 x 30s
             file_response = requests.get(file_url, headers=headers)
             try:
                 products_data = file_response.json().get("items", [])
@@ -58,10 +58,10 @@ class ProductTemplate(models.Model):
                     break
             except Exception:
                 pass
-            _logger.info(f"⏳ Esperando a que el archivo esté listo... Intento {intento + 1}/20")
+            _logger.info(f"⏳ Esperando a que el archivo esté listo... Intento {intento + 1}/70")
             time.sleep(30)
         else:
-            raise UserError("❌ El JSON de productos no está listo tras esperar 10 minutos.")
+            raise UserError("❌ El JSON de productos no está listo tras esperar 35 minutos.")
 
         _logger.info(f"💾 JSON listo con {len(products_data)} productos recibidos")
 
