@@ -1,6 +1,8 @@
 import logging
 import requests
+import base64
 import time
+import json
 from odoo import models, api
 from odoo.exceptions import UserError
 
@@ -10,7 +12,7 @@ class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     @api.model
-    def sync_product_toptex_batch(self, batch_size=100, max_retries=5, pause_between_batches=5):
+    def sync_product_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
@@ -24,49 +26,52 @@ class ProductTemplate(models.Model):
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
         auth_payload = {"username": username, "password": password}
-        for retry in range(max_retries):
-            try:
-                auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers, timeout=30)
-                if auth_response.status_code == 200:
-                    break
-            except Exception as e:
-                _logger.error(f"Intento {retry+1}/{max_retries} autenticando: {e}")
-            time.sleep(2)
-        else:
-            raise UserError(f"❌ Error autenticando tras {max_retries} intentos.")
-
+        auth_response = requests.post(auth_url, json=auth_payload, headers=auth_headers)
+        if auth_response.status_code != 200:
+            raise UserError(f"❌ Error autenticando: {auth_response.status_code} - {auth_response.text}")
         token = auth_response.json().get("token")
         if not token:
             raise UserError("❌ No se recibió un token válido.")
         _logger.info("🔐 Token recibido correctamente.")
 
-        # 2. Bucle de lotes (batch)
-        offset = 0
+        # 2. Petición para obtener el enlace temporal de productos (500 en 500)
+        pag = 1
         total_creados = 0
         while True:
-            for retry in range(max_retries):
+            catalog_url = f"{proxy_url}/v3/products/all?usage_right=b2b_b2c&result_in_file=1&page={pag}&page_size=500"
+            headers = {
+                "x-api-key": api_key,
+                "x-toptex-authorization": token,
+                "Accept-Encoding": "gzip, deflate, br"
+            }
+            link_response = requests.get(catalog_url, headers=headers)
+            if link_response.status_code != 200:
+                raise UserError(f"❌ Error obteniendo enlace de catálogo: {link_response.status_code} - {link_response.text}")
+            file_url = link_response.json().get('link')
+            if not file_url:
+                break  # Ya no hay más páginas
+            _logger.info(f"🔗 Link temporal de catálogo: {file_url}")
+
+            # 3. Descargar el JSON de productos (espera si no está listo)
+            for intento in range(20):  # hasta 10 minutos
+                file_response = requests.get(file_url, headers=headers)
                 try:
-                    url = f"{proxy_url}/v3/products/all?usage_right=b2b_b2c&limit={batch_size}&offset={offset}"
-                    headers = {
-                        "x-api-key": api_key,
-                        "x-toptex-authorization": token,
-                        "Accept-Encoding": "gzip, deflate, br"
-                    }
-                    response = requests.get(url, headers=headers, timeout=120)
-                    if response.status_code == 200:
-                        products_data = response.json()
+                    products_data = file_response.json().get("items", [])
+                    if isinstance(products_data, list) and products_data:
                         break
-                except Exception as e:
-                    _logger.error(f"Intento {retry+1}/{max_retries} descargando lote: {e}")
-                time.sleep(2)
+                except Exception:
+                    pass
+                _logger.info(f"⏳ JSON no listo. Esperando 30 segundos más... ({intento+1}/20)")
+                time.sleep(30)
             else:
-                raise UserError(f"❌ Error descargando lote tras {max_retries} intentos en offset {offset}.")
+                raise UserError("❌ El JSON de productos no está listo tras esperar 10 minutos.")
 
-            if not products_data or not isinstance(products_data, list):
-                _logger.info("🟢 Todos los productos procesados.")
-                break
+            if not products_data:
+                break  # Fin del paginado
 
-            # 3. Prepara atributos solo una vez
+            _logger.info(f"💾 Página {pag} lista con {len(products_data)} productos recibidos")
+
+            # 4. Prepara atributos
             color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
             if not color_attr:
                 color_attr = self.env['product.attribute'].create({'name': 'Color'})
@@ -83,12 +88,14 @@ class ProductTemplate(models.Model):
                 colors = prod.get("colors", [])
                 all_colors = set()
                 all_tallas = set()
+                # Parsear variantes
                 for color in colors:
                     color_name = color.get("colors", {}).get("es", "") or color.get("colorName", "")
                     if color_name: all_colors.add(color_name)
                     for size in color.get("sizes", []):
                         talla = size.get("size", "")
                         if talla: all_tallas.add(talla)
+                # Crea valores de atributo si faltan
                 color_val_objs = []
                 for c in all_colors:
                     val = self.env['product.attribute.value'].search([('name', '=', c), ('attribute_id', '=', color_attr.id)], limit=1)
@@ -101,6 +108,7 @@ class ProductTemplate(models.Model):
                     if not val:
                         val = self.env['product.attribute.value'].create({'name': t, 'attribute_id': talla_attr.id})
                     talla_val_objs.append(val)
+                # Definir las líneas de atributos
                 attribute_lines = []
                 if color_val_objs:
                     attribute_lines.append({'attribute_id': color_attr.id, 'value_ids': [(6, 0, [v.id for v in color_val_objs])]})
@@ -114,20 +122,41 @@ class ProductTemplate(models.Model):
                     'description_sale': description,
                     'categ_id': self.env.ref("product.product_category_all").id,
                     'attribute_line_ids': [(0, 0, l) for l in attribute_lines],
+                    # Guarda el JSON para server action de imágenes/stock
+                    'x_toptex_json': json.dumps(prod),
                 }
                 existe = self.env['product.template'].search([('default_code', '=', default_code)], limit=1)
                 if not existe:
                     template = self.create(vals)
                     creados += 1
-                    _logger.info(f"✅ Creada plantilla {template.name} [{template.id}]")
+                    # Imagen principal (opcional)
+                    imagenes = prod.get("images", [])
+                    if imagenes:
+                        img_url = imagenes[0].get("url_image")
+                        if img_url:
+                            try:
+                                img_bin = requests.get(img_url, timeout=20).content
+                                template.image_1920 = base64.b64encode(img_bin)
+                            except Exception as e:
+                                _logger.warning(f"Error al descargar imagen: {e}")
+                    # Asigna precios de coste/venta por variante (si hay info)
+                    for color in colors:
+                        color_name = color.get("colors", {}).get("es", "") or color.get("colorName", "")
+                        for size in color.get("sizes", []):
+                            talla = size.get("size", "")
+                            precio = 0.0
+                            if size.get("prices"):
+                                precio = float(size["prices"][0].get("price", 0.0))
+                            variante = template.product_variant_ids.filtered(
+                                lambda v: color_name in v.name and talla in v.name
+                            )
+                            if variante:
+                                v = variante[0]
+                                v.standard_price = precio
+                                v.lst_price = round(precio * 1.25, 2)  # Margen 25%
+                                v.default_code = size.get("sku", "")
                 else:
                     _logger.info(f"⏭️ Ya existe plantilla {existe.name} [{existe.id}]")
-
             total_creados += creados
-            _logger.info(f"🚀 Lote terminado. {creados} nuevas plantillas creadas en este batch. Total: {total_creados}")
-            if len(products_data) < batch_size:
-                break
-            offset += batch_size
-            time.sleep(pause_between_batches)  # Pausa entre lotes, para evitar sobrecarga
-
-        _logger.info(f"🚀 FIN: {total_creados} plantillas de producto creadas con variantes, color y talla (TopTex).")
+            pag += 1
+        _logger.info(f"🚀 FIN: {total_creados} productos creados con variantes color y talla, lista para server actions (TopTex).")
