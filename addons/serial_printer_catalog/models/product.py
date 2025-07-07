@@ -1,6 +1,7 @@
 import logging
 import requests
 import time
+import base64
 from odoo import models, api
 from odoo.exceptions import UserError
 
@@ -147,3 +148,33 @@ class ProductTemplate(models.Model):
             _logger.info(f"✅ Creada plantilla {template.name} [{template.id}] con variantes")
 
         _logger.info(f"🚀 FIN: {creados} plantillas con variantes, descripción y composición creadas (TopTex).")
+
+    # ---------------------------------
+    # SERVER ACTIONS PREPARADOS (NO EJECUTAR AQUÍ)
+    # ---------------------------------
+
+    # 1. Añadir imágenes por variante
+    def sync_variant_images_from_api(self):
+        # Este método lo llamas por Server Action en Odoo
+        for template in self.search([('default_code', '!=', False)]):
+            for variant in template.product_variant_ids:
+                # Aquí implementa tu lógica igual que en NS300, usando los datos de la API
+                pass  # Aquí tu código de mapeo de imágenes
+
+    # 2. Añadir precios de coste y venta
+    def sync_prices_from_api(self):
+        # Este método lo llamas por Server Action en Odoo
+        for template in self.search([('default_code', '!=', False)]):
+            for variant in template.product_variant_ids:
+                # Aquí implementa tu lógica igual que en NS300, usando los datos de la API
+                pass  # Aquí tu código de precios
+
+    # 3. Añadir stock
+    def sync_stock_from_api(self):
+        # Este método lo llamas por Server Action en Odoo
+        for template in self.search([('default_code', '!=', False)]):
+            for variant in template.product_variant_ids:
+                # Aquí implementa tu lógica igual que en NS300, usando los datos de la API
+                pass  # Aquí tu código de stock
+
+# Fin del archivo product.py
