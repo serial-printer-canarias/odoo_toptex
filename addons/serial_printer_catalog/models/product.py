@@ -20,7 +20,7 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # Autenticación
+        # 1. Autenticación
         auth_url = f"{proxy_url}/v3/authenticate"
         auth_headers = {"x-api-key": api_key, "Content-Type": "application/json"}
         auth_payload = {"username": username, "password": password}
@@ -32,7 +32,7 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un token válido.")
         _logger.info("🔐 Token recibido correctamente.")
 
-        # Petición para obtener el enlace temporal de productos
+        # 2. Petición para obtener el enlace temporal de productos
         catalog_url = f"{proxy_url}/v3/products/all?usage_right=b2b_b2c&result_in_file=1"
         headers = {
             "x-api-key": api_key,
@@ -48,9 +48,9 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un enlace de descarga de catálogo.")
         _logger.info(f"🔗 Link temporal de catálogo: {file_url}")
 
-        # Descargar el JSON de productos (espera larga si es necesario, hasta 35 minutos)
+        # 3. Descargar el JSON de productos (espera hasta 35 min)
         products_data = []
-        for intento in range(70):  # hasta 35 min: 70 x 30s
+        for intento in range(70):  # 70 x 30s = 35min
             file_response = requests.get(file_url, headers=headers)
             try:
                 products_data = file_response.json().get("items", [])
@@ -65,7 +65,7 @@ class ProductTemplate(models.Model):
 
         _logger.info(f"💾 JSON listo con {len(products_data)} productos recibidos")
 
-        # Crear atributos (si no existen)
+        # 4. Crear atributos (si no existen)
         color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
         if not color_attr:
             color_attr = self.env['product.attribute'].create({'name': 'Color'})
@@ -79,6 +79,7 @@ class ProductTemplate(models.Model):
             name = prod.get("designation", {}).get("es", "Producto sin nombre")
             default_code = prod.get("catalogReference", prod.get("productReference", ""))
             description = prod.get("description", {}).get("es", "")
+            composition = prod.get("composition", {}).get("es", "")
             colores = prod.get("colors", [])
 
             # Buscar todas las combinaciones de color/talla
@@ -91,6 +92,7 @@ class ProductTemplate(models.Model):
                 color_name = color.get("colors", {}).get("es", "")
                 if color_name:
                     color_names.add(color_name)
+            for color in colores:
                 for size in color.get("sizes", []):
                     size_name = size.get("size", "")
                     if size_name:
@@ -111,6 +113,7 @@ class ProductTemplate(models.Model):
                     val = self.env['product.attribute.value'].create({'name': sname, 'attribute_id': size_attr.id})
                 size_val_objs[sname] = val
 
+            # Construir attribute_lines
             attribute_lines = []
             if color_val_objs:
                 attribute_lines.append({
@@ -123,6 +126,7 @@ class ProductTemplate(models.Model):
                     'value_ids': [(6, 0, [v.id for v in size_val_objs.values()])]
                 })
 
+            # Crear producto plantilla si no existe
             existe = self.env['product.template'].search([('default_code', '=', default_code)], limit=1)
             if existe:
                 _logger.info(f"⏭️ Ya existe plantilla {existe.name} [{existe.id}]")
@@ -133,38 +137,13 @@ class ProductTemplate(models.Model):
                 'default_code': default_code,
                 'type': 'consu',
                 'is_storable': True,
-                'description_sale': description,
+                'description_sale': f"{description}\nComposición: {composition}",
                 'categ_id': self.env.ref("product.product_category_all").id,
                 'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
             }
             template = self.create(vals)
             creados += 1
+
             _logger.info(f"✅ Creada plantilla {template.name} [{template.id}] con variantes")
 
-        _logger.info(f"🚀 FIN: {creados} plantillas de producto con variantes de color y talla creadas (TopTex).")
-
-    ### SERVER ACTIONS PARA AÑADIR INFORMACIÓN (copiar a Server Action de Odoo) ###
-
-    # (A) Actualizar precios coste/venta
-    @api.model
-    def toptex_update_prices(self):
-        # ... aquí lógica para mapear y actualizar precios coste y venta de cada variante ...
-        pass
-
-    # (B) Añadir imágenes por variante (y principal)
-    @api.model
-    def toptex_update_variant_images(self):
-        # ... aquí lógica para buscar y añadir imágenes por cada variante, usando el campo FACE ...
-        pass
-
-    # (C) Sincronizar stock por variante
-    @api.model
-    def toptex_update_stock(self):
-        # ... aquí lógica para sincronizar stock por variante con la última llamada a /inventory ...
-        pass
-
-    # (D) Añadir descripción larga, marca, composición, etc.
-    @api.model
-    def toptex_update_descriptions(self):
-        # ... aquí lógica para actualizar campos extendidos, si quieres separar aún más ...
-        pass
+        _logger.info(f"🚀 FIN: {creados} plantillas con variantes, descripción y composición creadas (TopTex).")
