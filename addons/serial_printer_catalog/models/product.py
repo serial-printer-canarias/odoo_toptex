@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import json
 import logging
 import requests
@@ -10,6 +11,9 @@ from odoo.exceptions import UserError
 _logger = logging.getLogger(__name__)
 
 def get_image_binary_from_url(url):
+    if not url or not url.startswith("http"):
+        _logger.warning(f"⚠️ URL inválida de imagen: {url}")
+        return None
     try:
         _logger.info(f"🖼️ Descargando imagen desde {url}")
         response = requests.get(url, stream=True, timeout=10)
@@ -44,6 +48,7 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
+        # --- AUTENTICACIÓN ---
         auth_url = f"{proxy_url}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
         auth_payload = {"username": username, "password": password}
@@ -130,7 +135,6 @@ class ProductTemplate(models.Model):
                 }
                 product_template = self.create(template_vals)
 
-                # Imagen principal
                 for img in data.get("images", []):
                     img_url = img.get("url_image")
                     if img_url:
@@ -139,7 +143,6 @@ class ProductTemplate(models.Model):
                             product_template.image_1920 = image_bin
                             break
 
-                # Precios
                 price_url = f"{proxy_url}/v3/products/price?catalog_reference={catalog_ref}"
                 price_resp = requests.get(price_url, headers=headers)
                 price_data = price_resp.json().get("items", []) if price_resp.status_code == 200 else []
@@ -152,7 +155,6 @@ class ProductTemplate(models.Model):
                                 return float(prices[0].get("price", 0.0))
                     return 0.0
 
-                # SKUs
                 inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_ref}"
                 inv_resp = requests.get(inv_url, headers=headers)
                 inventory_items = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
@@ -178,7 +180,6 @@ class ProductTemplate(models.Model):
 
             offset += limit
 
-    # --- SERVER ACTION STOCK ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -218,7 +219,6 @@ class ProductTemplate(models.Model):
                     else:
                         _logger.warning(f"❌ No se encontró stock.quant para {sku}")
 
-    # --- SERVER ACTION IMÁGENES POR VARIANTE ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
