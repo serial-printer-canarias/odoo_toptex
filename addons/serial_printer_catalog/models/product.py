@@ -34,7 +34,7 @@ class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     @api.model
-    def sync_product_from_api(self):
+    def sync_product_from_api(self, offset=0):
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
@@ -55,10 +55,7 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un token válido.")
         headers["x-toptex-authorization"] = token
 
-        offset = 0
         limit = 50
-        created_count = 0
-
         while True:
             product_url = f"{proxy_url}/v3/products/all?offset={offset}&limit={limit}&usage_right=b2b_b2c"
             resp = requests.get(product_url, headers=headers)
@@ -66,33 +63,22 @@ class ProductTemplate(models.Model):
                 _logger.warning(f"❌ Error en batch offset={offset}: {resp.text}")
                 break
 
-            try:
-                batch = resp.json()
-            except Exception as e:
-                _logger.error(f"❌ Error parseando JSON batch offset={offset}: {e}")
+            batch = resp.json()
+            # SOLO procesamos los items que son productos reales (con catalogReference y designation)
+            products = [item for item in batch if isinstance(item, dict) and item.get("catalogReference") and item.get("designation")]
+            if not products:
+                _logger.info("✅ Sin productos nuevos en este lote.")
                 break
 
-            if not batch:
-                _logger.info("✅ Catálogo terminado.")
-                break
-
-            # FILTRADO: solo productos válidos con catalogReference
-            batch_filtrado = [d for d in batch if isinstance(d, dict) and d.get("catalogReference")]
-            for basura in batch:
-                if not (isinstance(basura, dict) and basura.get("catalogReference")):
-                    _logger.warning(f"❌ Producto mal formado ignorado: {basura}")
-
-            for data in batch_filtrado:
+            for data in products:
                 try:
                     catalog_ref = data.get("catalogReference")
-                    if not catalog_ref:
-                        continue
                     existing = self.env['product.template'].search([('default_code', '=', catalog_ref)], limit=1)
                     if existing:
                         _logger.info(f"⏩ Producto ya existe: {catalog_ref}")
                         continue
 
-                    brand = (data.get("brand", {}).get("name", {}).get("es") or "").strip() or "TopTex"
+                    brand = (data.get("brand", {}) or {}).get("name", {}).get("es") or "TopTex"
                     name = data.get("designation", {}).get("es", "Producto sin nombre")
                     description = data.get("description", {}).get("es", "")
                     full_name = f"{brand} {name}".strip()
@@ -154,7 +140,7 @@ class ProductTemplate(models.Model):
                                 product_template.image_1920 = image_bin
                                 break
 
-                    # Precios
+                    # Precios y SKUs por variante
                     price_url = f"{proxy_url}/v3/products/price?catalog_reference={catalog_ref}"
                     price_resp = requests.get(price_url, headers=headers)
                     price_data = price_resp.json().get("items", []) if price_resp.status_code == 200 else []
@@ -167,7 +153,6 @@ class ProductTemplate(models.Model):
                                     return float(prices[0].get("price", 0.0))
                         return 0.0
 
-                    # SKUs
                     inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_ref}"
                     inv_resp = requests.get(inv_url, headers=headers)
                     inventory_items = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
@@ -191,15 +176,13 @@ class ProductTemplate(models.Model):
                         variant.lst_price = cost * 1.25 if cost else 9.99
                         _logger.info(f"🧵 Variante creada: {variant.default_code} - {variant.name} - {cost}€")
 
-                    created_count += 1
-                    _logger.info(f"✅ Producto creado: {catalog_ref} {full_name}")
+                    _logger.info(f"✅ Producto creado: {catalog_ref} - {full_name}")
 
                 except Exception as e:
-                    _logger.error(f"❌ Error procesando producto: {e}")
-                    continue
+                    _logger.warning(f"❌ Error procesando producto: {e}")
 
-            offset += limit
-        _logger.info(f"🎯 Proceso terminado: {created_count} productos creados/actualizados.")
+            # Siguiente lote (run manual otra vez para seguir, offset += 50)
+            break  # <-- para evitar timeout, ejecuta manualmente otra vez con offset=offset+50
 
     # --- SERVER ACTION STOCK ---
     def sync_stock_from_api(self):
