@@ -44,7 +44,6 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        # --- Autenticación ---
         auth_url = f"{proxy_url}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
         auth_payload = {"username": username, "password": password}
@@ -58,17 +57,15 @@ class ProductTemplate(models.Model):
 
         offset = 0
         limit = 50
-        total = 0
-
         while True:
-            url = f"{proxy_url}/v3/products/all?offset={offset}&limit={limit}&usage_right=b2b_b2c"
-            resp = requests.get(url, headers=headers)
+            product_url = f"{proxy_url}/v3/products/all?offset={offset}&limit={limit}&usage_right=b2b_b2c"
+            resp = requests.get(product_url, headers=headers)
             if resp.status_code != 200:
-                _logger.warning(f"❌ Error al obtener lote offset={offset}: {resp.text}")
+                _logger.warning(f"❌ Error en batch offset={offset}: {resp.text}")
                 break
-            batch = resp.json().get("items", [])
+
+            batch = resp.json()
             if not batch:
-                _logger.info(f"✅ Fin de productos. Procesados: {total}")
                 break
 
             for data in batch:
@@ -76,25 +73,25 @@ class ProductTemplate(models.Model):
                     catalog_ref = data.get("catalogReference")
                     if not catalog_ref:
                         continue
-                    # No duplicados
-                    if self.env['product.template'].search([('default_code', '=', catalog_ref)], limit=1):
-                        _logger.info(f"⏩ Ya existe: {catalog_ref}")
+                    # Evita duplicados
+                    existing = self.env['product.template'].search([('default_code', '=', catalog_ref)], limit=1)
+                    if existing:
+                        _logger.info(f"⏩ Producto ya existe: {catalog_ref}")
                         continue
 
-                    brand = (data.get("brand") or data.get("brand", "") or "").strip()
-                    if not brand:
-                        brand = "TopTex"
-                    name = data.get("designation", "") if isinstance(data.get("designation"), str) else data.get("designation", {}).get("es", "")
-                    description = data.get("description", "") if isinstance(data.get("description"), str) else data.get("description", {}).get("es", "")
+                    brand = (data.get("brand", {}).get("name", {}).get("es") or "").strip() or "TopTex"
+                    name = data.get("designation", {}).get("es", "Producto sin nombre")
+                    description = data.get("description", {}).get("es", "")
                     full_name = f"{brand} {name}".strip()
                     colors = data.get("colors", [])
+
                     all_sizes = set()
                     all_colors = set()
                     for color in colors:
-                        c_name = color.get("colors", {}).get("es", "") if isinstance(color.get("colors"), dict) else color.get("colors", "")
+                        c_name = color.get("colors", {}).get("es", "")
                         all_colors.add(c_name)
                         for size in color.get("sizes", []):
-                            all_sizes.add(size.get("size", ""))
+                            all_sizes.add(size.get("size"))
 
                     color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
                     if not color_attr:
@@ -105,8 +102,6 @@ class ProductTemplate(models.Model):
 
                     color_vals = {}
                     for c in all_colors:
-                        if not c:
-                            continue
                         val = self.env['product.attribute.value'].search([('name', '=', c), ('attribute_id', '=', color_attr.id)], limit=1)
                         if not val:
                             val = self.env['product.attribute.value'].create({'name': c, 'attribute_id': color_attr.id})
@@ -114,21 +109,24 @@ class ProductTemplate(models.Model):
 
                     size_vals = {}
                     for s in all_sizes:
-                        if not s:
-                            continue
                         val = self.env['product.attribute.value'].search([('name', '=', s), ('attribute_id', '=', size_attr.id)], limit=1)
                         if not val:
                             val = self.env['product.attribute.value'].create({'name': s, 'attribute_id': size_attr.id})
                         size_vals[s] = val
 
-                    attribute_lines = []
-                    if color_vals:
-                        attribute_lines.append({'attribute_id': color_attr.id, 'value_ids': [(6, 0, [v.id for v in color_vals.values()])]})
-                    if size_vals:
-                        attribute_lines.append({'attribute_id': size_attr.id, 'value_ids': [(6, 0, [v.id for v in size_vals.values()])]})
+                    attribute_lines = [
+                        {
+                            'attribute_id': color_attr.id,
+                            'value_ids': [(6, 0, [v.id for v in color_vals.values()])]
+                        },
+                        {
+                            'attribute_id': size_attr.id,
+                            'value_ids': [(6, 0, [v.id for v in size_vals.values()])]
+                        }
+                    ]
 
                     template_vals = {
-                        'name': full_name or catalog_ref,
+                        'name': full_name,
                         'default_code': catalog_ref,
                         'type': 'consu',
                         'is_storable': True,
@@ -137,8 +135,6 @@ class ProductTemplate(models.Model):
                         'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
                     }
                     product_template = self.create(template_vals)
-                    total += 1
-                    _logger.info(f"🟩 Producto creado: {catalog_ref} - {full_name}")
 
                     # Imagen principal
                     for img in data.get("images", []):
@@ -173,7 +169,6 @@ class ProductTemplate(models.Model):
                                 return item.get("sku")
                         return ""
 
-                    # Mapeo variantes
                     for variant in product_template.product_variant_ids:
                         color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
                         size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
@@ -186,8 +181,12 @@ class ProductTemplate(models.Model):
                         variant.standard_price = cost
                         variant.lst_price = cost * 1.25 if cost else 9.99
                         _logger.info(f"🧵 Variante creada: {variant.default_code} - {variant.name} - {cost}€")
+                    # Guardar lote tras cada producto (importante si hay muchos)
+                    self.env.cr.commit()
+
                 except Exception as e:
-                    _logger.warning(f"❌ Error procesando producto: {str(e)}")
+                    _logger.error(f"❌ Error procesando producto: {str(e)}")
+                    self.env.cr.rollback()
             offset += limit
 
     # --- SERVER ACTION STOCK ---
@@ -251,15 +250,11 @@ class ProductTemplate(models.Model):
         for template in templates:
             url = f"{proxy_url}/v3/products?catalog_reference={template.default_code}&usage_right=b2b_b2c"
             resp = requests.get(url, headers=headers)
-            if resp.status_code != 200:
-                continue
-            # Puede devolver dict o lista
             data = resp.json()[0] if isinstance(resp.json(), list) else resp.json()
-            color_imgs = {}
-            for c in data.get("colors", []):
-                cname = c.get("colors", {}).get("es", "") if isinstance(c.get("colors"), dict) else c.get("colors", "")
-                face_img = c.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
-                color_imgs[cname] = face_img
+            color_imgs = {
+                c.get("colors", {}).get("es"): c.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
+                for c in data.get("colors", [])
+            }
             for variant in template.product_variant_ids:
                 color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name.lower() == 'color')
                 color = color_val.name if color_val else ""
