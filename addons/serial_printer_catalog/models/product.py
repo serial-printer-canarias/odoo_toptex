@@ -34,7 +34,7 @@ class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     @api.model
-    def sync_product_from_api(self, offset=0):
+    def sync_product_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
@@ -55,7 +55,9 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un token válido.")
         headers["x-toptex-authorization"] = token
 
+        offset = 0
         limit = 50
+        created_count = 0
         while True:
             product_url = f"{proxy_url}/v3/products/all?offset={offset}&limit={limit}&usage_right=b2b_b2c"
             resp = requests.get(product_url, headers=headers)
@@ -64,21 +66,23 @@ class ProductTemplate(models.Model):
                 break
 
             batch = resp.json()
-            # SOLO procesamos los items que son productos reales (con catalogReference y designation)
-            products = [item for item in batch if isinstance(item, dict) and item.get("catalogReference") and item.get("designation")]
-            if not products:
-                _logger.info("✅ Sin productos nuevos en este lote.")
+            items = batch.get("items", [])
+            if not items:
+                _logger.info("✅ sin productos nuevos en este lote.")
                 break
 
-            for data in products:
+            for data in items:
                 try:
                     catalog_ref = data.get("catalogReference")
+                    if not catalog_ref:
+                        _logger.warning("⏩ Producto sin catalogReference, ignorado.")
+                        continue
                     existing = self.env['product.template'].search([('default_code', '=', catalog_ref)], limit=1)
                     if existing:
                         _logger.info(f"⏩ Producto ya existe: {catalog_ref}")
                         continue
 
-                    brand = (data.get("brand", {}) or {}).get("name", {}).get("es") or "TopTex"
+                    brand = (data.get("brand", {}).get("name", {}).get("es") or "").strip() or "TopTex"
                     name = data.get("designation", {}).get("es", "Producto sin nombre")
                     description = data.get("description", {}).get("es", "")
                     full_name = f"{brand} {name}".strip()
@@ -88,12 +92,19 @@ class ProductTemplate(models.Model):
                     all_colors = set()
                     for color in colors:
                         c_name = color.get("colors", {}).get("es", "")
-                        all_colors.add(c_name)
+                        if c_name:
+                            all_colors.add(c_name)
                         for size in color.get("sizes", []):
-                            all_sizes.add(size.get("size"))
+                            s_name = size.get("size")
+                            if s_name:
+                                all_sizes.add(s_name)
 
-                    color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1) or self.env['product.attribute'].create({'name': 'Color'})
-                    size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1) or self.env['product.attribute'].create({'name': 'Talla'})
+                    color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
+                    if not color_attr:
+                        color_attr = self.env['product.attribute'].create({'name': 'Color'})
+                    size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1)
+                    if not size_attr:
+                        size_attr = self.env['product.attribute'].create({'name': 'Talla'})
 
                     color_vals = {}
                     for c in all_colors:
@@ -109,16 +120,17 @@ class ProductTemplate(models.Model):
                             val = self.env['product.attribute.value'].create({'name': s, 'attribute_id': size_attr.id})
                         size_vals[s] = val
 
-                    attribute_lines = [
-                        {
+                    attribute_lines = []
+                    if color_vals:
+                        attribute_lines.append({
                             'attribute_id': color_attr.id,
                             'value_ids': [(6, 0, [v.id for v in color_vals.values()])]
-                        },
-                        {
+                        })
+                    if size_vals:
+                        attribute_lines.append({
                             'attribute_id': size_attr.id,
                             'value_ids': [(6, 0, [v.id for v in size_vals.values()])]
-                        }
-                    ]
+                        })
 
                     template_vals = {
                         'name': full_name,
@@ -130,17 +142,23 @@ class ProductTemplate(models.Model):
                         'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
                     }
                     product_template = self.create(template_vals)
+                    created_count += 1
+                    _logger.info(f"🟢 Producto creado: {catalog_ref} | {full_name}")
 
                     # Imagen principal
+                    img_set = False
                     for img in data.get("images", []):
                         img_url = img.get("url_image")
                         if img_url:
                             image_bin = get_image_binary_from_url(img_url)
                             if image_bin:
                                 product_template.image_1920 = image_bin
+                                img_set = True
                                 break
+                    if not img_set:
+                        _logger.warning(f"⚠️ Sin imagen para {catalog_ref}")
 
-                    # Precios y SKUs por variante
+                    # Precios
                     price_url = f"{proxy_url}/v3/products/price?catalog_reference={catalog_ref}"
                     price_resp = requests.get(price_url, headers=headers)
                     price_data = price_resp.json().get("items", []) if price_resp.status_code == 200 else []
@@ -153,6 +171,7 @@ class ProductTemplate(models.Model):
                                     return float(prices[0].get("price", 0.0))
                         return 0.0
 
+                    # SKUs
                     inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_ref}"
                     inv_resp = requests.get(inv_url, headers=headers)
                     inventory_items = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
@@ -176,13 +195,11 @@ class ProductTemplate(models.Model):
                         variant.lst_price = cost * 1.25 if cost else 9.99
                         _logger.info(f"🧵 Variante creada: {variant.default_code} - {variant.name} - {cost}€")
 
-                    _logger.info(f"✅ Producto creado: {catalog_ref} - {full_name}")
-
                 except Exception as e:
-                    _logger.warning(f"❌ Error procesando producto: {e}")
+                    _logger.error(f"❌ Error procesando producto: {str(e)}")
+                    continue
 
-            # Siguiente lote (run manual otra vez para seguir, offset += 50)
-            break  # <-- para evitar timeout, ejecuta manualmente otra vez con offset=offset+50
+            offset += limit
 
     # --- SERVER ACTION STOCK ---
     def sync_stock_from_api(self):
@@ -204,25 +221,29 @@ class ProductTemplate(models.Model):
         StockQuant = self.env['stock.quant']
 
         for template in templates:
-            inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={template.default_code}"
-            inv_resp = requests.get(inv_url, headers=headers)
-            inventory_items = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
+            try:
+                inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={template.default_code}"
+                inv_resp = requests.get(inv_url, headers=headers)
+                inventory_items = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
 
-            for item in inventory_items:
-                sku = item.get("sku")
-                stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
-                variant = template.product_variant_ids.filtered(lambda v: v.default_code == sku)
-                if variant:
-                    quant = StockQuant.search([
-                        ('product_id', '=', variant.id),
-                        ('location_id.usage', '=', 'internal')
-                    ], limit=1)
-                    if quant:
-                        quant.quantity = stock
-                        quant.inventory_quantity = stock
-                        _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
-                    else:
-                        _logger.warning(f"❌ No se encontró stock.quant para {sku}")
+                for item in inventory_items:
+                    sku = item.get("sku")
+                    stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
+                    variant = template.product_variant_ids.filtered(lambda v: v.default_code == sku)
+                    if variant:
+                        quant = StockQuant.search([
+                            ('product_id', '=', variant.id),
+                            ('location_id.usage', '=', 'internal')
+                        ], limit=1)
+                        if quant:
+                            quant.quantity = stock
+                            quant.inventory_quantity = stock
+                            _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
+                        else:
+                            _logger.warning(f"❌ No se encontró stock.quant para {sku}")
+            except Exception as e:
+                _logger.error(f"❌ Error actualizando stock: {str(e)}")
+                continue
 
     # --- SERVER ACTION IMÁGENES POR VARIANTE ---
     def sync_variant_images_from_api(self):
@@ -243,19 +264,25 @@ class ProductTemplate(models.Model):
         templates = self.search([("default_code", "!=", False)])
 
         for template in templates:
-            url = f"{proxy_url}/v3/products?catalog_reference={template.default_code}&usage_right=b2b_b2c"
-            resp = requests.get(url, headers=headers)
-            data = resp.json()[0] if isinstance(resp.json(), list) else resp.json()
-            color_imgs = {
-                c.get("colors", {}).get("es"): c.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
-                for c in data.get("colors", [])
-            }
-            for variant in template.product_variant_ids:
-                color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name.lower() == 'color')
-                color = color_val.name if color_val else ""
-                url_img = color_imgs.get(color)
-                if url_img:
-                    image_bin = get_image_binary_from_url(url_img)
-                    if image_bin:
-                        variant.image_1920 = image_bin
-                        _logger.info(f"🖼️ Imagen asignada a variante {variant.default_code}")
+            try:
+                url = f"{proxy_url}/v3/products?catalog_reference={template.default_code}&usage_right=b2b_b2c"
+                resp = requests.get(url, headers=headers)
+                data = resp.json()
+                if isinstance(data, list):
+                    data = data[0] if data else {}
+                color_imgs = {
+                    c.get("colors", {}).get("es"): c.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
+                    for c in data.get("colors", [])
+                }
+                for variant in template.product_variant_ids:
+                    color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name.lower() == 'color')
+                    color = color_val.name if color_val else ""
+                    url_img = color_imgs.get(color)
+                    if url_img:
+                        image_bin = get_image_binary_from_url(url_img)
+                        if image_bin:
+                            variant.image_1920 = image_bin
+                            _logger.info(f"🖼️ Imagen asignada a variante {variant.default_code}")
+            except Exception as e:
+                _logger.error(f"❌ Error asignando imágenes por variante: {str(e)}")
+                continue
