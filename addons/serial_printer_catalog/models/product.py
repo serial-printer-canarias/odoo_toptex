@@ -44,90 +44,104 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
+        # Autenticación
         auth_url = f"{proxy_url}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
         auth_payload = {"username": username, "password": password}
-        auth_response = requests.post(auth_url, json=auth_payload, headers=headers)
-        if auth_response.status_code != 200:
-            raise UserError(f"❌ Error autenticando: {auth_response.status_code} - {auth_response.text}")
-        token = auth_response.json().get("token")
+        try:
+            auth_response = requests.post(auth_url, json=auth_payload, headers=headers)
+            auth_response.raise_for_status()
+            token = auth_response.json().get("token")
+        except Exception as e:
+            raise UserError(f"❌ Error autenticando: {str(e)}")
         if not token:
             raise UserError("❌ No se recibió un token válido.")
         headers["x-toptex-authorization"] = token
 
         offset = 0
         limit = 50
+        lotes_vacios = 0
+
         while True:
-            _logger.info(f"⬇️ Descargando lote {offset} - {offset+limit}")
             product_url = f"{proxy_url}/v3/products/all?offset={offset}&limit={limit}&usage_right=b2b_b2c"
-            resp = requests.get(product_url, headers=headers)
-            if resp.status_code != 200:
-                _logger.warning(f"❌ Error en batch offset={offset}: {resp.text}")
-                break
-
-            # LOG DEL BATCH RAW
             try:
+                resp = requests.get(product_url, headers=headers, timeout=30)
+                resp.raise_for_status()
                 batch = resp.json()
-                _logger.info(f"Batch crudo descargado: {json.dumps(batch)[:1000]}")
             except Exception as e:
-                _logger.warning(f"❌ Respuesta malformada al cargar productos: {e}")
+                _logger.error(f"❌ Error descargando lote {offset//limit+1}: {str(e)}")
                 break
 
-            if not batch:
-                _logger.info("Sin productos o lote vacío, fin de proceso.")
+            if not isinstance(batch, list) or not batch:
+                lotes_vacios += 1
+                _logger.info(f"✅ Sin productos o lote vacío, fin de proceso.")
                 break
 
-            # Permitir ambos: lista o diccionario con 'items'
-            if isinstance(batch, dict):
-                if "items" in batch and isinstance(batch["items"], list):
-                    batch = batch["items"]
-                    _logger.info("Batch convertido desde dict['items'] a lista.")
-                else:
-                    _logger.warning(f"❌ El batch es dict pero sin 'items' lista. Batch: {str(batch)[:1000]}")
-                    break
-            elif not isinstance(batch, list):
-                _logger.warning(f"❌ El batch descargado NO es una lista, es tipo: {type(batch)}. Valor: {str(batch)[:1000]}")
-                break
-
-            nuevos = 0
             for data in batch:
+                # Ignora entradas que no son productos válidos
+                if not isinstance(data, dict) or "catalogReference" not in data:
+                    _logger.warning(f"❌ Producto mal formado, ignorado: {data}")
+                    continue
+
+                catalog_ref = data.get("catalogReference")
+                if not catalog_ref:
+                    _logger.warning(f"❌ Producto sin catalogReference, ignorado.")
+                    continue
+
                 try:
-                    catalog_ref = data.get("catalogReference")
-                    if not catalog_ref:
-                        _logger.warning(f"Producto sin catalogReference: {data}")
-                        continue
+                    # Verifica si ya existe
                     existing = self.env['product.template'].search([('default_code', '=', catalog_ref)], limit=1)
                     if existing:
                         _logger.info(f"⏩ Producto ya existe: {catalog_ref}")
                         continue
 
-                    # Brand robusto
-                    brand_obj = data.get("brand")
-                    if isinstance(brand_obj, dict):
-                        brand_name = brand_obj.get("name", {}).get("es") or brand_obj.get("name", {}).get("en") or "TopTex"
-                    else:
-                        brand_name = "TopTex"
-                    name = data.get("designation", {}).get("es") or data.get("designation", {}).get("en") or "Producto sin nombre"
-                    description = data.get("description", {}).get("es") or data.get("description", {}).get("en") or ""
-                    full_name = f"{brand_name} {name}".strip()
+                    # Mapeo de campos principales
+                    brand = ""
+                    try:
+                        b = data.get("brand", {})
+                        if isinstance(b, dict):
+                            n = b.get("name", {})
+                            brand = n.get("es") or n.get("en") or n.get("fr") or n.get("it") or n.get("de") or "TopTex"
+                        else:
+                            brand = "TopTex"
+                    except Exception:
+                        brand = "TopTex"
+
+                    name = ""
+                    try:
+                        d = data.get("designation", {})
+                        name = d.get("es") or d.get("en") or d.get("fr") or d.get("it") or d.get("de") or "Producto sin nombre"
+                    except Exception:
+                        name = "Producto sin nombre"
+
+                    description = ""
+                    try:
+                        desc = data.get("description", {})
+                        description = desc.get("es") or desc.get("en") or desc.get("fr") or desc.get("it") or desc.get("de") or ""
+                    except Exception:
+                        description = ""
+
+                    full_name = f"{brand} {name}".strip()
                     colors = data.get("colors", [])
 
                     all_sizes = set()
                     all_colors = set()
                     for color in colors:
-                        c_name = color.get("colors", {}).get("es") or color.get("colors", {}).get("en") or ""
+                        c_name = color.get("colors", {}).get("es", "") or color.get("colors", {}).get("en", "")
                         if c_name:
                             all_colors.add(c_name)
                         for size in color.get("sizes", []):
-                            if isinstance(size, dict):
-                                sz = size.get("size") or size.get("name") or ""
-                                if sz:
-                                    all_sizes.add(sz)
-                            elif isinstance(size, str):
-                                all_sizes.add(size)
+                            s_name = size.get("size")
+                            if s_name:
+                                all_sizes.add(s_name)
 
-                    color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1) or self.env['product.attribute'].create({'name': 'Color'})
-                    size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1) or self.env['product.attribute'].create({'name': 'Talla'})
+                    # Atributos de color y talla
+                    color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
+                    if not color_attr:
+                        color_attr = self.env['product.attribute'].create({'name': 'Color'})
+                    size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1)
+                    if not size_attr:
+                        size_attr = self.env['product.attribute'].create({'name': 'Talla'})
 
                     color_vals = {}
                     for c in all_colors:
@@ -143,16 +157,17 @@ class ProductTemplate(models.Model):
                             val = self.env['product.attribute.value'].create({'name': s, 'attribute_id': size_attr.id})
                         size_vals[s] = val
 
-                    attribute_lines = [
-                        {
+                    attribute_lines = []
+                    if color_vals:
+                        attribute_lines.append({
                             'attribute_id': color_attr.id,
                             'value_ids': [(6, 0, [v.id for v in color_vals.values()])]
-                        },
-                        {
+                        })
+                    if size_vals:
+                        attribute_lines.append({
                             'attribute_id': size_attr.id,
                             'value_ids': [(6, 0, [v.id for v in size_vals.values()])]
-                        }
-                    ]
+                        })
 
                     template_vals = {
                         'name': full_name,
@@ -164,7 +179,7 @@ class ProductTemplate(models.Model):
                         'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
                     }
                     product_template = self.create(template_vals)
-                    nuevos += 1
+                    _logger.info(f"🆗 Producto creado: {catalog_ref} | {full_name}")
 
                     # Imagen principal
                     for img in data.get("images", []):
@@ -211,10 +226,11 @@ class ProductTemplate(models.Model):
                         variant.standard_price = cost
                         variant.lst_price = cost * 1.25 if cost else 9.99
                         _logger.info(f"🧵 Variante creada: {variant.default_code} - {variant.name} - {cost}€")
-                except Exception as e:
-                    _logger.error(f"❌ Error procesando producto: {str(e)}")
 
-            _logger.info(f"✅ Lote {offset} creado con {nuevos} productos nuevos.")
+                except Exception as e:
+                    _logger.error(f"❌ Error procesando producto: {catalog_ref} | {str(e)}")
+                    continue
+
             offset += limit
 
     # --- SERVER ACTION STOCK ---
