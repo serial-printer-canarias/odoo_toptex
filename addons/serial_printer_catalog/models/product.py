@@ -56,9 +56,11 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un token válido.")
         headers["x-toptex-authorization"] = token
 
-        offset = 0
         limit = 50
-        processed_refs = set(self.env['product.template'].search([]).mapped('default_code'))
+        offset = int(icp.get_param('toptex_last_offset') or 0)
+        processed_refs = set(
+            ref for ref in self.env['product.template'].search([]).mapped('default_code') if ref
+        )
 
         while True:
             product_url = f"{proxy_url}/v3/products/all?offset={offset}&limit={limit}&usage_right=b2b_b2c"
@@ -69,28 +71,26 @@ class ProductTemplate(models.Model):
 
             batch = resp.json()
             if not batch:
-                _logger.info(f"✅ Sin productos nuevos en este lote, fin de proceso.")
+                _logger.info("✅ Sin productos nuevos en este lote, fin de proceso.")
                 break
-
             if isinstance(batch, dict) and "items" in batch:
                 batch = batch["items"]
 
+            any_valid = False
             for data in batch:
                 catalog_ref = data.get("catalogReference")
                 if not catalog_ref or catalog_ref in processed_refs:
                     _logger.info(f"⏩ Producto ya existe o sin referencia: {catalog_ref}")
                     continue
 
-                name_data = data.get("designation", {})
-                name = name_data.get("es") or name_data.get("en") or "Producto sin nombre"
-                name = name.replace("TopTex", "").strip()
+                any_valid = True
+                name = (data.get("designation", {}).get("es") or data.get("designation", {}).get("en") or "").replace("TopTex", "").strip()
                 full_name = f"{catalog_ref} {name}".strip()
-
                 description = data.get("description", {}).get("es", "") or data.get("description", {}).get("en", "")
                 colors = data.get("colors", [])
+
                 all_sizes = set()
                 all_colors = set()
-
                 for color in colors:
                     c_name = color.get("colors", {}).get("es") or color.get("colors", {}).get("en")
                     if not c_name:
@@ -99,26 +99,11 @@ class ProductTemplate(models.Model):
                     for size in color.get("sizes", []):
                         all_sizes.add(size.get("size"))
 
-                color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
-                if not color_attr:
-                    color_attr = self.env['product.attribute'].create({'name': 'Color'})
-                size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1)
-                if not size_attr:
-                    size_attr = self.env['product.attribute'].create({'name': 'Talla'})
+                color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1) or self.env['product.attribute'].create({'name': 'Color'})
+                size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1) or self.env['product.attribute'].create({'name': 'Talla'})
 
-                color_vals = {}
-                for c in all_colors:
-                    val = self.env['product.attribute.value'].search([('name', '=', c), ('attribute_id', '=', color_attr.id)], limit=1)
-                    if not val:
-                        val = self.env['product.attribute.value'].create({'name': c, 'attribute_id': color_attr.id})
-                    color_vals[c] = val
-
-                size_vals = {}
-                for s in all_sizes:
-                    val = self.env['product.attribute.value'].search([('name', '=', s), ('attribute_id', '=', size_attr.id)], limit=1)
-                    if not val:
-                        val = self.env['product.attribute.value'].create({'name': s, 'attribute_id': size_attr.id})
-                    size_vals[s] = val
+                color_vals = {c: self.env['product.attribute.value'].search([('name', '=', c), ('attribute_id', '=', color_attr.id)], limit=1) or self.env['product.attribute.value'].create({'name': c, 'attribute_id': color_attr.id}) for c in all_colors}
+                size_vals = {s: self.env['product.attribute.value'].search([('name', '=', s), ('attribute_id', '=', size_attr.id)], limit=1) or self.env['product.attribute.value'].create({'name': s, 'attribute_id': size_attr.id}) for s in all_sizes}
 
                 attribute_lines = [
                     {'attribute_id': color_attr.id, 'value_ids': [(6, 0, [v.id for v in color_vals.values()])]},
@@ -189,11 +174,15 @@ class ProductTemplate(models.Model):
                         variant.standard_price = cost
                         variant.lst_price = round(cost * 2, 2) if cost else 9.99
                         _logger.info(f"🧵 Variante creada: {variant.default_code} - {variant.name} - {cost}€")
-
                 except Exception as e:
                     _logger.warning(f"⚠️ Error en precios/SKUs de {catalog_ref}: {str(e)}")
 
+            if not any_valid:
+                _logger.info(f"✅ Lote offset={offset}, sin productos nuevos.")
+                break
+
             offset += limit
+            icp.set_param('toptex_last_offset', str(offset))
 
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
@@ -201,23 +190,36 @@ class ProductTemplate(models.Model):
         api_key = icp.get_param('toptex_api_key')
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
+
+        auth_url = f"{proxy_url}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        token = requests.post(f"{proxy_url}/v3/authenticate", json={"username": username, "password": password}, headers=headers).json().get("token")
+        token = requests.post(auth_url, json={"username": username, "password": password}, headers=headers).json().get("token")
         if not token:
             _logger.error("❌ Error autenticando para stock.")
             return
         headers["x-toptex-authorization"] = token
 
-        for template in self.search([("default_code", "!=", False)]):
+        StockQuant = self.env['stock.quant']
+        templates = self.search([("default_code", "!=", False)])
+        for template in templates:
             inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={template.default_code}"
-            resp = requests.get(inv_url, headers=headers)
-            for item in resp.json().get("items", []):
+            inv_resp = requests.get(inv_url, headers=headers)
+            inventory_items = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
+            for item in inventory_items:
                 sku = item.get("sku")
                 stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
                 variant = template.product_variant_ids.filtered(lambda v: v.default_code == sku)
                 if variant:
-                    variant.qty_available = stock
-                    _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
+                    quant = StockQuant.search([
+                        ('product_id', '=', variant.id),
+                        ('location_id.usage', '=', 'internal')
+                    ], limit=1)
+                    if quant:
+                        quant.quantity = stock
+                        quant.inventory_quantity = stock
+                        _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
+                    else:
+                        _logger.warning(f"❌ No se encontró stock.quant para {sku}")
 
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
@@ -225,19 +227,23 @@ class ProductTemplate(models.Model):
         api_key = icp.get_param('toptex_api_key')
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
+
+        auth_url = f"{proxy_url}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        token = requests.post(f"{proxy_url}/v3/authenticate", json={"username": username, "password": password}, headers=headers).json().get("token")
+        token = requests.post(auth_url, json={"username": username, "password": password}, headers=headers).json().get("token")
         if not token:
             _logger.error("❌ Error autenticando para imágenes.")
             return
         headers["x-toptex-authorization"] = token
 
-        for template in self.search([("default_code", "!=", False)]):
+        templates = self.search([("default_code", "!=", False)])
+        for template in templates:
             url = f"{proxy_url}/v3/products?catalog_reference={template.default_code}&usage_right=b2b_b2c"
             resp = requests.get(url, headers=headers)
             data = resp.json()[0] if isinstance(resp.json(), list) else resp.json()
             color_imgs = {
-                c.get("colors", {}).get("es"): c.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
+                c.get("colors", {}).get("es") or c.get("colors", {}).get("en"): 
+                c.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
                 for c in data.get("colors", [])
             }
             for variant in template.product_variant_ids:
