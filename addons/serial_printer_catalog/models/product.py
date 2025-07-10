@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import json
 import logging
 import requests
@@ -57,7 +58,7 @@ class ProductTemplate(models.Model):
 
         offset = 0
         limit = 50
-        processed_refs = set(self.env['product.template'].search([]).mapped('default_code'))  # Para evitar duplicados
+        processed_refs = set(self.env['product.template'].search([]).mapped('default_code'))  # Evitar duplicados
 
         while True:
             product_url = f"{proxy_url}/v3/products/all?offset={offset}&limit={limit}&usage_right=b2b_b2c"
@@ -67,21 +68,17 @@ class ProductTemplate(models.Model):
                 break
 
             batch = resp.json()
-            # Si el lote está vacío, terminar
             if not batch:
                 _logger.info(f"✅ Sin productos nuevos en este lote, fin de proceso.")
                 break
 
-            # Si el lote es dict (por paginación Toptex, a veces la respuesta es un dict)
             if isinstance(batch, dict) and "items" in batch:
                 batch = batch["items"]
 
-            # Filtra posibles entradas que no son productos válidos
             skip_keys = {'items', 'page_number', 'total_count', 'page_size'}
             any_valid = False
 
             for data in batch:
-                # Ignora entradas tipo paginación
                 if not isinstance(data, dict) or any(key in data for key in skip_keys):
                     _logger.warning(f"❌ Producto mal formado o ignorado: {data}")
                     continue
@@ -94,17 +91,16 @@ class ProductTemplate(models.Model):
                     _logger.info(f"⏩ Producto ya existe: {catalog_ref}")
                     continue
 
-                any_valid = True  # Hay al menos un producto válido
+                any_valid = True
 
-                # --- MAPPEO CAMPOS ---
-                brand = "TopTex"
-                if isinstance(data.get("brand"), dict):
-                    brand_dict = data.get("brand", {}).get("name", {})
-                    if isinstance(brand_dict, dict):
-                        brand = brand_dict.get("es") or brand_dict.get("en") or "TopTex"
-                name = data.get("designation", {}).get("es") or data.get("designation", {}).get("en") or "Producto sin nombre"
+                # Mapeo de marca y nombre sin TopTex
+                brand = catalog_ref  # usamos ref como marca visible
+                name_data = data.get("designation", {})
+                name = name_data.get("es") or name_data.get("en") or "Producto sin nombre"
+                name = name.replace("TopTex", "").strip()
+                full_name = f"{catalog_ref} {name}".strip()
+
                 description = data.get("description", {}).get("es", "") or data.get("description", {}).get("en", "")
-                full_name = f"{brand} {name}".strip()
                 colors = data.get("colors", [])
 
                 all_sizes = set()
@@ -117,7 +113,6 @@ class ProductTemplate(models.Model):
                     for size in color.get("sizes", []):
                         all_sizes.add(size.get("size"))
 
-                # --- ATRIBUTOS COLOR/TALLA ---
                 color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
                 if not color_attr:
                     color_attr = self.env['product.attribute'].create({'name': 'Color'})
@@ -163,7 +158,7 @@ class ProductTemplate(models.Model):
                     'categ_id': self.env.ref("product.product_category_all").id,
                     'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
                 }
-                try:
+                                try:
                     product_template = self.create(template_vals)
                     _logger.info(f"✅ Producto creado: {catalog_ref} | {full_name}")
                     processed_refs.add(catalog_ref)
@@ -171,7 +166,7 @@ class ProductTemplate(models.Model):
                     _logger.error(f"❌ Error creando producto {catalog_ref}: {str(e)}")
                     continue
 
-                # --- IMAGEN PRINCIPAL ---
+                # Imagen principal
                 try:
                     for img in data.get("images", []):
                         img_url = img.get("url_image")
@@ -183,7 +178,7 @@ class ProductTemplate(models.Model):
                 except Exception as e:
                     _logger.warning(f"⚠️ No se pudo asignar imagen a {catalog_ref}: {str(e)}")
 
-                # --- MAPPEO DE PRECIOS Y SKUS (solo asigna en variantes, server action para detalles después) ---
+                # Precios y SKUs
                 try:
                     price_url = f"{proxy_url}/v3/products/price?catalog_reference={catalog_ref}"
                     price_resp = requests.get(price_url, headers=headers)
@@ -215,18 +210,18 @@ class ProductTemplate(models.Model):
                         if sku:
                             variant.default_code = sku
                         variant.standard_price = cost
-                        variant.lst_price = cost * 1.25 if cost else 9.99
+                        variant.lst_price = round(cost * 2, 2) if cost else 9.99
                         _logger.info(f"🧵 Variante creada: {variant.default_code} - {variant.name} - {cost}€")
                 except Exception as e:
                     _logger.warning(f"⚠️ Error en precios/SKUs de {catalog_ref}: {str(e)}")
 
             if not any_valid:
-                _logger.info(f"✅ Lote descargado offset={offset}, pero sin productos nuevos válidos.")
+                _logger.info(f"✅ Lote descargado offset={offset}, sin productos nuevos.")
                 break
 
             offset += limit
 
-    # --- SERVER ACTION STOCK ---
+    # --- Server Action: Stock ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -266,7 +261,7 @@ class ProductTemplate(models.Model):
                     else:
                         _logger.warning(f"❌ No se encontró stock.quant para {sku}")
 
-    # --- SERVER ACTION IMÁGENES POR VARIANTE ---
+    # --- Server Action: Imágenes por variante ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
