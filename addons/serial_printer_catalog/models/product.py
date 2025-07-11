@@ -64,6 +64,7 @@ class ProductTemplate(models.Model):
 
         limit = 50
         offset = int(icp.get_param(offset_param) or 0)
+        _logger.info(f"====> LOTE INICIADO offset={offset}")
 
         product_url = f"{proxy_url}/v3/products/all?offset={offset}&limit={limit}&usage_right=b2b_b2c"
         resp = requests.get(product_url, headers=headers)
@@ -72,18 +73,19 @@ class ProductTemplate(models.Model):
             return
 
         batch = resp.json()
+        if isinstance(batch, dict) and "items" in batch:
+            batch = batch["items"]
         if not batch:
             _logger.info(f"✅ Sin productos nuevos en este lote, fin de proceso.")
             icp.set_param(offset_param, str(offset + limit))
             return
 
-        if isinstance(batch, dict) and "items" in batch:
-            batch = batch["items"]
-
         any_valid = False
+        created_refs = []
 
         for data in batch:
             catalog_ref = data.get("catalogReference")
+            _logger.info(f"LOTE OFFSET={offset} CATALOG_REF={catalog_ref}")
             if not catalog_ref:
                 _logger.warning(f"❌ Producto sin catalogReference, ignorado: {data}")
                 continue
@@ -152,6 +154,7 @@ class ProductTemplate(models.Model):
             try:
                 template = self.create(template_vals)
                 self.env['toptex.catalog.log'].sudo().create({'name': catalog_ref})
+                created_refs.append(catalog_ref)
                 _logger.info(f"✅ Producto creado: {catalog_ref}")
             except Exception as e:
                 _logger.error(f"❌ Error creando producto {catalog_ref}: {str(e)}")
@@ -202,11 +205,15 @@ class ProductTemplate(models.Model):
             except Exception as e:
                 _logger.warning(f"⚠️ Error en precios/SKUs: {catalog_ref} - {str(e)}")
 
+        # SIEMPRE guardar el offset aunque no cree productos, para que Odoo avance lote a lote.
         offset += limit
         icp.set_param(offset_param, str(offset))
+        _logger.info(f"====> OFFSET GUARDADO: {offset}")
 
         if not any_valid:
             _logger.info(f"✅ Lote offset={offset-limit}, sin productos nuevos.")
+        else:
+            _logger.info(f"✅ Lote offset={offset-limit}, creados: {created_refs}")
 
     @api.model
     def sync_stock_from_api(self):
