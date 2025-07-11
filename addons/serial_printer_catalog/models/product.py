@@ -5,7 +5,7 @@ import requests
 import base64
 import io
 from PIL import Image
-from odoo import models, api
+from odoo import models, fields, api
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
@@ -30,6 +30,11 @@ def get_image_binary_from_url(url):
     except Exception as e:
         _logger.warning(f"❌ Error al procesar imagen desde {url}: {str(e)}")
     return None
+
+class ToptexCatalogLog(models.Model):
+    _name = 'toptex.catalog.log'
+    _description = 'Referencias ya procesadas de TopTex'
+    name = fields.Char('Catalog Reference', required=True, index=True, unique=True)
 
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
@@ -56,9 +61,8 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un token válido.")
         headers["x-toptex-authorization"] = token
 
-        offset = 0
         limit = 50
-        existing_refs = set(self.env['product.template'].search([]).mapped('default_code'))
+        offset = int(icp.get_param('toptex_last_offset') or 0)
 
         while True:
             product_url = f"{proxy_url}/v3/products/all?offset={offset}&limit={limit}&usage_right=b2b_b2c"
@@ -79,13 +83,17 @@ class ProductTemplate(models.Model):
 
             for data in batch:
                 catalog_ref = data.get("catalogReference")
-                if not catalog_ref or catalog_ref in existing_refs:
-                    _logger.info(f"⏩ Producto ya existe o sin referencia: {catalog_ref}")
+                if not catalog_ref:
+                    _logger.warning(f"❌ Producto sin catalogReference, ignorado: {data}")
+                    continue
+
+                already_created = self.env['toptex.catalog.log'].sudo().search([('name', '=', catalog_ref)], limit=1)
+                if already_created:
+                    _logger.info(f"⏩ Producto ya existe (log): {catalog_ref}")
                     continue
 
                 any_valid = True
 
-                brand = catalog_ref
                 name_data = data.get("designation", {})
                 name = name_data.get("es") or name_data.get("en") or "Producto sin nombre"
                 name = name.replace("TopTex", "").strip()
@@ -104,8 +112,12 @@ class ProductTemplate(models.Model):
                     for size in color.get("sizes", []):
                         all_sizes.add(size.get("size"))
 
-                color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1) or self.env['product.attribute'].create({'name': 'Color'})
-                size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1) or self.env['product.attribute'].create({'name': 'Talla'})
+                color_attr = self.env['product.attribute'].search([('name', '=', 'Color')], limit=1)
+                if not color_attr:
+                    color_attr = self.env['product.attribute'].create({'name': 'Color'})
+                size_attr = self.env['product.attribute'].search([('name', '=', 'Talla')], limit=1)
+                if not size_attr:
+                    size_attr = self.env['product.attribute'].create({'name': 'Talla'})
 
                 color_vals = {}
                 for c in all_colors:
@@ -138,8 +150,9 @@ class ProductTemplate(models.Model):
 
                 try:
                     template = self.create(template_vals)
+                    # REGISTRO ANTI-DUPLICADOS
+                    self.env['toptex.catalog.log'].sudo().create({'name': catalog_ref})
                     _logger.info(f"✅ Producto creado: {catalog_ref}")
-                    existing_refs.add(catalog_ref)
                 except Exception as e:
                     _logger.error(f"❌ Error creando producto {catalog_ref}: {str(e)}")
                     continue
@@ -177,20 +190,25 @@ class ProductTemplate(models.Model):
                         return ""
 
                     for variant in template.product_variant_ids:
-                        color = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id).name
-                        size = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id).name
-                        variant.default_code = get_sku(color, size)
-                        variant.standard_price = get_price(color, size)
-                        variant.lst_price = round(variant.standard_price * 2, 2) if variant.standard_price else 9.99
-
+                        color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name.lower() == 'color')
+                        size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name.lower() == 'talla')
+                        color = color_val.name if color_val else ""
+                        size = size_val.name if size_val else ""
+                        sku = get_sku(color, size)
+                        cost = get_price(color, size)
+                        variant.default_code = sku or variant.default_code
+                        variant.standard_price = cost
+                        variant.lst_price = round(cost * 2, 2) if cost else 9.99
                 except Exception as e:
                     _logger.warning(f"⚠️ Error en precios/SKUs: {catalog_ref} - {str(e)}")
 
-            if not any_valid:
-                _logger.info(f"✅ Lote offset={offset}, sin productos nuevos.")
-                break
-
+            # Guardamos el offset
             offset += limit
+            icp.set_param('toptex_last_offset', str(offset))
+
+            if not any_valid:
+                _logger.info(f"✅ Lote offset={offset-limit}, sin productos nuevos.")
+                break
 
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
@@ -245,7 +263,8 @@ class ProductTemplate(models.Model):
             data = data[0] if isinstance(data, list) else data
 
             color_imgs = {
-                c.get("colors", {}).get("es"): c.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
+                c.get("colors", {}).get("es") or c.get("colors", {}).get("en"): 
+                c.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
                 for c in data.get("colors", [])
             }
 
