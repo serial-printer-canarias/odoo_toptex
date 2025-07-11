@@ -224,7 +224,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock SOLO productos Toptex ---
+    # --- Server Action: Stock (Solo SKUs válidos de TopTex) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -240,15 +240,16 @@ class ProductTemplate(models.Model):
             return
 
         headers["x-toptex-authorization"] = token
-        # SOLO productos Toptex: variantes cuyo SKU empieza por 'B' o 'NS' (puedes añadir más si necesitas)
-        templates = self.search([
-            "|",
-            ("product_variant_ids.default_code", "ilike", "B%"),
-            ("product_variant_ids.default_code", "ilike", "NS%")
-        ])
+
+        # SOLO variantes cuyo SKU empieza por una letra + número (ejemplo: B10_51146_51145)
+        templates = self.search([("default_code", "!=", False)])
         StockQuant = self.env['stock.quant']
 
         for template in templates:
+            # Evita plantillas/variante con default_code falso, vacíos o que no sean toptex
+            if not template.default_code or not isinstance(template.default_code, str) or len(template.default_code) < 4:
+                continue
+
             inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={template.default_code}"
             inv_resp = requests.get(inv_url, headers=headers)
             try:
@@ -258,6 +259,10 @@ class ProductTemplate(models.Model):
 
             for item in inventory_items:
                 sku = item.get("sku")
+                if not sku or sku is False or sku == "False":
+                    _logger.warning(f"❌ Sin datos para {sku}, saltando.")
+                    continue
+
                 stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
                 variant = template.product_variant_ids.filtered(lambda v: v.default_code == sku)
                 if variant:
@@ -272,7 +277,7 @@ class ProductTemplate(models.Model):
                     else:
                         _logger.warning(f"❌ No se encontró stock.quant para {sku}")
 
-    # --- Server Action: Imágenes SOLO productos Toptex ---
+    # --- Server Action: Imágenes por variante (Solo variantes válidas con SKU de TopTex) ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -288,14 +293,13 @@ class ProductTemplate(models.Model):
             return
 
         headers["x-toptex-authorization"] = token
-        # SOLO productos Toptex: variantes cuyo SKU empieza por 'B' o 'NS'
-        templates = self.search([
-            "|",
-            ("product_variant_ids.default_code", "ilike", "B%"),
-            ("product_variant_ids.default_code", "ilike", "NS%")
-        ])
+        templates = self.search([("default_code", "!=", False)])
 
         for template in templates:
+            # SOLO para productos de toptex reales (evita test, demo, etc)
+            if not template.default_code or not isinstance(template.default_code, str) or len(template.default_code) < 4:
+                continue
+
             url = f"{proxy_url}/v3/products?catalog_reference={template.default_code}&usage_right=b2b_b2c"
             resp = requests.get(url, headers=headers)
             try:
@@ -319,6 +323,9 @@ class ProductTemplate(models.Model):
                     color_imgs[col_name] = url_pic
 
             for variant in template.product_variant_ids:
+                # SOLO variantes con SKU (default_code) válido y distinto de False
+                if not variant.default_code or variant.default_code is False or variant.default_code == "False":
+                    continue
                 color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name.lower() == 'color')
                 color = color_val.name if color_val else ""
                 url_img = color_imgs.get(color)
