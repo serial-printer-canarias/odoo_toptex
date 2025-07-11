@@ -150,7 +150,6 @@ class ProductTemplate(models.Model):
 
                 try:
                     template = self.create(template_vals)
-                    # REGISTRO ANTI-DUPLICADOS
                     self.env['toptex.catalog.log'].sudo().create({'name': catalog_ref})
                     _logger.info(f"✅ Producto creado: {catalog_ref}")
                 except Exception as e:
@@ -202,7 +201,6 @@ class ProductTemplate(models.Model):
                 except Exception as e:
                     _logger.warning(f"⚠️ Error en precios/SKUs: {catalog_ref} - {str(e)}")
 
-            # Guardamos el offset
             offset += limit
             icp.set_param('toptex_last_offset', str(offset))
 
