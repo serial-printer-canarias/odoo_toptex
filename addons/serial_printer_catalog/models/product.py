@@ -224,7 +224,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (Robusta) ---
+    # --- Server Action: Stock SOLO productos Toptex ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -240,7 +240,12 @@ class ProductTemplate(models.Model):
             return
 
         headers["x-toptex-authorization"] = token
-        templates = self.search([("default_code", "!=", False)])
+        # SOLO productos Toptex: variantes cuyo SKU empieza por 'B' o 'NS' (puedes añadir más si necesitas)
+        templates = self.search([
+            "|",
+            ("product_variant_ids.default_code", "ilike", "B%"),
+            ("product_variant_ids.default_code", "ilike", "NS%")
+        ])
         StockQuant = self.env['stock.quant']
 
         for template in templates:
@@ -267,7 +272,7 @@ class ProductTemplate(models.Model):
                     else:
                         _logger.warning(f"❌ No se encontró stock.quant para {sku}")
 
-    # --- Server Action: Imágenes por variante (Robusta) ---
+    # --- Server Action: Imágenes SOLO productos Toptex ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -283,7 +288,12 @@ class ProductTemplate(models.Model):
             return
 
         headers["x-toptex-authorization"] = token
-        templates = self.search([("default_code", "!=", False)])
+        # SOLO productos Toptex: variantes cuyo SKU empieza por 'B' o 'NS'
+        templates = self.search([
+            "|",
+            ("product_variant_ids.default_code", "ilike", "B%"),
+            ("product_variant_ids.default_code", "ilike", "NS%")
+        ])
 
         for template in templates:
             url = f"{proxy_url}/v3/products?catalog_reference={template.default_code}&usage_right=b2b_b2c"
