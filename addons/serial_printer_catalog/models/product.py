@@ -41,8 +41,6 @@ class ProductTemplate(models.Model):
         password = icp.get_param('toptex_password')
         api_key = icp.get_param('toptex_api_key')
         proxy_url = icp.get_param('toptex_proxy_url')
-        offset = int(icp.get_param('toptex_offset', default='0'))  # soporte offset manual desde sistema
-        limit = 50
 
         if not all([username, password, api_key, proxy_url]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
@@ -58,21 +56,27 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un token válido.")
         headers["x-toptex-authorization"] = token
 
-        processed_refs = set(self.env['product.template'].search([]).mapped('default_code'))
+        # --------- PAGINACIÓN CORRECTA TOPTEX ---------
+        page_number = int(icp.get_param('toptex_last_page') or 1)
+        page_size = 50
 
-        product_url = f"{proxy_url}/v3/products/all?offset={offset}&limit={limit}&usage_right=b2b_b2c"
+        product_url = f"{proxy_url}/v3/products/all?usage_right=b2b_b2c&page_number={page_number}&page_size={page_size}"
         resp = requests.get(product_url, headers=headers)
         if resp.status_code != 200:
-            _logger.warning(f"❌ Error en batch offset={offset}: {resp.text}")
+            _logger.warning(f"❌ Error en página {page_number}: {resp.text}")
             return
 
         batch = resp.json()
-        if not batch:
-            _logger.info(f"✅ Sin productos nuevos en este lote, fin de proceso.")
-            return
-
         if isinstance(batch, dict) and "items" in batch:
             batch = batch["items"]
+        if not batch:
+            _logger.info(f"✅ Sin productos nuevos en esta página, fin de proceso.")
+            icp.set_param('toptex_last_page', str(page_number + 1))
+            return
+
+        # --------- FIN PAGINACIÓN ---------
+
+        processed_refs = set(self.env['product.template'].search([]).mapped('default_code'))
 
         skip_keys = {'items', 'page_number', 'total_count', 'page_size'}
         any_valid = False
@@ -87,12 +91,13 @@ class ProductTemplate(models.Model):
                 _logger.warning(f"❌ Producto sin catalogReference, ignorado: {data}")
                 continue
             if catalog_ref in processed_refs:
-                _logger.info(f"⏩ Producto ya existe (log): {catalog_ref}")
+                _logger.info(f"⏩ Producto ya existe: {catalog_ref}")
                 continue
 
             any_valid = True
 
-            # Marca y nombre (sin TopTex)
+            # Mapeo de marca y nombre sin TopTex
+            brand = catalog_ref  # usamos ref como marca visible
             name_data = data.get("designation", {})
             name = name_data.get("es") or name_data.get("en") or "Producto sin nombre"
             name = name.replace("TopTex", "").strip()
@@ -160,7 +165,7 @@ class ProductTemplate(models.Model):
                 product_template = self.create(template_vals)
                 _logger.info(f"✅ Producto creado: {catalog_ref} | {full_name}")
                 processed_refs.add(catalog_ref)
-                _logger.info(f"LOTE OFFSET={offset} CATALOG_REF={catalog_ref}")
+                _logger.info(f"LOTE OFFSET={page_number} CATALOG_REF={catalog_ref}")
             except Exception as e:
                 _logger.error(f"❌ Error creando producto {catalog_ref}: {str(e)}")
                 continue
@@ -215,60 +220,11 @@ class ProductTemplate(models.Model):
                 _logger.warning(f"⚠️ Error en precios/SKUs de {catalog_ref}: {str(e)}")
 
         if not any_valid:
-            _logger.info(f"✅ Lote descargado offset={offset}, sin productos nuevos.")
-            return
+            _logger.info(f"✅ Lote página={page_number}, sin productos nuevos.")
+        icp.set_param('toptex_last_page', str(page_number + 1))
+        _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-        # Guardar el nuevo offset para el siguiente lote manual
-        icp.set_param('toptex_offset', str(offset + limit))
-        _logger.info(f"✅ OFFSET GUARDADO: {offset + limit}")
-
-    # --- Server Action: Actualizar imágenes por variante (ROBUSTA) ---
-    def sync_variant_images_from_api(self):
-        icp = self.env['ir.config_parameter'].sudo()
-        proxy_url = icp.get_param('toptex_proxy_url')
-        api_key = icp.get_param('toptex_api_key')
-        username = icp.get_param('toptex_username')
-        password = icp.get_param('toptex_password')
-
-        auth_url = f"{proxy_url}/v3/authenticate"
-        headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        token = requests.post(auth_url, json={"username": username, "password": password}, headers=headers).json().get("token")
-        if not token:
-            _logger.error("❌ Error autenticando para imágenes.")
-            return
-
-        headers["x-toptex-authorization"] = token
-        templates = self.search([("default_code", "!=", False)])
-
-        for template in templates:
-            url = f"{proxy_url}/v3/products?catalog_reference={template.default_code}&usage_right=b2b_b2c"
-            resp = requests.get(url, headers=headers)
-            if resp.status_code != 200:
-                _logger.warning(f"❌ Error obteniendo info para {template.default_code}")
-                continue
-            data_json = resp.json()
-            if isinstance(data_json, list) and len(data_json) > 0:
-                data = data_json[0]
-            elif isinstance(data_json, dict) and data_json:
-                data = data_json
-            else:
-                _logger.warning(f"❌ Sin datos para {template.default_code}, saltando.")
-                continue
-            color_imgs = {
-                c.get("colors", {}).get("es"): c.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
-                for c in data.get("colors", [])
-            }
-            for variant in template.product_variant_ids:
-                color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name.lower() == 'color')
-                color = color_val.name if color_val else ""
-                url_img = color_imgs.get(color)
-                if url_img:
-                    image_bin = get_image_binary_from_url(url_img)
-                    if image_bin:
-                        variant.image_1920 = image_bin
-                        _logger.info(f"🖼️ Imagen asignada a variante {variant.default_code}")
-
-    # --- Server Action: Actualizar stock por variante (ROBUSTA) ---
+    # --- Server Action: Stock (Robusta) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -290,13 +246,9 @@ class ProductTemplate(models.Model):
         for template in templates:
             inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={template.default_code}"
             inv_resp = requests.get(inv_url, headers=headers)
-            if inv_resp.status_code != 200:
-                _logger.warning(f"❌ Error obteniendo inventario para {template.default_code}")
-                continue
             try:
-                inventory_items = inv_resp.json().get("items", []) if inv_resp.json() else []
-            except Exception as e:
-                _logger.warning(f"❌ Error procesando inventario JSON para {template.default_code}: {e}")
+                inventory_items = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
+            except Exception:
                 inventory_items = []
 
             for item in inventory_items:
@@ -314,3 +266,54 @@ class ProductTemplate(models.Model):
                         _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
                     else:
                         _logger.warning(f"❌ No se encontró stock.quant para {sku}")
+
+    # --- Server Action: Imágenes por variante (Robusta) ---
+    def sync_variant_images_from_api(self):
+        icp = self.env['ir.config_parameter'].sudo()
+        proxy_url = icp.get_param('toptex_proxy_url')
+        api_key = icp.get_param('toptex_api_key')
+        username = icp.get_param('toptex_username')
+        password = icp.get_param('toptex_password')
+
+        auth_url = f"{proxy_url}/v3/authenticate"
+        headers = {"x-api-key": api_key, "Content-Type": "application/json"}
+        token = requests.post(auth_url, json={"username": username, "password": password}, headers=headers).json().get("token")
+        if not token:
+            _logger.error("❌ Error autenticando para imágenes.")
+            return
+
+        headers["x-toptex-authorization"] = token
+        templates = self.search([("default_code", "!=", False)])
+
+        for template in templates:
+            url = f"{proxy_url}/v3/products?catalog_reference={template.default_code}&usage_right=b2b_b2c"
+            resp = requests.get(url, headers=headers)
+            try:
+                data_json = resp.json()
+            except Exception:
+                _logger.warning(f"❌ Sin datos válidos para {template.default_code}, saltando.")
+                continue
+            if isinstance(data_json, list) and data_json:
+                data = data_json[0]
+            elif isinstance(data_json, dict) and data_json:
+                data = data_json
+            else:
+                _logger.warning(f"❌ Sin datos para {template.default_code}, saltando.")
+                continue
+
+            color_imgs = {}
+            for c in data.get("colors", []):
+                col_name = c.get("colors", {}).get("es") or c.get("colors", {}).get("en")
+                url_pic = c.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
+                if col_name and url_pic:
+                    color_imgs[col_name] = url_pic
+
+            for variant in template.product_variant_ids:
+                color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name.lower() == 'color')
+                color = color_val.name if color_val else ""
+                url_img = color_imgs.get(color)
+                if url_img:
+                    image_bin = get_image_binary_from_url(url_img)
+                    if image_bin:
+                        variant.image_1920 = image_bin
+                        _logger.info(f"🖼️ Imagen asignada a variante {variant.default_code}")
