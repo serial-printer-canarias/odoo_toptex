@@ -224,50 +224,41 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (Solo SKUs válidos de TopTex) ---
+    # ---- SERVER ACTION STOCK (TOPTEX PRO, SOLO VARIANTES REALES) ----
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
-        proxy_url = icp.get_param('toptex_proxy_url')
-        api_key = icp.get_param('toptex_api_key')
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
+        api_key = icp.get_param('toptex_api_key')
+        proxy_url = icp.get_param('toptex_proxy_url')
 
         auth_url = f"{proxy_url}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        token = requests.post(auth_url, json={"username": username, "password": password}, headers=headers).json().get("token")
+        auth_resp = requests.post(auth_url, json={"username": username, "password": password}, headers=headers)
+        token = auth_resp.json().get("token")
         if not token:
             _logger.error("❌ Error autenticando para stock.")
             return
 
         headers["x-toptex-authorization"] = token
-
-        # SOLO variantes cuyo SKU empieza por una letra + número (ejemplo: B10_51146_51145)
-        templates = self.search([("default_code", "!=", False)])
+        templates = self.search([("default_code", "!=", False), ("default_code", "not ilike", "False")])
         StockQuant = self.env['stock.quant']
 
         for template in templates:
-            # Evita plantillas/variante con default_code falso, vacíos o que no sean toptex
-            if not template.default_code or not isinstance(template.default_code, str) or len(template.default_code) < 4:
+            catalog_ref = template.default_code
+            inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_ref}"
+            inv_resp = requests.get(inventory_url, headers=headers)
+            if inv_resp.status_code != 200:
+                _logger.warning(f"❌ Error inventario para {catalog_ref}: {inv_resp.text}")
                 continue
-
-            inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={template.default_code}"
-            inv_resp = requests.get(inv_url, headers=headers)
-            try:
-                inventory_items = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
-            except Exception:
-                inventory_items = []
-
+            inventory_items = inv_resp.json().get("items", [])
             for item in inventory_items:
                 sku = item.get("sku")
-                if not sku or sku is False or sku == "False":
-                    _logger.warning(f"❌ Sin datos para {sku}, saltando.")
-                    continue
-
                 stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
-                variant = template.product_variant_ids.filtered(lambda v: v.default_code == sku)
-                if variant:
+                product = template.product_variant_ids.filtered(lambda v: v.default_code == sku and v.default_code and v.default_code != "False")
+                if product:
                     quant = StockQuant.search([
-                        ('product_id', '=', variant.id),
+                        ('product_id', '=', product.id),
                         ('location_id.usage', '=', 'internal')
                     ], limit=1)
                     if quant:
@@ -276,61 +267,49 @@ class ProductTemplate(models.Model):
                         _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
                     else:
                         _logger.warning(f"❌ No se encontró stock.quant para {sku}")
+                else:
+                    _logger.warning(f"❌ Variante no encontrada para SKU {sku} ({catalog_ref})")
 
-    # --- Server Action: Imágenes por variante (Solo variantes válidas con SKU de TopTex) ---
+    # ---- SERVER ACTION IMÁGENES POR VARIANTE (TOPTEX PRO, SOLO REALES) ----
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
-        proxy_url = icp.get_param('toptex_proxy_url')
-        api_key = icp.get_param('toptex_api_key')
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
+        api_key = icp.get_param('toptex_api_key')
+        proxy_url = icp.get_param('toptex_proxy_url')
 
         auth_url = f"{proxy_url}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        token = requests.post(auth_url, json={"username": username, "password": password}, headers=headers).json().get("token")
+        auth_resp = requests.post(auth_url, json={"username": username, "password": password}, headers=headers)
+        token = auth_resp.json().get("token")
         if not token:
             _logger.error("❌ Error autenticando para imágenes.")
             return
 
         headers["x-toptex-authorization"] = token
-        templates = self.search([("default_code", "!=", False)])
+        templates = self.search([("default_code", "!=", False), ("default_code", "not ilike", "False")])
 
         for template in templates:
-            # SOLO para productos de toptex reales (evita test, demo, etc)
-            if not template.default_code or not isinstance(template.default_code, str) or len(template.default_code) < 4:
+            catalog_ref = template.default_code
+            product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_ref}&usage_right=b2b_b2c"
+            response = requests.get(product_url, headers=headers)
+            if response.status_code != 200:
+                _logger.warning(f"❌ Error imágenes para {catalog_ref}: {response.text}")
                 continue
 
-            url = f"{proxy_url}/v3/products?catalog_reference={template.default_code}&usage_right=b2b_b2c"
-            resp = requests.get(url, headers=headers)
-            try:
-                data_json = resp.json()
-            except Exception:
-                _logger.warning(f"❌ Sin datos válidos para {template.default_code}, saltando.")
-                continue
-            if isinstance(data_json, list) and data_json:
-                data = data_json[0]
-            elif isinstance(data_json, dict) and data_json:
-                data = data_json
-            else:
-                _logger.warning(f"❌ Sin datos para {template.default_code}, saltando.")
-                continue
-
-            color_imgs = {}
-            for c in data.get("colors", []):
-                col_name = c.get("colors", {}).get("es") or c.get("colors", {}).get("en")
-                url_pic = c.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
-                if col_name and url_pic:
-                    color_imgs[col_name] = url_pic
+            data = response.json()[0] if isinstance(response.json(), list) else response.json()
+            colors = data.get("colors", [])
+            color_images = {
+                color.get("colors", {}).get("es", ""): color.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
+                for color in colors
+            }
 
             for variant in template.product_variant_ids:
-                # SOLO variantes con SKU (default_code) válido y distinto de False
-                if not variant.default_code or variant.default_code is False or variant.default_code == "False":
-                    continue
                 color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name.lower() == 'color')
-                color = color_val.name if color_val else ""
-                url_img = color_imgs.get(color)
-                if url_img:
-                    image_bin = get_image_binary_from_url(url_img)
+                color_name = color_val.name if color_val else ""
+                img_url = color_images.get(color_name)
+                if img_url:
+                    image_bin = get_image_binary_from_url(img_url)
                     if image_bin:
                         variant.image_1920 = image_bin
-                        _logger.info(f"🖼️ Imagen asignada a variante {variant.default_code}")
+                        _logger.info(f"🖼️ Imagen FACE asignada a {variant.default_code}")
