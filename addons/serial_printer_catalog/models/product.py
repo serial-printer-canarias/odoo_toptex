@@ -224,7 +224,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # ---- SERVER ACTION STOCK (TOPTEX PRO, SOLO VARIANTES REALES) ----
+    # ---- SERVER ACTION STOCK SOLO PARA PRODUCTOS REALES (SKU TopTex) ----
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
@@ -241,36 +241,42 @@ class ProductTemplate(models.Model):
             return
 
         headers["x-toptex-authorization"] = token
-        templates = self.search([("default_code", "!=", False), ("default_code", "not ilike", "False")])
+
+        # Solo variantes que tienen un SKU REAL TopTex (los tuyos creados)
+        variants = self.env['product.product'].search([
+            ("default_code", "like", "%_%"),  # Sku toptex siempre es algo como BG10_51147_51145, no texto simple
+        ])
         StockQuant = self.env['stock.quant']
 
-        for template in templates:
-            catalog_ref = template.default_code
-            inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_ref}"
-            inv_resp = requests.get(inventory_url, headers=headers)
+        for variant in variants:
+            sku = variant.default_code
+            # Detección de referencia catálogo (primer bloque antes del primer "_")
+            if "_" not in sku:
+                continue
+            catalog_reference = sku.split("_")[0]
+            inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_reference}"
+            inv_resp = requests.get(inv_url, headers=headers)
             if inv_resp.status_code != 200:
-                _logger.warning(f"❌ Error inventario para {catalog_ref}: {inv_resp.text}")
+                _logger.warning(f"❌ No inventario para {catalog_reference}: {inv_resp.text}")
                 continue
             inventory_items = inv_resp.json().get("items", [])
-            for item in inventory_items:
-                sku = item.get("sku")
-                stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
-                product = template.product_variant_ids.filtered(lambda v: v.default_code == sku and v.default_code and v.default_code != "False")
-                if product:
-                    quant = StockQuant.search([
-                        ('product_id', '=', product.id),
-                        ('location_id.usage', '=', 'internal')
-                    ], limit=1)
-                    if quant:
-                        quant.quantity = stock
-                        quant.inventory_quantity = stock
-                        _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
-                    else:
-                        _logger.warning(f"❌ No se encontró stock.quant para {sku}")
-                else:
-                    _logger.warning(f"❌ Variante no encontrada para SKU {sku} ({catalog_ref})")
+            item = next((i for i in inventory_items if i.get("sku") == sku), None)
+            if not item:
+                _logger.warning(f"❌ No inventario TopTex para SKU {sku}")
+                continue
+            stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
+            quant = StockQuant.search([
+                ('product_id', '=', variant.id),
+                ('location_id.usage', '=', 'internal')
+            ], limit=1)
+            if quant:
+                quant.quantity = stock
+                quant.inventory_quantity = stock
+                _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
+            else:
+                _logger.warning(f"❌ No se encontró stock.quant para {sku}")
 
-    # ---- SERVER ACTION IMÁGENES POR VARIANTE (TOPTEX PRO, SOLO REALES) ----
+    # ---- SERVER ACTION IMÁGENES POR VARIANTE SOLO SKU REALES TOPTEX ----
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
@@ -287,29 +293,40 @@ class ProductTemplate(models.Model):
             return
 
         headers["x-toptex-authorization"] = token
-        templates = self.search([("default_code", "!=", False), ("default_code", "not ilike", "False")])
 
-        for template in templates:
-            catalog_ref = template.default_code
-            product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_ref}&usage_right=b2b_b2c"
-            response = requests.get(product_url, headers=headers)
-            if response.status_code != 200:
-                _logger.warning(f"❌ Error imágenes para {catalog_ref}: {response.text}")
+        # Solo variantes con SKU real TopTex
+        variants = self.env['product.product'].search([
+            ("default_code", "like", "%_%"),
+        ])
+
+        for variant in variants:
+            sku = variant.default_code
+            # Detectar referencia catálogo
+            if "_" not in sku:
                 continue
-
-            data = response.json()[0] if isinstance(response.json(), list) else response.json()
+            catalog_reference = sku.split("_")[0]
+            product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c"
+            resp = requests.get(product_url, headers=headers)
+            if resp.status_code != 200:
+                _logger.warning(f"❌ Sin datos producto {catalog_reference}: {resp.text}")
+                continue
+            try:
+                data = resp.json()[0] if isinstance(resp.json(), list) else resp.json()
+            except Exception as e:
+                _logger.warning(f"❌ Error parseando JSON producto {catalog_reference}: {e}")
+                continue
+            # Buscar color exacto
+            color_name = ""
+            color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name.lower() == 'color')
+            if color_val:
+                color_name = color_val.name
             colors = data.get("colors", [])
-            color_images = {
-                color.get("colors", {}).get("es", ""): color.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
-                for color in colors
-            }
-
-            for variant in template.product_variant_ids:
-                color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name.lower() == 'color')
-                color_name = color_val.name if color_val else ""
-                img_url = color_images.get(color_name)
-                if img_url:
-                    image_bin = get_image_binary_from_url(img_url)
-                    if image_bin:
-                        variant.image_1920 = image_bin
-                        _logger.info(f"🖼️ Imagen FACE asignada a {variant.default_code}")
+            color_data = next((c for c in colors if (c.get("colors", {}).get("es") == color_name or c.get("colors", {}).get("en") == color_name)), None)
+            url_img = ""
+            if color_data:
+                url_img = color_data.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
+            if url_img:
+                image_bin = get_image_binary_from_url(url_img)
+                if image_bin:
+                    variant.image_1920 = image_bin
+                    _logger.info(f"🖼️ Imagen FACE asignada a {variant.default_code}")
