@@ -224,109 +224,104 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # ---- SERVER ACTION STOCK SOLO PARA PRODUCTOS REALES (SKU TopTex) ----
+    # --- SERVER ACTION: STOCK SOLO VARIANTES REALES ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
+        proxy_url = icp.get_param('toptex_proxy_url')
+        api_key = icp.get_param('toptex_api_key')
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
-        api_key = icp.get_param('toptex_api_key')
-        proxy_url = icp.get_param('toptex_proxy_url')
 
         auth_url = f"{proxy_url}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        auth_resp = requests.post(auth_url, json={"username": username, "password": password}, headers=headers)
-        token = auth_resp.json().get("token")
+        token = requests.post(auth_url, json={"username": username, "password": password}, headers=headers).json().get("token")
         if not token:
             _logger.error("❌ Error autenticando para stock.")
             return
 
         headers["x-toptex-authorization"] = token
-
-        # Solo variantes que tienen un SKU REAL TopTex (los tuyos creados)
-        variants = self.env['product.product'].search([
-            ("default_code", "like", "%_%"),  # Sku toptex siempre es algo como BG10_51147_51145, no texto simple
+        ProductProduct = self.env['product.product']
+        variants = ProductProduct.search([
+            ("default_code", "!=", False),
+            ("default_code", "like", "%_%"),  # Solo SKUs reales TopTex
         ])
         StockQuant = self.env['stock.quant']
 
         for variant in variants:
             sku = variant.default_code
-            # Detección de referencia catálogo (primer bloque antes del primer "_")
-            if "_" not in sku:
-                continue
+            # Extrae el catalog_reference (ejemplo: BG800_8888_9999 → BG800)
             catalog_reference = sku.split("_")[0]
             inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_reference}"
             inv_resp = requests.get(inv_url, headers=headers)
-            if inv_resp.status_code != 200:
-                _logger.warning(f"❌ No inventario para {catalog_reference}: {inv_resp.text}")
-                continue
-            inventory_items = inv_resp.json().get("items", [])
-            item = next((i for i in inventory_items if i.get("sku") == sku), None)
-            if not item:
-                _logger.warning(f"❌ No inventario TopTex para SKU {sku}")
-                continue
-            stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
-            quant = StockQuant.search([
-                ('product_id', '=', variant.id),
-                ('location_id.usage', '=', 'internal')
-            ], limit=1)
-            if quant:
-                quant.quantity = stock
-                quant.inventory_quantity = stock
-                _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
-            else:
-                _logger.warning(f"❌ No se encontró stock.quant para {sku}")
+            inventory_items = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
 
-    # ---- SERVER ACTION IMÁGENES POR VARIANTE SOLO SKU REALES TOPTEX ----
+            for item in inventory_items:
+                if item.get("sku") != sku:
+                    continue
+                stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
+                quant = StockQuant.search([
+                    ('product_id', '=', variant.id),
+                    ('location_id.usage', '=', 'internal')
+                ], limit=1)
+                if quant:
+                    quant.quantity = stock
+                    quant.inventory_quantity = stock
+                    _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
+                else:
+                    _logger.warning(f"❌ No se encontró stock.quant para {sku}")
+
+    # --- SERVER ACTION: IMÁGENES POR VARIANTE SOLO VARIANTES REALES ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
+        proxy_url = icp.get_param('toptex_proxy_url')
+        api_key = icp.get_param('toptex_api_key')
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
-        api_key = icp.get_param('toptex_api_key')
-        proxy_url = icp.get_param('toptex_proxy_url')
 
         auth_url = f"{proxy_url}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        auth_resp = requests.post(auth_url, json={"username": username, "password": password}, headers=headers)
-        token = auth_resp.json().get("token")
+        token = requests.post(auth_url, json={"username": username, "password": password}, headers=headers).json().get("token")
         if not token:
             _logger.error("❌ Error autenticando para imágenes.")
             return
 
         headers["x-toptex-authorization"] = token
-
-        # Solo variantes con SKU real TopTex
-        variants = self.env['product.product'].search([
-            ("default_code", "like", "%_%"),
+        ProductProduct = self.env['product.product']
+        variants = ProductProduct.search([
+            ("default_code", "!=", False),
+            ("default_code", "like", "%_%"),  # Solo SKUs reales TopTex
         ])
 
         for variant in variants:
             sku = variant.default_code
-            # Detectar referencia catálogo
-            if "_" not in sku:
-                continue
             catalog_reference = sku.split("_")[0]
             product_url = f"{proxy_url}/v3/products?catalog_reference={catalog_reference}&usage_right=b2b_b2c"
             resp = requests.get(product_url, headers=headers)
-            if resp.status_code != 200:
-                _logger.warning(f"❌ Sin datos producto {catalog_reference}: {resp.text}")
-                continue
             try:
-                data = resp.json()[0] if isinstance(resp.json(), list) else resp.json()
-            except Exception as e:
-                _logger.warning(f"❌ Error parseando JSON producto {catalog_reference}: {e}")
+                data_json = resp.json()
+            except Exception:
+                _logger.warning(f"❌ Sin datos válidos para {catalog_reference}, saltando.")
                 continue
-            # Buscar color exacto
-            color_name = ""
+            if isinstance(data_json, list) and data_json:
+                data = data_json[0]
+            elif isinstance(data_json, dict) and data_json:
+                data = data_json
+            else:
+                _logger.warning(f"❌ Sin datos para {catalog_reference}, saltando.")
+                continue
+
+            color_imgs = {}
+            for c in data.get("colors", []):
+                col_name = c.get("colors", {}).get("es") or c.get("colors", {}).get("en")
+                url_pic = c.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
+                if col_name and url_pic:
+                    color_imgs[col_name] = url_pic
+
             color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name.lower() == 'color')
-            if color_val:
-                color_name = color_val.name
-            colors = data.get("colors", [])
-            color_data = next((c for c in colors if (c.get("colors", {}).get("es") == color_name or c.get("colors", {}).get("en") == color_name)), None)
-            url_img = ""
-            if color_data:
-                url_img = color_data.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
+            color = color_val.name if color_val else ""
+            url_img = color_imgs.get(color)
             if url_img:
                 image_bin = get_image_binary_from_url(url_img)
                 if image_bin:
                     variant.image_1920 = image_bin
-                    _logger.info(f"🖼️ Imagen FACE asignada a {variant.default_code}")
+                    _logger.info(f"🖼️ Imagen asignada a variante {variant.default_code}")
