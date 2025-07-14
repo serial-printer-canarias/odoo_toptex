@@ -96,7 +96,8 @@ class ProductTemplate(models.Model):
 
             any_valid = True
 
-            brand = catalog_ref  # Marca visible = ref
+            # Mapeo de marca y nombre sin TopTex
+            brand = catalog_ref  # usamos ref como marca visible
             name_data = data.get("designation", {})
             name = name_data.get("es") or name_data.get("en") or "Producto sin nombre"
             name = name.replace("TopTex", "").strip()
@@ -154,8 +155,8 @@ class ProductTemplate(models.Model):
             template_vals = {
                 'name': full_name,
                 'default_code': catalog_ref,
-                'type': 'consu',           # SOLO CAMBIADO ESTO (antes era 'product')
-                'is_storable': True,       # DEJA ESTO PARA STOCK
+                'type': 'consu',
+                'is_storable': True,
                 'description_sale': description,
                 'categ_id': self.env.ref("product.product_category_all").id,
                 'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
@@ -223,55 +224,59 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- SERVER ACTION: Stock ---
+    # --- SERVER ACTION: STOCK POR VARIANTE (SOLO ESTE BLOQUE MODIFICADO) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
-        proxy_url = icp.get_param('toptex_proxy_url')
-        api_key = icp.get_param('toptex_api_key')
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
+        api_key = icp.get_param('toptex_api_key')
+        proxy_url = icp.get_param('toptex_proxy_url')
 
         auth_url = f"{proxy_url}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        token = requests.post(auth_url, json={"username": username, "password": password}, headers=headers).json().get("token")
+        auth_resp = requests.post(auth_url, json={"username": username, "password": password}, headers=headers)
+        token = auth_resp.json().get("token")
         if not token:
             _logger.error("❌ Error autenticando para stock.")
             return
 
-        headers["x-toptex-authorization"] = token
+        headers.update({"x-toptex-authorization": token})
 
-        # Cambiamos a product.product para coger SKUs reales
-        ProductProduct = self.env['product.product']
+        # Solo variantes con SKU reales de Toptex (formato alfanumérico con guiones, etc.)
+        ProductVariant = self.env['product.product']
+        variants = ProductVariant.search([('default_code', '!=', False)])
+        # Filtra SKUs reales Toptex (más de 5 caracteres y algún número)
+        variants = variants.filtered(lambda v: v.default_code and len(v.default_code) > 5 and any(c.isdigit() for c in v.default_code))
+
         StockQuant = self.env['stock.quant']
-        products = ProductProduct.search([("default_code", "!=", False)])
 
-        for variant in products:
+        for variant in variants:
             sku = variant.default_code
-            # Para cada SKU pedimos inventario al API
-            catalog_ref = sku.split("_")[0] if "_" in sku else sku
-            inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_ref}"
+            # Extraer la referencia principal (catalog_reference) del SKU. Normalmente es la parte antes del primer "_"
+            catalog_reference = sku.split("_")[0]
+            inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_reference}"
             inv_resp = requests.get(inv_url, headers=headers)
+            if inv_resp.status_code != 200:
+                _logger.warning(f"❌ Error al obtener inventario para {catalog_reference}: {inv_resp.text}")
+                continue
             inventory_items = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
-            stock = None
+            stock = 0
             for item in inventory_items:
                 if item.get("sku") == sku:
                     stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
                     break
-            if stock is not None:
-                quant = StockQuant.search([
-                    ('product_id', '=', variant.id),
-                    ('location_id.usage', '=', 'internal')
-                ], limit=1)
-                if quant:
-                    quant.quantity = stock
-                    quant.inventory_quantity = stock
-                    _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
-                else:
-                    _logger.warning(f"❌ No se encontró stock.quant para {sku}")
+            quant = StockQuant.search([
+                ('product_id', '=', variant.id),
+                ('location_id.usage', '=', 'internal')
+            ], limit=1)
+            if quant:
+                quant.quantity = stock
+                quant.inventory_quantity = stock
+                _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
             else:
-                _logger.warning(f"❌ No se encontró stock en API para {sku}")
+                _logger.warning(f"❌ No se encontró stock.quant para {sku}")
 
-    # --- SERVER ACTION: Imágenes por variante ---
+    # --- Server Action: Imágenes por variante ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -287,44 +292,37 @@ class ProductTemplate(models.Model):
             return
 
         headers["x-toptex-authorization"] = token
+        templates = self.search([("default_code", "!=", False)])
 
-        ProductProduct = self.env['product.product']
-        products = ProductProduct.search([("default_code", "!=", False)])
-
-        for variant in products:
-            sku = variant.default_code
-            catalog_ref = sku.split("_")[0] if "_" in sku else sku
-            url = f"{proxy_url}/v3/products?catalog_reference={catalog_ref}&usage_right=b2b_b2c"
+        for template in templates:
+            url = f"{proxy_url}/v3/products?catalog_reference={template.default_code}&usage_right=b2b_b2c"
             resp = requests.get(url, headers=headers)
             try:
                 data_json = resp.json()
             except Exception:
-                _logger.warning(f"❌ Sin datos válidos para {catalog_ref}, saltando.")
+                _logger.warning(f"❌ Sin datos válidos para {template.default_code}, saltando.")
                 continue
             if isinstance(data_json, list) and data_json:
                 data = data_json[0]
             elif isinstance(data_json, dict) and data_json:
                 data = data_json
             else:
-                _logger.warning(f"❌ Sin datos para {catalog_ref}, saltando.")
+                _logger.warning(f"❌ Sin datos para {template.default_code}, saltando.")
                 continue
 
-            # Buscar color exacto por nombre del atributo Odoo
-            color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name.lower() == 'color')
-            color_name = color_val.name if color_val else ""
-            color_img_url = None
+            color_imgs = {}
             for c in data.get("colors", []):
-                c_name = c.get("colors", {}).get("es") or c.get("colors", {}).get("en")
-                if c_name == color_name:
-                    color_img_url = c.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
-                    break
+                col_name = c.get("colors", {}).get("es") or c.get("colors", {}).get("en")
+                url_pic = c.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
+                if col_name and url_pic:
+                    color_imgs[col_name] = url_pic
 
-            if color_img_url:
-                image_bin = get_image_binary_from_url(color_img_url)
-                if image_bin:
-                    variant.image_1920 = image_bin
-                    _logger.info(f"🖼️ Imagen FACE asignada a {variant.default_code}")
-                else:
-                    _logger.warning(f"❌ No se pudo descargar imagen FACE para {variant.default_code}")
-            else:
-                _logger.warning(f"❌ No se encontró imagen FACE para {variant.default_code}")
+            for variant in template.product_variant_ids:
+                color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name.lower() == 'color')
+                color = color_val.name if color_val else ""
+                url_img = color_imgs.get(color)
+                if url_img:
+                    image_bin = get_image_binary_from_url(url_img)
+                    if image_bin:
+                        variant.image_1920 = image_bin
+                        _logger.info(f"🖼️ Imagen asignada a variante {variant.default_code}")
