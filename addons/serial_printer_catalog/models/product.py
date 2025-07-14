@@ -224,7 +224,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (robusta por SKU y creando quant si no existe) ---
+    # --- Server Action: Stock (ajustado SOLO SUMA toptex) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -234,8 +234,7 @@ class ProductTemplate(models.Model):
 
         auth_url = f"{proxy_url}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        auth_resp = requests.post(auth_url, json={"username": username, "password": password}, headers=headers)
-        token = auth_resp.json().get("token")
+        token = requests.post(auth_url, json={"username": username, "password": password}, headers=headers).json().get("token")
         if not token:
             _logger.error("❌ Error autenticando para stock.")
             return
@@ -258,16 +257,21 @@ class ProductTemplate(models.Model):
             except Exception:
                 inventory_items = []
 
+            # Solo suma stock de almacén "toptex"
             stock = 0
             for item in inventory_items:
                 if item.get("sku") == sku:
-                    stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
+                    for w in item.get("warehouses", []):
+                        if w.get("id") == "toptex":
+                            stock = w.get("stock", 0)
+                            break
                     break
 
             quant = StockQuant.search([
                 ('product_id', '=', variant.id),
                 ('location_id.usage', '=', 'internal')
             ], limit=1)
+
             if quant:
                 quant.quantity = stock
                 quant.inventory_quantity = stock
@@ -285,7 +289,7 @@ class ProductTemplate(models.Model):
                 else:
                     _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
 
-    # --- Server Action: Imágenes por variante ---
+    # --- Server Action: Imágenes por variante (igual que antes) ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
