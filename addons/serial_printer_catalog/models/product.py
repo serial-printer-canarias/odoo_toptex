@@ -224,47 +224,42 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (Robusta, ahora con usage_right en la URL) ---
+    # --- SERVER ACTION: STOCK (CATÁLOGO COMPLETO CORREGIDO) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
-        proxy_url = icp.get_param('toptex_proxy_url')
-        api_key = icp.get_param('toptex_api_key')
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
+        api_key = icp.get_param('toptex_api_key')
+        proxy_url = icp.get_param('toptex_proxy_url')
 
         auth_url = f"{proxy_url}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        token = requests.post(auth_url, json={"username": username, "password": password}, headers=headers).json().get("token")
+        auth_resp = requests.post(auth_url, json={"username": username, "password": password}, headers=headers)
+        token = auth_resp.json().get("token")
         if not token:
             _logger.error("❌ Error autenticando para stock.")
             return
 
-        headers["x-toptex-authorization"] = token
-        # MODIFICADO: Se añade usage_right=b2b_b2c a la URL
-        templates = self.env['product.product'].search([("default_code", "!=", False)])
+        headers.update({"x-toptex-authorization": token})
+        templates = self.search([("default_code", "!=", False)])
+
         StockQuant = self.env['stock.quant']
-
-        for variant in templates:
-            # Usar default_code del product.product (SKU de la variante)
-            # Recuperar la plantilla para obtener el catalog_ref
-            template = variant.product_tmpl_id
+        for template in templates:
             catalog_ref = template.default_code
-            if not catalog_ref:
+            inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_ref}&usage_right=b2b_b2c"
+            inv_resp = requests.get(inventory_url, headers=headers)
+            if inv_resp.status_code != 200:
+                _logger.error("❌ Error al obtener inventario: " + inv_resp.text)
                 continue
-            inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_ref}&usage_right=b2b_b2c"
-            inv_resp = requests.get(inv_url, headers=headers)
-            try:
-                inventory_items = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
-            except Exception:
-                inventory_items = []
 
-            # Buscar en el JSON el SKU igual al variant.default_code
+            inventory_items = inv_resp.json().get("items", [])
             for item in inventory_items:
                 sku = item.get("sku")
                 stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
-                if sku == variant.default_code:
+                product = template.product_variant_ids.filtered(lambda v: v.default_code == sku)
+                if product:
                     quant = StockQuant.search([
-                        ('product_id', '=', variant.id),
+                        ('product_id', '=', product.id),
                         ('location_id.usage', '=', 'internal')
                     ], limit=1)
                     if quant:
@@ -273,8 +268,10 @@ class ProductTemplate(models.Model):
                         _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
                     else:
                         _logger.warning(f"❌ No se encontró stock.quant para {sku}")
+                else:
+                    _logger.warning(f"❌ Variante no encontrada para SKU {sku}")
 
-    # --- Server Action: Imágenes por variante (Robusta) ---
+    # --- Server Action: Imágenes por variante (igual que antes) ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
