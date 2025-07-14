@@ -224,59 +224,57 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- SERVER ACTION: STOCK POR VARIANTE (SOLO ESTE BLOQUE MODIFICADO) ---
+    # --- Server Action: Stock (Robusta, ahora con usage_right en la URL) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
+        proxy_url = icp.get_param('toptex_proxy_url')
+        api_key = icp.get_param('toptex_api_key')
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
-        api_key = icp.get_param('toptex_api_key')
-        proxy_url = icp.get_param('toptex_proxy_url')
 
         auth_url = f"{proxy_url}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        auth_resp = requests.post(auth_url, json={"username": username, "password": password}, headers=headers)
-        token = auth_resp.json().get("token")
+        token = requests.post(auth_url, json={"username": username, "password": password}, headers=headers).json().get("token")
         if not token:
             _logger.error("❌ Error autenticando para stock.")
             return
 
-        headers.update({"x-toptex-authorization": token})
-
-        # Solo variantes con SKU reales de Toptex (formato alfanumérico con guiones, etc.)
-        ProductVariant = self.env['product.product']
-        variants = ProductVariant.search([('default_code', '!=', False)])
-        # Filtra SKUs reales Toptex (más de 5 caracteres y algún número)
-        variants = variants.filtered(lambda v: v.default_code and len(v.default_code) > 5 and any(c.isdigit() for c in v.default_code))
-
+        headers["x-toptex-authorization"] = token
+        # MODIFICADO: Se añade usage_right=b2b_b2c a la URL
+        templates = self.env['product.product'].search([("default_code", "!=", False)])
         StockQuant = self.env['stock.quant']
 
-        for variant in variants:
-            sku = variant.default_code
-            # Extraer la referencia principal (catalog_reference) del SKU. Normalmente es la parte antes del primer "_"
-            catalog_reference = sku.split("_")[0]
-            inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_reference}"
-            inv_resp = requests.get(inv_url, headers=headers)
-            if inv_resp.status_code != 200:
-                _logger.warning(f"❌ Error al obtener inventario para {catalog_reference}: {inv_resp.text}")
+        for variant in templates:
+            # Usar default_code del product.product (SKU de la variante)
+            # Recuperar la plantilla para obtener el catalog_ref
+            template = variant.product_tmpl_id
+            catalog_ref = template.default_code
+            if not catalog_ref:
                 continue
-            inventory_items = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
-            stock = 0
-            for item in inventory_items:
-                if item.get("sku") == sku:
-                    stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
-                    break
-            quant = StockQuant.search([
-                ('product_id', '=', variant.id),
-                ('location_id.usage', '=', 'internal')
-            ], limit=1)
-            if quant:
-                quant.quantity = stock
-                quant.inventory_quantity = stock
-                _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
-            else:
-                _logger.warning(f"❌ No se encontró stock.quant para {sku}")
+            inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_ref}&usage_right=b2b_b2c"
+            inv_resp = requests.get(inv_url, headers=headers)
+            try:
+                inventory_items = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
+            except Exception:
+                inventory_items = []
 
-    # --- Server Action: Imágenes por variante ---
+            # Buscar en el JSON el SKU igual al variant.default_code
+            for item in inventory_items:
+                sku = item.get("sku")
+                stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
+                if sku == variant.default_code:
+                    quant = StockQuant.search([
+                        ('product_id', '=', variant.id),
+                        ('location_id.usage', '=', 'internal')
+                    ], limit=1)
+                    if quant:
+                        quant.quantity = stock
+                        quant.inventory_quantity = stock
+                        _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
+                    else:
+                        _logger.warning(f"❌ No se encontró stock.quant para {sku}")
+
+    # --- Server Action: Imágenes por variante (Robusta) ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
