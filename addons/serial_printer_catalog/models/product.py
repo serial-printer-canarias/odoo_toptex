@@ -224,7 +224,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Imágenes por variante (Robusta) ---
+    # --- Server Action: Imágenes por variante (sin tocar, sigue igual) ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -275,7 +275,10 @@ class ProductTemplate(models.Model):
                         variant.image_1920 = image_bin
                         _logger.info(f"🖼️ Imagen asignada a variante {variant.default_code}")
 
-    # ---- SERVER ACTION STOCK GLOBAL (añadir al final de product.py, sin tocar nada más) ----
+# --- Server Action: STOCK por VARIANTE (cambiado a product.product) ---
+class ProductProduct(models.Model):
+    _inherit = 'product.product'
+
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         username = icp.get_param('toptex_username')
@@ -292,35 +295,28 @@ class ProductTemplate(models.Model):
             return
 
         headers.update({"x-toptex-authorization": token})
-        StockQuant = self.env['stock.quant']
-        ProductProduct = self.env['product.product']
 
-        # Solo variantes con SKU real (no productos de prueba de Odoo)
-        variants = ProductProduct.search([
-            ('default_code', '!=', False),
-            ('default_code', 'not ilike', 'FURN'),
-            ('default_code', 'not ilike', 'E-COM'),
-            ('default_code', 'not ilike', 'Delivery'),
-        ])
-        _logger.info(f"Sincronizando stock para {len(variants)} variantes reales de TopTex.")
-
-        for variant in variants:
-            catalog_ref = variant.default_code
-            if not catalog_ref or catalog_ref.lower() == 'false':
+        for variant in self:
+            sku = variant.default_code
+            if not sku:
+                _logger.warning(f"❌ Variante sin SKU (default_code), saltando.")
                 continue
+            # catalog_ref = primer bloque del SKU (ej: 'B10_51145_51146' -> 'B10')
+            catalog_ref = sku.split('_')[0]
             inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_ref}&usage_right=b2b_b2c"
             inv_resp = requests.get(inventory_url, headers=headers)
             if inv_resp.status_code != 200:
-                _logger.warning(f"❌ Error stock {catalog_ref}: {inv_resp.text}")
+                _logger.error(f"❌ Error al obtener inventario para {catalog_ref}: " + inv_resp.text)
                 continue
+
             inventory_items = inv_resp.json().get("items", [])
+            found = False
             for item in inventory_items:
-                sku = item.get("sku")
-                stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
-                prod = ProductProduct.search([('default_code', '=', sku)], limit=1)
-                if prod:
+                if item.get("sku") == sku:
+                    stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
+                    StockQuant = variant.env['stock.quant']
                     quant = StockQuant.search([
-                        ('product_id', '=', prod.id),
+                        ('product_id', '=', variant.id),
                         ('location_id.usage', '=', 'internal')
                     ], limit=1)
                     if quant:
@@ -329,5 +325,7 @@ class ProductTemplate(models.Model):
                         _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
                     else:
                         _logger.warning(f"❌ No se encontró stock.quant para {sku}")
-                else:
-                    _logger.warning(f"❌ Variante no encontrada para SKU {sku}")
+                    found = True
+                    break
+            if not found:
+                _logger.warning(f"❌ SKU {sku} no encontrado en inventario de {catalog_ref}")
