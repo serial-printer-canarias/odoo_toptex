@@ -224,56 +224,6 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- SERVER ACTION: STOCK POR VARIANTE (SKU) CORRECTO ---
-    def sync_stock_from_api(self):
-        icp = self.env['ir.config_parameter'].sudo()
-        username = icp.get_param('toptex_username')
-        password = icp.get_param('toptex_password')
-        api_key = icp.get_param('toptex_api_key')
-        proxy_url = icp.get_param('toptex_proxy_url')
-
-        auth_url = f"{proxy_url}/v3/authenticate"
-        headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        auth_resp = requests.post(auth_url, json={"username": username, "password": password}, headers=headers)
-        token = auth_resp.json().get("token")
-        if not token:
-            _logger.error("❌ Error autenticando para stock.")
-            return
-
-        headers.update({"x-toptex-authorization": token})
-        Product = self.env['product.product']
-        StockQuant = self.env['stock.quant']
-        products = Product.search([("default_code", "!=", False)])
-
-        for variant in products:
-            sku = variant.default_code
-            template = variant.product_tmpl_id
-            catalog_ref = template.default_code
-
-            inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_ref}&usage_right=b2b_b2c"
-            inv_resp = requests.get(inventory_url, headers=headers)
-            if inv_resp.status_code != 200:
-                _logger.error(f"❌ Error al obtener inventario para {catalog_ref}: {inv_resp.text}")
-                continue
-
-            inventory_items = inv_resp.json().get("items", [])
-            item = next((item for item in inventory_items if item.get("sku") == sku), None)
-            if not item:
-                _logger.warning(f"❌ No se encontró item de inventario para SKU {sku}")
-                continue
-
-            stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
-            quant = StockQuant.search([
-                ('product_id', '=', variant.id),
-                ('location_id.usage', '=', 'internal')
-            ], limit=1)
-            if quant:
-                quant.quantity = stock
-                quant.inventory_quantity = stock
-                _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
-            else:
-                _logger.warning(f"❌ No se encontró stock.quant para {sku}")
-
     # --- Server Action: Imágenes por variante (Robusta) ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
@@ -324,3 +274,60 @@ class ProductTemplate(models.Model):
                     if image_bin:
                         variant.image_1920 = image_bin
                         _logger.info(f"🖼️ Imagen asignada a variante {variant.default_code}")
+
+    # ---- SERVER ACTION STOCK GLOBAL (añadir al final de product.py, sin tocar nada más) ----
+    def sync_stock_from_api(self):
+        icp = self.env['ir.config_parameter'].sudo()
+        username = icp.get_param('toptex_username')
+        password = icp.get_param('toptex_password')
+        api_key = icp.get_param('toptex_api_key')
+        proxy_url = icp.get_param('toptex_proxy_url')
+
+        auth_url = f"{proxy_url}/v3/authenticate"
+        headers = {"x-api-key": api_key, "Content-Type": "application/json"}
+        auth_resp = requests.post(auth_url, json={"username": username, "password": password}, headers=headers)
+        token = auth_resp.json().get("token")
+        if not token:
+            _logger.error("❌ Error autenticando para stock.")
+            return
+
+        headers.update({"x-toptex-authorization": token})
+        StockQuant = self.env['stock.quant']
+        ProductProduct = self.env['product.product']
+
+        # Solo variantes con SKU real (no productos de prueba de Odoo)
+        variants = ProductProduct.search([
+            ('default_code', '!=', False),
+            ('default_code', 'not ilike', 'FURN'),
+            ('default_code', 'not ilike', 'E-COM'),
+            ('default_code', 'not ilike', 'Delivery'),
+        ])
+        _logger.info(f"Sincronizando stock para {len(variants)} variantes reales de TopTex.")
+
+        for variant in variants:
+            catalog_ref = variant.default_code
+            if not catalog_ref or catalog_ref.lower() == 'false':
+                continue
+            inventory_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_ref}&usage_right=b2b_b2c"
+            inv_resp = requests.get(inventory_url, headers=headers)
+            if inv_resp.status_code != 200:
+                _logger.warning(f"❌ Error stock {catalog_ref}: {inv_resp.text}")
+                continue
+            inventory_items = inv_resp.json().get("items", [])
+            for item in inventory_items:
+                sku = item.get("sku")
+                stock = sum(w.get("stock", 0) for w in item.get("warehouses", []))
+                prod = ProductProduct.search([('default_code', '=', sku)], limit=1)
+                if prod:
+                    quant = StockQuant.search([
+                        ('product_id', '=', prod.id),
+                        ('location_id.usage', '=', 'internal')
+                    ], limit=1)
+                    if quant:
+                        quant.quantity = stock
+                        quant.inventory_quantity = stock
+                        _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
+                    else:
+                        _logger.warning(f"❌ No se encontró stock.quant para {sku}")
+                else:
+                    _logger.warning(f"❌ Variante no encontrada para SKU {sku}")
