@@ -224,7 +224,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (ajustado SOLO SUMA toptex) ---
+    # --- Server Action: Stock por catalog_reference ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -240,56 +240,57 @@ class ProductTemplate(models.Model):
             return
 
         headers["x-toptex-authorization"] = token
-        ProductProduct = self.env['product.product']
         StockQuant = self.env['stock.quant']
-        products = ProductProduct.search([("default_code", "!=", False)])
 
-        for variant in products:
-            sku = variant.default_code
-            inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={sku}&usage_right=b2b_b2c"
+        # Iteramos todos los product.template con referencia (catalog_reference)
+        for template in self.search([('default_code', '!=', False)]):
+            catalog_ref = template.default_code
+            inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_ref}&usage_right=b2b_b2c"
             inv_resp = requests.get(inv_url, headers=headers)
             if inv_resp.status_code != 200:
-                _logger.warning(f"❌ Error inventario SKU {sku}: {inv_resp.text}")
+                _logger.warning(f"❌ Error inventario REF {catalog_ref}: {inv_resp.text}")
                 continue
-
             try:
                 inventory_items = inv_resp.json().get("items", [])
             except Exception:
                 inventory_items = []
 
-            # Solo suma stock de almacén "toptex"
-            stock = 0
+            # Mapea todos los SKU recibidos con las variantes
             for item in inventory_items:
-                if item.get("sku") == sku:
-                    for w in item.get("warehouses", []):
-                        if w.get("id") == "toptex":
-                            stock = w.get("stock", 0)
-                            break
-                    break
+                sku = item.get("sku")
+                if not sku:
+                    continue
+                stock = 0
+                # Suma solo los almacenes de toptex
+                for wh in item.get("warehouses", []):
+                    if wh.get("id") == "toptex":
+                        stock += wh.get("stock", 0)
+                # Busca la variante por SKU (default_code)
+                variant = template.product_variant_ids.filtered(lambda v: v.default_code == sku)
+                if variant:
+                    for v in variant:
+                        quant = StockQuant.search([
+                            ('product_id', '=', v.id),
+                            ('location_id.usage', '=', 'internal')
+                        ], limit=1)
+                        if quant:
+                            quant.quantity = stock
+                            quant.inventory_quantity = stock
+                            _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
+                        else:
+                            location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
+                            if location:
+                                StockQuant.create({
+                                    'product_id': v.id,
+                                    'location_id': location.id,
+                                    'quantity': stock,
+                                    'inventory_quantity': stock,
+                                })
+                                _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
+                            else:
+                                _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
 
-            quant = StockQuant.search([
-                ('product_id', '=', variant.id),
-                ('location_id.usage', '=', 'internal')
-            ], limit=1)
-
-            if quant:
-                quant.quantity = stock
-                quant.inventory_quantity = stock
-                _logger.info(f"📦 Stock actualizado: {sku} = {stock}")
-            else:
-                location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
-                if location:
-                    StockQuant.create({
-                        'product_id': variant.id,
-                        'location_id': location.id,
-                        'quantity': stock,
-                        'inventory_quantity': stock,
-                    })
-                    _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
-                else:
-                    _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
-
-    # --- Server Action: Imágenes por variante (igual que antes) ---
+    # --- Server Action: Imágenes por variante ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
