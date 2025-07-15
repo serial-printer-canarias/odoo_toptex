@@ -74,8 +74,6 @@ class ProductTemplate(models.Model):
             icp.set_param('toptex_last_page', str(page_number + 1))
             return
 
-        # --------- FIN PAGINACIÓN ---------
-
         processed_refs = set(self.env['product.template'].search([]).mapped('default_code'))
 
         skip_keys = {'items', 'page_number', 'total_count', 'page_size'}
@@ -224,7 +222,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (robusto y corrigiendo el mapeo) ---
+    # --- Server Action: Stock SOLO TOCADO ESTE BLOQUE ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -243,12 +241,10 @@ class ProductTemplate(models.Model):
         ProductProduct = self.env['product.product']
         StockQuant = self.env['stock.quant']
 
-        # SOLO productos de catálogo (con SKU real)
         products = ProductProduct.search([("default_code", "!=", False)])
 
         for variant in products:
             sku = variant.default_code
-            # Llama al endpoint correcto para SKU individual
             inv_url = f"{proxy_url}/v3/products/{sku}/inventory"
             inv_resp = requests.get(inv_url, headers=headers)
             if inv_resp.status_code != 200:
@@ -256,22 +252,26 @@ class ProductTemplate(models.Model):
                 continue
 
             try:
-                data_json = inv_resp.json()
-            except Exception:
-                data_json = {}
+                data = inv_resp.json()
+                # Logs para debug
+                _logger.info(f"SKU {sku} | Warehouses: {data.get('warehouses', [])}")
+            except Exception as e:
+                _logger.warning(f"❌ JSON error SKU {sku}: {str(e)}")
+                continue
 
-            # Mapeo robusto para encontrar el stock de "toptex"
+            # Busca stock solo en 'toptex'
             stock = 0
-            wh_list = data_json.get("warehouses") or []
-            if isinstance(wh_list, list):
-                for wh in wh_list:
-                    # Solo cogemos el stock del almacén con id = 'toptex'
-                    if isinstance(wh, dict) and wh.get("id") == "toptex":
-                        stock = wh.get("stock", 0)
+            warehouses = data.get('warehouses', [])
+            if isinstance(warehouses, list):
+                for wh in warehouses:
+                    if wh.get('id') == 'toptex':
+                        stock = wh.get('stock', 0)
                         break
 
-            _logger.info(f"SKU {sku} | Warehouses: {wh_list} | Stock usado: {stock}")
+            # Debug log
+            _logger.info(f"SKU {sku} | Stock usado: {stock}")
 
+            # Actualiza o crea quant
             quant = StockQuant.search([
                 ('product_id', '=', variant.id),
                 ('location_id.usage', '=', 'internal')
@@ -282,7 +282,6 @@ class ProductTemplate(models.Model):
                 quant.inventory_quantity = stock
                 _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
             else:
-                # CREAR QUANT AUTOMÁTICO SI NO EXISTE
                 location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
                 if location:
                     StockQuant.create({
@@ -295,7 +294,7 @@ class ProductTemplate(models.Model):
                 else:
                     _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
 
-    # --- Server Action: Imágenes por variante (igual que antes) ---
+    # --- Server Action: Imágenes por variante ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
