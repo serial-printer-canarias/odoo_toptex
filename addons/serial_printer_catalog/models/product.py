@@ -56,7 +56,6 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un token válido.")
         headers["x-toptex-authorization"] = token
 
-        # --------- PAGINACIÓN CORRECTA TOPTEX ---------
         page_number = int(icp.get_param('toptex_last_page') or 1)
         page_size = 50
 
@@ -73,8 +72,6 @@ class ProductTemplate(models.Model):
             _logger.info(f"✅ Sin productos nuevos en esta página, fin de proceso.")
             icp.set_param('toptex_last_page', str(page_number + 1))
             return
-
-        # --------- FIN PAGINACIÓN ---------
 
         processed_refs = set(self.env['product.template'].search([]).mapped('default_code'))
 
@@ -96,8 +93,7 @@ class ProductTemplate(models.Model):
 
             any_valid = True
 
-            # Mapeo de marca y nombre sin TopTex
-            brand = catalog_ref  # usamos ref como marca visible
+            brand = catalog_ref
             name_data = data.get("designation", {})
             name = name_data.get("es") or name_data.get("en") or "Producto sin nombre"
             name = name.replace("TopTex", "").strip()
@@ -170,7 +166,6 @@ class ProductTemplate(models.Model):
                 _logger.error(f"❌ Error creando producto {catalog_ref}: {str(e)}")
                 continue
 
-            # Imagen principal
             try:
                 for img in data.get("images", []):
                     img_url = img.get("url_image")
@@ -182,7 +177,6 @@ class ProductTemplate(models.Model):
             except Exception as e:
                 _logger.warning(f"⚠️ No se pudo asignar imagen a {catalog_ref}: {str(e)}")
 
-            # Precios y SKUs
             try:
                 price_url = f"{proxy_url}/v3/products/price?catalog_reference={catalog_ref}"
                 price_resp = requests.get(price_url, headers=headers)
@@ -224,7 +218,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (solo este bloque actualizado y robusto para listas/dict) ---
+    # --- Server Action: Stock (solución final + logs detallados) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -242,6 +236,7 @@ class ProductTemplate(models.Model):
         headers["x-toptex-authorization"] = token
         ProductProduct = self.env['product.product']
         StockQuant = self.env['stock.quant']
+
         products = ProductProduct.search([("default_code", "!=", False)])
 
         for variant in products:
@@ -252,32 +247,18 @@ class ProductTemplate(models.Model):
                 _logger.warning(f"❌ Error inventario SKU {sku}: {inv_resp.text}")
                 continue
 
-            stock = 0
             try:
-                data = inv_resp.json()
-                # Puede ser dict o lista
-                if isinstance(data, list) and len(data) > 0:
-                    data_item = data[0]
-                elif isinstance(data, dict):
-                    data_item = data
-                else:
-                    _logger.warning(f"❌ Inventario inesperado para SKU {sku}: {data}")
-                    continue
-
-                warehouses = data_item.get('warehouses', [])
-                _logger.info(f"SKU {sku} | Warehouses: {warehouses}")
-
-                if isinstance(warehouses, list):
-                    for wh in warehouses:
-                        if wh.get('id') == 'toptex':
-                            stock = wh.get('stock', 0)
-                            break
-
-                _logger.info(f"SKU {sku} | Stock usado: {stock}")
-
+                data_json = inv_resp.json()
+                warehouses = data_json.get("warehouses", [])
+                stock = 0
+                for wh in warehouses:
+                    if isinstance(wh, dict) and wh.get("id") == "toptex":
+                        stock = wh.get("stock", 0)
+                        break
+                _logger.info(f"SKU {sku} Warehouses: {warehouses} | Stock usado: {stock}")
             except Exception as e:
-                _logger.warning(f"❌ JSON error SKU {sku}: {str(e)}")
-                continue
+                _logger.error(f"❌ JSON error SKU {sku}: {e}")
+                stock = 0
 
             quant = StockQuant.search([
                 ('product_id', '=', variant.id),
@@ -351,3 +332,25 @@ class ProductTemplate(models.Model):
                     if image_bin:
                         variant.image_1920 = image_bin
                         _logger.info(f"🖼️ Imagen asignada a variante {variant.default_code}")
+
+    # --- NUEVO: Ajuste masivo de inventario (opcional) ---
+    @api.model
+    def force_inventory_adjustment_for_all(self):
+        """
+        Fuerza el recálculo del stock 'On Hand' para todos los productos que tienen stock.quant.
+        """
+        StockQuant = self.env['stock.quant']
+        ProductProduct = self.env['product.product']
+        internal_location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
+        if not internal_location:
+            _logger.warning("❌ No se encontró ubicación interna para ajustar inventario.")
+            return
+
+        quants = StockQuant.search([('location_id', '=', internal_location.id)])
+        for quant in quants:
+            product = quant.product_id
+            quant.quantity = quant.quantity
+            quant.inventory_quantity = quant.quantity
+            _logger.info(f"🛠️ Ajuste de inventario forzado para {product.default_code} = {quant.quantity}")
+
+        _logger.info("✅ Ajuste de inventario masivo realizado. Ahora Odoo debería mostrar el stock 'On Hand' correctamente.")
