@@ -224,7 +224,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (mapeo robusto por SKU, SOLO stock de "toptex") ---
+    # ---- BLOQUE DE STOCK MODIFICADO ----
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -242,12 +242,10 @@ class ProductTemplate(models.Model):
         headers["x-toptex-authorization"] = token
         ProductProduct = self.env['product.product']
         StockQuant = self.env['stock.quant']
-        # SOLO productos con SKU
         products = ProductProduct.search([("default_code", "!=", False)])
 
         for variant in products:
             sku = variant.default_code
-            # La llamada correcta para UN SKU
             inv_url = f"{proxy_url}/v3/products/{sku}/inventory"
             inv_resp = requests.get(inv_url, headers=headers)
             if inv_resp.status_code != 200:
@@ -255,16 +253,19 @@ class ProductTemplate(models.Model):
                 continue
 
             try:
-                item = inv_resp.json() if inv_resp.json().get("sku") else None
-            except Exception:
-                item = None
+                item = inv_resp.json()
+            except Exception as e:
+                _logger.warning(f"❌ Error parseando JSON de inventario para {sku}: {e}")
+                continue
 
-            # STOCK solo de "toptex"
             stock = 0
-            if item and item.get("warehouses"):
+            if "warehouses" in item and isinstance(item["warehouses"], list):
                 for wh in item["warehouses"]:
                     if wh.get("id") == "toptex":
-                        stock += wh.get("stock", 0)
+                        stock = wh.get("stock", 0)
+                        _logger.info(f"🟢 Encontrado stock para {sku} en toptex: {stock}")
+            else:
+                _logger.warning(f"❗ Sin datos de almacenes para {sku}: {item}")
 
             quant = StockQuant.search([
                 ('product_id', '=', variant.id),
