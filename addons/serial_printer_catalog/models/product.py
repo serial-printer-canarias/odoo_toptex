@@ -218,6 +218,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
+    # --- Server Action: Stock SOLO MODIFICADO Y FUNCIONAL ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -235,35 +236,33 @@ class ProductTemplate(models.Model):
         headers["x-toptex-authorization"] = token
         ProductProduct = self.env['product.product']
         StockQuant = self.env['stock.quant']
-        variants = ProductProduct.search([("default_code", "!=", False)])
+        products = ProductProduct.search([("default_code", "!=", False)])
 
-        for variant in variants:
+        for variant in products:
             sku = variant.default_code
-            if not sku:
-                continue
-
             inv_url = f"{proxy_url}/v3/products/{sku}/inventory"
             resp = requests.get(inv_url, headers=headers)
             if resp.status_code != 200:
                 _logger.warning(f"❌ Error inventario SKU {sku}: {resp.text}")
                 continue
 
-            data = resp.json()
-            if isinstance(data, dict) and "warehouses" in data:
-                warehouses = data.get("warehouses", [])
-            else:
-                warehouses = []
-                items = data.get("items", []) if isinstance(data, dict) else []
-                if items and isinstance(items[0], dict):
-                    warehouses = items[0].get("warehouses", [])
+            try:
+                data = resp.json()
+            except Exception as e:
+                _logger.warning(f"❌ Error leyendo JSON inventario para SKU {sku}: {str(e)}")
+                continue
 
+            # Log bruto para depuración, puedes quitarlo después
+            _logger.info(f"🟣 SKU {sku} | DATA RAW: {json.dumps(data)}")
+
+            # Buscamos el stock SOLO del warehouse "toptex"
             stock = 0
-            for wh in warehouses:
+            for wh in data.get("warehouses", []):
                 if wh.get("id") == "toptex":
                     stock = wh.get("stock", 0)
                     break
 
-            _logger.info(f"🟡 SKU {sku} | Warehouses: {warehouses} | Stock usado: {stock}")
+            _logger.info(f"SKU {sku} | Warehouses: {data.get('warehouses')} | Stock usado: {stock}")
 
             quant = StockQuant.search([
                 ('product_id', '=', variant.id),
@@ -287,6 +286,7 @@ class ProductTemplate(models.Model):
                 else:
                     _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
 
+    # --- Server Action: Imágenes por variante ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
