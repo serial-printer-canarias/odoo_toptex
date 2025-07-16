@@ -218,7 +218,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (mínima modificación para cerrar bien stock) ---
+    # --- Server Action: Stock (AJUSTE FINAL) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -236,15 +236,11 @@ class ProductTemplate(models.Model):
         headers["x-toptex-authorization"] = token
         ProductProduct = self.env['product.product']
         StockQuant = self.env['stock.quant']
-
-        location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
+        InventoryWizard = self.env['stock.change.product.qty']
 
         products = ProductProduct.search([("default_code", "!=", False)])
-        for variant in products:
-            # Refuerzo mínimo: asegurar que siempre está como consumible almacenable
-            if variant.type != 'consu' or not variant.is_storable:
-                variant.write({'type': 'consu', 'is_storable': True})
 
+        for variant in products:
             sku = variant.default_code
             inv_url = f"{proxy_url}/v3/products/{sku}/inventory"
             inv_resp = requests.get(inv_url, headers=headers)
@@ -269,28 +265,22 @@ class ProductTemplate(models.Model):
                 _logger.error(f"❌ JSON error SKU {sku}: {e}")
                 stock = 0
 
-            quant = StockQuant.search([
-                ('product_id', '=', variant.id),
-                ('location_id', '=', location.id)
-            ], limit=1)
+            location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
+            if not location:
+                _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
+                continue
 
-            if quant:
-                quant.quantity = stock
-                quant.inventory_quantity = stock
-                quant.write({'quantity': stock, 'inventory_quantity': stock})
-                quant._onchange_quantity()
-                _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
-            else:
-                if location:
-                    StockQuant.create({
-                        'product_id': variant.id,
-                        'location_id': location.id,
-                        'quantity': stock,
-                        'inventory_quantity': stock,
-                    })
-                    _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
-                else:
-                    _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
+            # --- AJUSTE DE INVENTARIO FORZADO ---
+            try:
+                wizard = InventoryWizard.create({
+                    'product_id': variant.id,
+                    'new_quantity': stock,
+                    'location_id': location.id
+                })
+                wizard.change_product_qty()
+                _logger.info(f"🔁 Ajuste de inventario forzado para {sku}: {stock}")
+            except Exception as e:
+                _logger.error(f"❌ Error forzando inventario SKU {sku}: {e}")
 
     # --- Server Action: Imágenes por variante (sin cambios) ---
     def sync_variant_images_from_api(self):
