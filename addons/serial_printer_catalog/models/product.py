@@ -235,10 +235,15 @@ class ProductTemplate(models.Model):
 
         headers["x-toptex-authorization"] = token
         ProductProduct = self.env['product.product']
+        StockQuant = self.env['stock.quant']
 
         products = ProductProduct.search([("default_code", "!=", False)])
 
         for variant in products:
+            # 🔥 FORZAR 'product' PARA PODER AJUSTAR STOCK 🔥
+            if variant.type != 'product':
+                variant.write({'type': 'product'})
+
             sku = variant.default_code
             inv_url = f"{proxy_url}/v3/products/{sku}/inventory"
             inv_resp = requests.get(inv_url, headers=headers)
@@ -263,23 +268,29 @@ class ProductTemplate(models.Model):
                 _logger.error(f"❌ JSON error SKU {sku}: {e}")
                 stock = 0
 
-            # --- AJUSTE DE INVENTARIO FORZADO: compatible con cualquier Odoo ---
-            try:
-                vals = {
-                    'product_id': variant.id,
-                    'new_quantity': stock
-                }
-                wizard_model = self.env['stock.change.product.qty']
-                # Solo poner location_id si existe como campo en el wizard
-                if 'location_id' in wizard_model.fields_get():
-                    location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
-                    if location:
-                        vals['location_id'] = location.id
-                wizard = wizard_model.create(vals)
-                wizard.change_product_qty()
-                _logger.info(f"🔁 Ajuste de inventario forzado para {sku}: {stock}")
-            except Exception as e:
-                _logger.error(f"❌ Error forzando inventario SKU {sku}: {e}")
+            quant = StockQuant.search([
+                ('product_id', '=', variant.id),
+                ('location_id.usage', '=', 'internal')
+            ], limit=1)
+
+            if quant:
+                quant.quantity = stock
+                quant.inventory_quantity = stock
+                quant.write({'quantity': stock, 'inventory_quantity': stock})
+                quant._onchange_quantity()
+                _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
+            else:
+                location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
+                if location:
+                    StockQuant.create({
+                        'product_id': variant.id,
+                        'location_id': location.id,
+                        'quantity': stock,
+                        'inventory_quantity': stock,
+                    })
+                    _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
+                else:
+                    _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
 
     # --- Server Action: Imágenes por variante (sin cambios) ---
     def sync_variant_images_from_api(self):
