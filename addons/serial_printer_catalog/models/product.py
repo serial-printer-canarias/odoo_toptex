@@ -218,7 +218,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (AJUSTE FINAL) ---
+    # --- Server Action: Stock (solo este bloque modificado) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -235,8 +235,6 @@ class ProductTemplate(models.Model):
 
         headers["x-toptex-authorization"] = token
         ProductProduct = self.env['product.product']
-        StockQuant = self.env['stock.quant']
-        InventoryWizard = self.env['stock.change.product.qty']
 
         products = ProductProduct.search([("default_code", "!=", False)])
 
@@ -265,18 +263,19 @@ class ProductTemplate(models.Model):
                 _logger.error(f"❌ JSON error SKU {sku}: {e}")
                 stock = 0
 
-            location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
-            if not location:
-                _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
-                continue
-
-            # --- AJUSTE DE INVENTARIO FORZADO ---
+            # --- AJUSTE DE INVENTARIO FORZADO: compatible con cualquier Odoo ---
             try:
-                wizard = InventoryWizard.create({
+                vals = {
                     'product_id': variant.id,
-                    'new_quantity': stock,
-                    'location_id': location.id
-                })
+                    'new_quantity': stock
+                }
+                wizard_model = self.env['stock.change.product.qty']
+                # Solo poner location_id si existe como campo en el wizard
+                if 'location_id' in wizard_model.fields_get():
+                    location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
+                    if location:
+                        vals['location_id'] = location.id
+                wizard = wizard_model.create(vals)
                 wizard.change_product_qty()
                 _logger.info(f"🔁 Ajuste de inventario forzado para {sku}: {stock}")
             except Exception as e:
