@@ -218,7 +218,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (solo MODIFICADA esta función) ---
+    # --- Server Action: Stock (mínima modificación para cerrar bien stock) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -237,9 +237,14 @@ class ProductTemplate(models.Model):
         ProductProduct = self.env['product.product']
         StockQuant = self.env['stock.quant']
 
-        products = ProductProduct.search([("default_code", "!=", False)])
+        location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
 
+        products = ProductProduct.search([("default_code", "!=", False)])
         for variant in products:
+            # Refuerzo mínimo: asegurar que siempre está como consumible almacenable
+            if variant.type != 'consu' or not variant.is_storable:
+                variant.write({'type': 'consu', 'is_storable': True})
+
             sku = variant.default_code
             inv_url = f"{proxy_url}/v3/products/{sku}/inventory"
             inv_resp = requests.get(inv_url, headers=headers)
@@ -266,17 +271,16 @@ class ProductTemplate(models.Model):
 
             quant = StockQuant.search([
                 ('product_id', '=', variant.id),
-                ('location_id.usage', '=', 'internal')
+                ('location_id', '=', location.id)
             ], limit=1)
 
             if quant:
                 quant.quantity = stock
                 quant.inventory_quantity = stock
                 quant.write({'quantity': stock, 'inventory_quantity': stock})
-                quant._onchange_quantity()  # Forzar ajuste
+                quant._onchange_quantity()
                 _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
             else:
-                location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
                 if location:
                     StockQuant.create({
                         'product_id': variant.id,
