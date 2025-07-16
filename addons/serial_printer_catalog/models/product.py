@@ -218,7 +218,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (solución final + logs detallados) ---
+    # --- Server Action: Stock (solo MODIFICADA esta función) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -249,7 +249,11 @@ class ProductTemplate(models.Model):
 
             try:
                 data_json = inv_resp.json()
-                warehouses = data_json.get("warehouses", [])
+                warehouses = []
+                if isinstance(data_json, dict):
+                    warehouses = data_json.get("warehouses", [])
+                elif isinstance(data_json, list) and data_json and isinstance(data_json[0], dict):
+                    warehouses = data_json[0].get("warehouses", [])
                 stock = 0
                 for wh in warehouses:
                     if isinstance(wh, dict) and wh.get("id") == "toptex":
@@ -268,6 +272,8 @@ class ProductTemplate(models.Model):
             if quant:
                 quant.quantity = stock
                 quant.inventory_quantity = stock
+                quant.write({'quantity': stock, 'inventory_quantity': stock})
+                quant._onchange_quantity()  # Forzar ajuste
                 _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
             else:
                 location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
@@ -282,7 +288,7 @@ class ProductTemplate(models.Model):
                 else:
                     _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
 
-    # --- Server Action: Imágenes por variante (igual que antes) ---
+    # --- Server Action: Imágenes por variante (sin cambios) ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -332,25 +338,3 @@ class ProductTemplate(models.Model):
                     if image_bin:
                         variant.image_1920 = image_bin
                         _logger.info(f"🖼️ Imagen asignada a variante {variant.default_code}")
-
-    # --- NUEVO: Ajuste masivo de inventario (opcional) ---
-    @api.model
-    def force_inventory_adjustment_for_all(self):
-        """
-        Fuerza el recálculo del stock 'On Hand' para todos los productos que tienen stock.quant.
-        """
-        StockQuant = self.env['stock.quant']
-        ProductProduct = self.env['product.product']
-        internal_location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
-        if not internal_location:
-            _logger.warning("❌ No se encontró ubicación interna para ajustar inventario.")
-            return
-
-        quants = StockQuant.search([('location_id', '=', internal_location.id)])
-        for quant in quants:
-            product = quant.product_id
-            quant.quantity = quant.quantity
-            quant.inventory_quantity = quant.quantity
-            _logger.info(f"🛠️ Ajuste de inventario forzado para {product.default_code} = {quant.quantity}")
-
-        _logger.info("✅ Ajuste de inventario masivo realizado. Ahora Odoo debería mostrar el stock 'On Hand' correctamente.")
