@@ -151,8 +151,8 @@ class ProductTemplate(models.Model):
             template_vals = {
                 'name': full_name,
                 'default_code': catalog_ref,
-                'type': 'consu',  # ¡NO cambiar a 'product'!
-                'is_storable': True,  # Esto permite stock aunque sea consu
+                'type': 'consu',
+                'is_storable': True,
                 'description_sale': description,
                 'categ_id': self.env.ref("product.product_category_all").id,
                 'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
@@ -218,7 +218,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (MODIFICADA SOLO PARA CONTROL DE CONSUs CON STOCK) ---
+    # --- Server Action: Stock (solo refuerzo añadido aquí) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -240,11 +240,6 @@ class ProductTemplate(models.Model):
         products = ProductProduct.search([("default_code", "!=", False)])
 
         for variant in products:
-            # Solo ajustar stock si es tipo consu y almacenable
-            if variant.product_tmpl_id.type != 'consu' or not getattr(variant.product_tmpl_id, 'is_storable', False):
-                _logger.info(f"⏩ Skip {variant.default_code} (type={variant.product_tmpl_id.type}, is_storable={getattr(variant.product_tmpl_id, 'is_storable', False)})")
-                continue
-
             sku = variant.default_code
             inv_url = f"{proxy_url}/v3/products/{sku}/inventory"
             inv_resp = requests.get(inv_url, headers=headers)
@@ -269,6 +264,7 @@ class ProductTemplate(models.Model):
                 _logger.error(f"❌ JSON error SKU {sku}: {e}")
                 stock = 0
 
+            # --- AJUSTE CLAVE ---
             quant = StockQuant.search([
                 ('product_id', '=', variant.id),
                 ('location_id.usage', '=', 'internal')
@@ -278,10 +274,8 @@ class ProductTemplate(models.Model):
                 quant.quantity = stock
                 quant.inventory_quantity = stock
                 quant.write({'quantity': stock, 'inventory_quantity': stock})
-                try:
-                    quant._onchange_quantity()
-                except Exception:
-                    pass
+                quant._onchange_quantity()  # Forzar ajuste
+                variant._compute_quantities()  # <- REFUERZO para que se vea el stock "On Hand"
                 _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
             else:
                 location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
@@ -292,11 +286,12 @@ class ProductTemplate(models.Model):
                         'quantity': stock,
                         'inventory_quantity': stock,
                     })
+                    variant._compute_quantities()  # <- REFUERZO también aquí
                     _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
                 else:
                     _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
 
-    # --- Server Action: Imágenes por variante (SIN CAMBIOS) ---
+    # --- Server Action: Imágenes por variante (sin cambios) ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
