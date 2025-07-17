@@ -93,7 +93,6 @@ class ProductTemplate(models.Model):
 
             any_valid = True
 
-            brand = catalog_ref
             name_data = data.get("designation", {})
             name = name_data.get("es") or name_data.get("en") or "Producto sin nombre"
             name = name.replace("TopTex", "").strip()
@@ -151,8 +150,8 @@ class ProductTemplate(models.Model):
             template_vals = {
                 'name': full_name,
                 'default_code': catalog_ref,
-                'type': 'consu',
-                'is_storable': True,
+                'type': 'consu',         # SIEMPRE CONSUSMIBLE
+                'is_storable': True,     # SIEMPRE GESTIONA STOCK
                 'description_sale': description,
                 'categ_id': self.env.ref("product.product_category_all").id,
                 'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
@@ -218,7 +217,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (ajustado solo almacenable) ---
+    # --- Server Action: Stock (ajustado SOLO consu+is_storable) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -239,8 +238,8 @@ class ProductTemplate(models.Model):
 
         products = ProductProduct.search([("default_code", "!=", False)])
         for variant in products:
-            # --- Solo almacenable tipo product ---
-            if variant.type != 'product' or not variant.product_tmpl_id.is_storable:
+            # --- SOLO consu + almacenable (como tus logs) ---
+            if variant.type != 'consu' or not variant.product_tmpl_id.is_storable:
                 _logger.info(f"⏭️ Skip {variant.default_code} (type={variant.type}, is_storable={variant.product_tmpl_id.is_storable})")
                 continue
 
