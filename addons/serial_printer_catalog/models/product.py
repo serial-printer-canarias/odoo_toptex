@@ -218,7 +218,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (solo refuerzo añadido aquí) ---
+    # --- Server Action: Stock (ajustado solo almacenable) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -238,8 +238,12 @@ class ProductTemplate(models.Model):
         StockQuant = self.env['stock.quant']
 
         products = ProductProduct.search([("default_code", "!=", False)])
-
         for variant in products:
+            # --- Solo almacenable tipo product ---
+            if variant.type != 'product' or not variant.product_tmpl_id.is_storable:
+                _logger.info(f"⏭️ Skip {variant.default_code} (type={variant.type}, is_storable={variant.product_tmpl_id.is_storable})")
+                continue
+
             sku = variant.default_code
             inv_url = f"{proxy_url}/v3/products/{sku}/inventory"
             inv_resp = requests.get(inv_url, headers=headers)
@@ -264,7 +268,6 @@ class ProductTemplate(models.Model):
                 _logger.error(f"❌ JSON error SKU {sku}: {e}")
                 stock = 0
 
-            # --- AJUSTE CLAVE ---
             quant = StockQuant.search([
                 ('product_id', '=', variant.id),
                 ('location_id.usage', '=', 'internal')
@@ -274,8 +277,7 @@ class ProductTemplate(models.Model):
                 quant.quantity = stock
                 quant.inventory_quantity = stock
                 quant.write({'quantity': stock, 'inventory_quantity': stock})
-                quant._onchange_quantity()  # Forzar ajuste
-                variant._compute_quantities()  # <- REFUERZO para que se vea el stock "On Hand"
+                quant._onchange_quantity()
                 _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
             else:
                 location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
@@ -286,7 +288,6 @@ class ProductTemplate(models.Model):
                         'quantity': stock,
                         'inventory_quantity': stock,
                     })
-                    variant._compute_quantities()  # <- REFUERZO también aquí
                     _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
                 else:
                     _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
