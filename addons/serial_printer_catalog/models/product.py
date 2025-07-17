@@ -93,6 +93,7 @@ class ProductTemplate(models.Model):
 
             any_valid = True
 
+            brand = catalog_ref
             name_data = data.get("designation", {})
             name = name_data.get("es") or name_data.get("en") or "Producto sin nombre"
             name = name.replace("TopTex", "").strip()
@@ -150,8 +151,8 @@ class ProductTemplate(models.Model):
             template_vals = {
                 'name': full_name,
                 'default_code': catalog_ref,
-                'type': 'consu',         # SIEMPRE CONSUSMIBLE
-                'is_storable': True,     # SIEMPRE GESTIONA STOCK
+                'type': 'consu',  # SIEMPRE CONSUNABLE
+                'is_storable': True,
                 'description_sale': description,
                 'categ_id': self.env.ref("product.product_category_all").id,
                 'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
@@ -217,7 +218,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (ajustado SOLO consu+is_storable) ---
+    # --- Server Action: Stock SOLO CONSUNABLE, FORZANDO INVENTARIO ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -238,7 +239,7 @@ class ProductTemplate(models.Model):
 
         products = ProductProduct.search([("default_code", "!=", False)])
         for variant in products:
-            # --- SOLO consu + almacenable (como tus logs) ---
+            # SOLO TIPO consu Y is_storable=True
             if variant.type != 'consu' or not variant.product_tmpl_id.is_storable:
                 _logger.info(f"⏭️ Skip {variant.default_code} (type={variant.type}, is_storable={variant.product_tmpl_id.is_storable})")
                 continue
@@ -277,16 +278,18 @@ class ProductTemplate(models.Model):
                 quant.inventory_quantity = stock
                 quant.write({'quantity': stock, 'inventory_quantity': stock})
                 quant._onchange_quantity()
+                quant.action_apply_inventory()  # FORZAR INVENTARIO
                 _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
             else:
                 location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
                 if location:
-                    StockQuant.create({
+                    quant = StockQuant.create({
                         'product_id': variant.id,
                         'location_id': location.id,
                         'quantity': stock,
                         'inventory_quantity': stock,
                     })
+                    quant.action_apply_inventory()  # FORZAR INVENTARIO
                     _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
                 else:
                     _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
