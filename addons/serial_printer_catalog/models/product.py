@@ -151,8 +151,8 @@ class ProductTemplate(models.Model):
             template_vals = {
                 'name': full_name,
                 'default_code': catalog_ref,
-                'type': 'consu',  # SIEMPRE CONSUNABLE
-                'is_storable': True,
+                'type': 'consu',               # <-- Siempre consu
+                'is_storable': True,           # <-- Siempre almacenable
                 'description_sale': description,
                 'categ_id': self.env.ref("product.product_category_all").id,
                 'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
@@ -218,7 +218,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock SOLO CONSUNABLE, FORZANDO INVENTARIO ---
+    # --- Server Action: Stock (solo consu almacenable, sin _onchange_quantity) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -239,7 +239,7 @@ class ProductTemplate(models.Model):
 
         products = ProductProduct.search([("default_code", "!=", False)])
         for variant in products:
-            # SOLO TIPO consu Y is_storable=True
+            # --- Solo consu y almacenable ---
             if variant.type != 'consu' or not variant.product_tmpl_id.is_storable:
                 _logger.info(f"⏭️ Skip {variant.default_code} (type={variant.type}, is_storable={variant.product_tmpl_id.is_storable})")
                 continue
@@ -277,24 +277,21 @@ class ProductTemplate(models.Model):
                 quant.quantity = stock
                 quant.inventory_quantity = stock
                 quant.write({'quantity': stock, 'inventory_quantity': stock})
-                quant._onchange_quantity()
-                quant.action_apply_inventory()  # FORZAR INVENTARIO
                 _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
             else:
                 location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
                 if location:
-                    quant = StockQuant.create({
+                    StockQuant.create({
                         'product_id': variant.id,
                         'location_id': location.id,
                         'quantity': stock,
                         'inventory_quantity': stock,
                     })
-                    quant.action_apply_inventory()  # FORZAR INVENTARIO
                     _logger.info(f"✅ stock.quant creado y actualizado para {sku}: {stock}")
                 else:
                     _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
 
-    # --- Server Action: Imágenes por variante (sin cambios) ---
+    # --- Server Action: Imágenes por variante ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
