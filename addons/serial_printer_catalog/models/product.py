@@ -5,7 +5,7 @@ import requests
 import base64
 import io
 from PIL import Image
-from odoo import models, api
+from odoo import models, api, fields
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
@@ -30,6 +30,24 @@ def get_image_binary_from_url(url):
     except Exception as e:
         _logger.warning(f"❌ Error al procesar imagen desde {url}: {str(e)}")
     return None
+
+class ProductProduct(models.Model):
+    _inherit = 'product.product'
+
+    display_on_hand = fields.Float(
+        string="Stock Disponible",
+        compute="_compute_display_on_hand",
+        store=False
+    )
+
+    @api.depends('id')
+    def _compute_display_on_hand(self):
+        for product in self:
+            quant = self.env['stock.quant'].search([
+                ('product_id', '=', product.id),
+                ('location_id.usage', '=', 'internal')
+            ])
+            product.display_on_hand = sum(q.quantity for q in quant)
 
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
@@ -151,8 +169,8 @@ class ProductTemplate(models.Model):
             template_vals = {
                 'name': full_name,
                 'default_code': catalog_ref,
-                'type': 'consu',               # <-- Siempre consu
-                'is_storable': True,           # <-- Siempre almacenable
+                'type': 'consu',
+                'is_storable': True,
                 'description_sale': description,
                 'categ_id': self.env.ref("product.product_category_all").id,
                 'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
@@ -218,7 +236,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (solo consu almacenable, sin _onchange_quantity) ---
+    # --- Server Action: Stock (ajustado solo almacenable) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -239,7 +257,7 @@ class ProductTemplate(models.Model):
 
         products = ProductProduct.search([("default_code", "!=", False)])
         for variant in products:
-            # --- Solo consu y almacenable ---
+            # --- Solo almacenable tipo consu ---
             if variant.type != 'consu' or not variant.product_tmpl_id.is_storable:
                 _logger.info(f"⏭️ Skip {variant.default_code} (type={variant.type}, is_storable={variant.product_tmpl_id.is_storable})")
                 continue
@@ -291,7 +309,7 @@ class ProductTemplate(models.Model):
                 else:
                     _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
 
-    # --- Server Action: Imágenes por variante ---
+    # --- Server Action: Imágenes por variante (sin cambios) ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
