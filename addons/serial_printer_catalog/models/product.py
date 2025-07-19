@@ -218,7 +218,7 @@ class ProductTemplate(models.Model):
         icp.set_param('toptex_last_page', str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
-    # --- Server Action: Stock (ajustada para On Hand/B2B) ---
+    # --- Server Action: Stock (solo consu almacenable, siempre WH/Stock) ---
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -237,9 +237,12 @@ class ProductTemplate(models.Model):
         ProductProduct = self.env['product.product']
         StockQuant = self.env['stock.quant']
 
+        # ---- OJO: Usar siempre la ubicación interna PRINCIPAL del almacén principal ----
+        warehouse = self.env['stock.warehouse'].search([], limit=1)
+        location = warehouse.lot_stock_id if warehouse else self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
+
         products = ProductProduct.search([("default_code", "!=", False)])
         for variant in products:
-            # --- Solo consu y almacenable ---
             if variant.type != 'consu' or not variant.product_tmpl_id.is_storable:
                 _logger.info(f"⏭️ Skip {variant.default_code} (type={variant.type}, is_storable={variant.product_tmpl_id.is_storable})")
                 continue
@@ -270,24 +273,23 @@ class ProductTemplate(models.Model):
 
             quant = StockQuant.search([
                 ('product_id', '=', variant.id),
-                ('location_id.usage', '=', 'internal')
+                ('location_id', '=', location.id)
             ], limit=1)
 
-            vals = {
-                'quantity': stock,
-                'inventory_quantity': stock,
-                'reserved_quantity': 0,  # <-- Esto soluciona el On Hand en web y B2B
-            }
-
             if quant:
-                quant.write(vals)
-                _logger.info(f"✅ stock.quant actualizado para {sku}: {stock}")
+                quant.quantity = stock
+                quant.inventory_quantity = stock
+                quant.write({'quantity': stock, 'inventory_quantity': stock})
+                _logger.info(f"✅ stock.quant creado y actualizado para {sku} en WH/Stock: {stock}")
             else:
-                location = self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
                 if location:
-                    vals.update({'product_id': variant.id, 'location_id': location.id})
-                    StockQuant.create(vals)
-                    _logger.info(f"✅ stock.quant creado para {sku}: {stock}")
+                    StockQuant.create({
+                        'product_id': variant.id,
+                        'location_id': location.id,
+                        'quantity': stock,
+                        'inventory_quantity': stock,
+                    })
+                    _logger.info(f"✅ stock.quant creado y actualizado para {sku} en WH/Stock: {stock}")
                 else:
                     _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
 
