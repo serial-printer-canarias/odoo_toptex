@@ -4,6 +4,7 @@ import logging
 import requests
 import base64
 import io
+import unicodedata
 from PIL import Image
 from odoo import models, api
 from odoo.exceptions import UserError
@@ -13,7 +14,7 @@ _logger = logging.getLogger(__name__)
 def get_image_binary_from_url(url):
     try:
         _logger.info(f"🖼️ Descargando imagen desde {url}")
-        response = requests.get(url, stream=True, timeout=10)
+        response = requests.get(url, stream=True, timeout=20)
         if response.status_code == 200 and "image" in response.headers.get("Content-Type", ""):
             image = Image.open(io.BytesIO(response.content))
             if image.mode in ('RGBA', 'LA'):
@@ -30,6 +31,15 @@ def get_image_binary_from_url(url):
     except Exception as e:
         _logger.warning(f"❌ Error al procesar imagen desde {url}: {str(e)}")
     return None
+
+def _norm(txt):
+    if not txt:
+        return ""
+    if not isinstance(txt, str):
+        txt = str(txt)
+    txt = unicodedata.normalize('NFKD', txt)
+    txt = "".join(c for c in txt if not unicodedata.combining(c))
+    return txt.strip().lower()
 
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
@@ -93,7 +103,6 @@ class ProductTemplate(models.Model):
 
             any_valid = True
 
-            brand = catalog_ref
             name_data = data.get("designation", {})
             name = name_data.get("es") or name_data.get("en") or "Producto sin nombre"
             name = name.replace("TopTex", "").strip()
@@ -151,8 +160,8 @@ class ProductTemplate(models.Model):
             template_vals = {
                 'name': full_name,
                 'default_code': catalog_ref,
-                'type': 'consu',               # <-- Siempre consu
-                'is_storable': True,           # <-- Siempre almacenable
+                'type': 'consu',               # Siempre consu
+                'is_storable': True,           # Siempre almacenable
                 'description_sale': description,
                 'categ_id': self.env.ref("product.product_category_all").id,
                 'attribute_line_ids': [(0, 0, line) for line in attribute_lines],
@@ -181,6 +190,7 @@ class ProductTemplate(models.Model):
                 price_url = f"{proxy_url}/v3/products/price?catalog_reference={catalog_ref}"
                 price_resp = requests.get(price_url, headers=headers)
                 price_data = price_resp.json().get("items", []) if price_resp.status_code == 200 else []
+
                 def get_price_cost(color, size):
                     for item in price_data:
                         if item.get("color") == color and item.get("size") == size:
@@ -192,6 +202,7 @@ class ProductTemplate(models.Model):
                 inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_ref}"
                 inv_resp = requests.get(inv_url, headers=headers)
                 inventory_items = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
+
                 def get_sku(color, size):
                     for item in inventory_items:
                         if item.get("color") == color and item.get("size") == size:
@@ -237,7 +248,6 @@ class ProductTemplate(models.Model):
         ProductProduct = self.env['product.product']
         StockQuant = self.env['stock.quant']
 
-        # ---- OJO: Usar siempre la ubicación interna PRINCIPAL del almacén principal ----
         warehouse = self.env['stock.warehouse'].search([], limit=1)
         location = warehouse.lot_stock_id if warehouse else self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
 
@@ -293,7 +303,7 @@ class ProductTemplate(models.Model):
                 else:
                     _logger.warning(f"❌ No se encontró ubicación interna para crear quant para {sku}")
 
-    # --- Server Action: Imágenes por variante ---
+    # --- Server Action: Imágenes por variante (MEJORADA) ---
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
         proxy_url = icp.get_param('toptex_proxy_url')
@@ -311,35 +321,101 @@ class ProductTemplate(models.Model):
         headers["x-toptex-authorization"] = token
         templates = self.search([("default_code", "!=", False)])
 
+        def best_packshot(color_node):
+            # Orden de preferencia: FACE / PACKSHOT / FRONT / MAIN
+            ps = color_node.get("packshots") or {}
+            for key in ("FACE", "PACKSHOT", "FRONT", "MAIN"):
+                try_url = (ps.get(key) or {}).get("url_packshot")
+                if try_url:
+                    return try_url
+            # Buscar en images con rol
+            for img in (color_node.get("images") or []):
+                role = _norm(img.get("role") or img.get("type"))
+                if role in ("face", "packshot", "front", "main"):
+                    u = img.get("url_image") or img.get("url")
+                    if u:
+                        return u
+            # Fallback: primera imagen disponible
+            imgs = color_node.get("images") or []
+            if imgs:
+                return imgs[0].get("url_image") or imgs[0].get("url")
+            return None
+
         for template in templates:
+            # Pide el producto por catalog_reference
             url = f"{proxy_url}/v3/products?catalog_reference={template.default_code}&usage_right=b2b_b2c"
-            resp = requests.get(url, headers=headers)
+            resp = requests.get(url, headers=headers, timeout=20)
+
             try:
                 data_json = resp.json()
             except Exception:
-                _logger.warning(f"❌ Sin datos válidos para {template.default_code}, saltando.")
+                _logger.warning(f"❌ Respuesta no JSON para {template.default_code}, saltando.")
                 continue
-            if isinstance(data_json, list) and data_json:
-                data = data_json[0]
+
+            # Estructuras posibles: lista, dict con 'items', dict directo
+            items = []
+            if isinstance(data_json, dict) and data_json.get("items"):
+                items = data_json["items"]
+            elif isinstance(data_json, list):
+                items = data_json
             elif isinstance(data_json, dict) and data_json:
-                data = data_json
-            else:
+                items = [data_json]
+
+            if not items:
                 _logger.warning(f"❌ Sin datos para {template.default_code}, saltando.")
                 continue
 
-            color_imgs = {}
-            for c in data.get("colors", []):
-                col_name = c.get("colors", {}).get("es") or c.get("colors", {}).get("en")
-                url_pic = c.get("packshots", {}).get("FACE", {}).get("url_packshot", "")
-                if col_name and url_pic:
-                    color_imgs[col_name] = url_pic
+            data = items[0]
 
+            # Construir mapa color -> url con claves normalizadas (ES/EN/FR + código)
+            color_to_url = {}
+            for c in data.get("colors", []) or []:
+                # Recolectar posibles nombres/códigos
+                names = []
+                colors_dict = c.get("colors") or {}
+                if isinstance(colors_dict, dict):
+                    names += [colors_dict.get("es"), colors_dict.get("en"), colors_dict.get("fr"), colors_dict.get("name")]
+                # algunos catálogos usan 'color'/'code'/'colorCode'
+                for k in ("color", "code", "colorCode"):
+                    if c.get(k):
+                        names.append(c.get(k))
+                # elegir mejor url
+                url_img = best_packshot(c)
+                if not url_img:
+                    continue
+                for n in filter(None, names):
+                    color_to_url[_norm(n)] = url_img
+
+            if not color_to_url:
+                _logger.warning(f"⚠️ {template.default_code}: no se encontraron packshots por color.")
+                continue
+
+            # Asignar por variante según atributo Color
             for variant in template.product_variant_ids:
-                color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name.lower() == 'color')
-                color = color_val.name if color_val else ""
-                url_img = color_imgs.get(color)
-                if url_img:
+                color_val = variant.product_template_attribute_value_ids.filtered(
+                    lambda v: _norm(v.attribute_id.name) == 'color'
+                )
+                color_name = _norm(color_val.name if color_val else "")
+                if not color_name:
+                    _logger.info(f"⏭️ {variant.default_code}: variante sin valor de Color.")
+                    continue
+
+                # match exacto o aproximado (contiene)
+                url_img = color_to_url.get(color_name)
+                if not url_img:
+                    for k, u in color_to_url.items():
+                        if color_name in k or k in color_name:
+                            url_img = u
+                            break
+
+                if not url_img:
+                    _logger.info(f"🔎 {template.default_code}/{variant.default_code}: sin imagen para color '{color_name}'.")
+                    continue
+
+                try:
                     image_bin = get_image_binary_from_url(url_img)
                     if image_bin:
                         variant.image_1920 = image_bin
-                        _logger.info(f"🖼️ Imagen asignada a variante {variant.default_code}")
+                        _logger.info(f"🖼️ Imagen asignada a variante {variant.default_code} ({color_val.name})")
+                except Exception as e:
+                    _logger.warning(f"⚠️ Falló asignación de imagen a {variant.default_code}: {e}")
