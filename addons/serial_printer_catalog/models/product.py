@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 import io
-import time
+import re
 import json
+import time
 import base64
 import logging
 import requests
 from PIL import Image
+from difflib import get_close_matches
 
 from odoo import models, api
 from odoo.exceptions import UserError
@@ -13,16 +15,83 @@ from odoo.exceptions import UserError
 _logger = logging.getLogger(__name__)
 
 
-# -------------------------------------------------
-# Utils
-# -------------------------------------------------
+# -------------------------------
+# Utilidades de imágenes/colores
+# -------------------------------
+def _normalize_color_name(name: str) -> str:
+    if not name:
+        return ""
+    s = name.strip().lower()
+    s = re.sub(r"\(.*?\)", "", s)        # quita paréntesis
+    s = s.split("/")[0]                  # quita textos tras '/'
+    repl = {"ó":"o","á":"a","é":"e","í":"i","ú":"u","-":" ","_":" "}
+    for k, v in repl.items():
+        s = s.replace(k, v)
+    s = re.sub(r"\s+", " ", s).strip()
+    aliases = {
+        "graphite grey": "graphite gray",
+        "light grey": "light gray",
+        "grey": "gray",
+    }
+    return aliases.get(s, s)
+
+
+def _rgb_to_hex(r, g, b):
+    try:
+        r = max(0, min(255, int(r)))
+        g = max(0, min(255, int(g)))
+        b = max(0, min(255, int(b)))
+        return "#{:02X}{:02X}{:02X}".format(r, g, b)
+    except Exception:
+        return None
+
+
+def _extract_hex_from_color_node(c):
+    """Intenta sacar un #RRGGBB de un nodo de color de TopTex."""
+    if not isinstance(c, dict):
+        return None
+    rgb = c.get("rgb") or c.get("RGB") or c.get("color_rgb")
+    if isinstance(rgb, dict):
+        return _rgb_to_hex(rgb.get("r"), rgb.get("g"), rgb.get("b"))
+    if isinstance(rgb, (list, tuple)) and len(rgb) >= 3:
+        return _rgb_to_hex(rgb[0], rgb[1], rgb[2])
+    for key in ("rgb", "RGB", "color_rgb", "hex", "hex_code", "colorHex"):
+        val = c.get(key)
+        if isinstance(val, str):
+            v = val.strip()
+            if v.startswith("#") and len(v) in (4, 7):
+                if len(v) == 4:
+                    return "#{}{}{}{}{}{}".format(v[1]*2, v[2]*2, v[3]*2)
+                return v.upper()
+            m = re.match(r"^\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*$", v)
+            if m:
+                return _rgb_to_hex(m.group(1), m.group(2), m.group(3))
+    return None
+
+
+def _choose_packshot_url(packshots):
+    """Escoge la mejor URL de packshot disponible con orden de preferencia y fallback."""
+    if not isinstance(packshots, dict):
+        return None
+    up = {str(k).upper(): v for k, v in packshots.items() if isinstance(k, str)}
+    order = ["FACE", "FRONT", "3Q", "SIDE", "LEFT", "RIGHT", "BACK", "PACKSHOT", "FLAT", "DEFAULT", "MAIN"]
+    for key in order:
+        node = up.get(key)
+        if isinstance(node, dict) and node.get("url_packshot"):
+            return node.get("url_packshot")
+    # último recurso: cualquiera que tenga url_packshot
+    for node in up.values():
+        if isinstance(node, dict) and node.get("url_packshot"):
+            return node.get("url_packshot")
+    return None
+
+
 def get_image_binary_from_url(url):
-    """Descarga una imagen y la devuelve en base64 (JPEG RGB)."""
     try:
         _logger.info(f"🖼️ Descargando imagen desde {url}")
-        r = requests.get(url, stream=True, timeout=20)
-        ct = r.headers.get("Content-Type", "")
-        if r.status_code == 200 and "image" in ct:
+        r = requests.get(url, stream=True, timeout=15)
+        ctype = r.headers.get("Content-Type", "")
+        if r.status_code == 200 and "image" in ctype:
             img = Image.open(io.BytesIO(r.content))
             if img.mode in ("RGBA", "LA"):
                 bg = Image.new("RGB", img.size, (255, 255, 255))
@@ -31,67 +100,69 @@ def get_image_binary_from_url(url):
             else:
                 img = img.convert("RGB")
             buf = io.BytesIO()
-            img.save(buf, format="JPEG")
+            img.save(buf, format="JPEG", quality=90)
             return base64.b64encode(buf.getvalue())
-        _logger.warning(f"⚠️ Contenido no imagen o status != 200: {ct} {r.status_code}")
+        else:
+            _logger.warning(f"⚠️ Contenido no válido como imagen: {url}")
     except Exception as e:
-        _logger.warning(f"❌ Error al procesar imagen: {e}")
+        _logger.warning(f"❌ Error al procesar imagen desde {url}: {e}")
     return None
 
 
 # -------------------------------------------------
-# Modelo
+# Product Template (creación + stock + imágenes)
 # -------------------------------------------------
 class ProductTemplate(models.Model):
     _inherit = "product.template"
 
-    # -------------------------------------------------
-    # Carga de productos (como ya lo tenías)
-    # -------------------------------------------------
+    # -----------------------
+    # Carga de productos
+    # -----------------------
     @api.model
     def sync_product_from_api(self):
         icp = self.env["ir.config_parameter"].sudo()
         username = icp.get_param("toptex_username")
         password = icp.get_param("toptex_password")
-        api_key = icp.get_param("toptex_api_key")
-        proxy_url = icp.get_param("toptex_proxy_url")
+        api_key  = icp.get_param("toptex_api_key")
+        proxy    = icp.get_param("toptex_proxy_url")
 
-        if not all([username, password, api_key, proxy_url]):
+        if not all([username, password, api_key, proxy]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
         # Auth
-        auth_url = f"{proxy_url}/v3/authenticate"
+        auth_url = f"{proxy}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        token = requests.post(
-            auth_url, json={"username": username, "password": password}, headers=headers, timeout=30
-        ).json().get("token")
+        resp = requests.post(auth_url, json={"username": username, "password": password}, headers=headers, timeout=30)
+        if resp.status_code != 200:
+            raise UserError(f"❌ Error autenticando: {resp.status_code} - {resp.text}")
+        token = resp.json().get("token")
         if not token:
             raise UserError("❌ No se recibió un token válido.")
-        headers["x-toptex-authorization"] = token
+        headers["x-toptex-authorization"] = token.strip()
 
         page_number = int(icp.get_param("toptex_last_page") or 1)
         page_size = 50
 
-        # Lote
-        product_url = (
-            f"{proxy_url}/v3/products/all?usage_right=b2b_b2c&page_number={page_number}&page_size={page_size}"
-        )
-        resp = requests.get(product_url, headers=headers, timeout=60)
-        if resp.status_code != 200:
-            _logger.warning(f"❌ Error página {page_number}: {resp.status_code} {resp.text}")
+        url = f"{proxy}/v3/products/all?usage_right=b2b_b2c&page_number={page_number}&page_size={page_size}"
+        r = requests.get(url, headers=headers, timeout=60)
+        if r.status_code != 200:
+            _logger.warning(f"❌ Error en página {page_number}: {r.text}")
             return
 
-        batch = resp.json()
+        batch = r.json()
         if isinstance(batch, dict) and "items" in batch:
-            batch = batch["items"]
+            batch = batch["items"] or []
         if not batch:
             _logger.info("✅ Sin productos nuevos en esta página.")
             icp.set_param("toptex_last_page", str(page_number + 1))
             return
 
         processed_refs = set(self.env["product.template"].search([]).mapped("default_code"))
-        skip_keys = {"items", "page_number", "total_count", "page_size"}
         any_valid = False
+        skip_keys = {"items", "page_number", "total_count", "page_size"}
+
+        Attr = self.env["product.attribute"]
+        AttrVal = self.env["product.attribute.value"]
 
         for data in batch:
             if not isinstance(data, dict) or any(k in data for k in skip_keys):
@@ -99,171 +170,174 @@ class ProductTemplate(models.Model):
 
             catalog_ref = data.get("catalogReference")
             if not catalog_ref:
-                _logger.warning(f"❌ Producto sin catalogReference, ignorado: {data}")
+                _logger.warning("❌ Producto sin catalogReference, ignorado.")
                 continue
             if catalog_ref in processed_refs:
                 _logger.info(f"⏩ Ya existe: {catalog_ref}")
                 continue
 
             any_valid = True
-
             name_data = data.get("designation", {}) or {}
             name = (name_data.get("es") or name_data.get("en") or "Producto sin nombre").replace("TopTex", "").strip()
             full_name = f"{catalog_ref} {name}".strip()
+            description = (data.get("description", {}) or {}).get("es") or (data.get("description", {}) or {}).get("en") or ""
 
-            description = data.get("description", {}).get("es", "") or data.get("description", {}).get("en", "")
             colors = data.get("colors", []) or []
-
             all_sizes, all_colors = set(), set()
+            color_hex_map = {}
             for c in colors:
-                cname = (c.get("colors") or {}).get("es") or (c.get("colors") or {}).get("en") or ""
-                if cname:
-                    all_colors.add(cname)
+                c_name = (c.get("colors", {}) or {}).get("es") or (c.get("colors", {}) or {}).get("en") or ""
+                if c_name:
+                    all_colors.add(c_name)
+                    hexcode = _extract_hex_from_color_node(c)
+                    if hexcode:
+                        color_hex_map[c_name] = hexcode
                 for s in c.get("sizes", []) or []:
                     all_sizes.add(s.get("size"))
 
-            # Atributos
-            attr_obj = self.env["product.attribute"]
-            attr_val = self.env["product.attribute.value"]
-            color_attr = attr_obj.search([("name", "=", "Color")], limit=1) or attr_obj.create({"name": "Color"})
-            size_attr = attr_obj.search([("name", "=", "Talla")], limit=1) or attr_obj.create({"name": "Talla"})
+            color_attr = Attr.search([("name", "=", "Color")], limit=1)
+            if not color_attr:
+                color_attr = Attr.create({"name": "Color", "display_type": "color"})
+            else:
+                try:
+                    color_attr.display_type = "color"
+                except Exception:
+                    pass
 
-            color_vals, size_vals = {}, {}
-            for c in all_colors:
-                if not c:
+            size_attr  = Attr.search([("name", "=", "Talla")], limit=1) or Attr.create({"name": "Talla"})
+
+            color_vals = {}
+            for c_name in all_colors:
+                if not c_name:
                     continue
-                v = attr_val.search([("name", "=", c), ("attribute_id", "=", color_attr.id)], limit=1) or \
-                    attr_val.create({"name": c, "attribute_id": color_attr.id})
-                color_vals[c] = v
-            for s in all_sizes:
-                if not s:
+                val = AttrVal.search([("name", "=", c_name), ("attribute_id", "=", color_attr.id)], limit=1)
+                if not val:
+                    val = AttrVal.create({"name": c_name, "attribute_id": color_attr.id})
+                hexcode = color_hex_map.get(c_name)
+                if hexcode and getattr(val, "html_color", False) is not None:
+                    if not val.html_color:
+                        val.html_color = hexcode
+                color_vals[c_name] = val
+
+            size_vals = {}
+            for s_name in all_sizes:
+                if not s_name:
                     continue
-                v = attr_val.search([("name", "=", s), ("attribute_id", "=", size_attr.id)], limit=1) or \
-                    attr_val.create({"name": s, "attribute_id": size_attr.id})
-                size_vals[s] = v
+                val = AttrVal.search([("name", "=", s_name), ("attribute_id", "=", size_attr.id)], limit=1) \
+                      or AttrVal.create({"name": s_name, "attribute_id": size_attr.id})
+                size_vals[s_name] = val
 
             attribute_lines = [
                 {"attribute_id": color_attr.id, "value_ids": [(6, 0, [v.id for v in color_vals.values()])]},
-                {"attribute_id": size_attr.id, "value_ids": [(6, 0, [v.id for v in size_vals.values()])]},
+                {"attribute_id": size_attr.id,  "value_ids": [(6, 0, [v.id for v in size_vals.values()])]},
             ]
 
-            template_vals = {
+            vals = {
                 "name": full_name,
                 "default_code": catalog_ref,
-                "type": "consu",            # consu por definición
-                "is_storable": True,        # almacenable
+                "type": "consu",
+                "is_storable": True,
                 "description_sale": description,
                 "categ_id": self.env.ref("product.product_category_all").id,
-                "attribute_line_ids": [(0, 0, line) for line in attribute_lines],
+                "attribute_line_ids": [(0, 0, l) for l in attribute_lines],
             }
-
             try:
-                template = self.create(template_vals)
+                tmpl = self.create(vals)
                 processed_refs.add(catalog_ref)
                 _logger.info(f"✅ Producto creado: {catalog_ref} | {full_name}")
             except Exception as e:
                 _logger.error(f"❌ Error creando {catalog_ref}: {e}")
                 continue
 
-            # Imagen de plantilla (primera válida)
             try:
-                for img in data.get("images", []) or []:
-                    u = img.get("url_image")
-                    if u:
-                        b64 = get_image_binary_from_url(u)
-                        if b64:
-                            template.image_1920 = b64
-                            break
-            except Exception as e:
-                _logger.warning(f"⚠️ Imagen plantilla {catalog_ref}: {e}")
+                price_url = f"{proxy}/v3/products/price?catalog_reference={catalog_ref}"
+                price_resp = requests.get(price_url, headers=headers, timeout=30)
+                price_items = price_resp.json().get("items", []) if price_resp.status_code == 200 else []
 
-            # Precios + SKU por variante
-            try:
-                price_url = f"{proxy_url}/v3/products/price?catalog_reference={catalog_ref}"
-                p_resp = requests.get(price_url, headers=headers, timeout=30)
-                price_items = p_resp.json().get("items", []) if p_resp.status_code == 200 else []
+                inv_url = f"{proxy}/v3/products/inventory?catalog_reference={catalog_ref}"
+                inv_resp = requests.get(inv_url, headers=headers, timeout=30)
+                inv_items = inv_resp.json().get("items", []) if inv_resp.status_code == 200 else []
 
-                def get_price_cost(cname, sname):
-                    for it in price_items:
-                        if it.get("color") == cname and it.get("size") == sname:
-                            prices = it.get("prices", []) or []
+                def get_cost(color, size):
+                    for row in price_items:
+                        if row.get("color") == color and row.get("size") == size:
+                            prices = row.get("prices", []) or []
                             if prices:
                                 return float(prices[0].get("price", 0.0))
                     return 0.0
 
-                inv_url = f"{proxy_url}/v3/products/inventory?catalog_reference={catalog_ref}"
-                i_resp = requests.get(inv_url, headers=headers, timeout=30)
-                inv_items = i_resp.json().get("items", []) if i_resp.status_code == 200 else []
-
-                def get_sku(cname, sname):
-                    for it in inv_items:
-                        if it.get("color") == cname and it.get("size") == sname:
-                            return it.get("sku") or ""
+                def get_sku(color, size):
+                    for row in inv_items:
+                        if row.get("color") == color and row.get("size") == size:
+                            return row.get("sku") or ""
                     return ""
 
-                for variant in template.product_variant_ids:
-                    cval = variant.product_template_attribute_value_ids.filtered(
-                        lambda v: v.attribute_id.id == color_attr.id
-                    )
-                    sval = variant.product_template_attribute_value_ids.filtered(
-                        lambda v: v.attribute_id.id == size_attr.id
-                    )
-                    cname = cval.name if cval else ""
-                    sname = sval.name if sval else ""
-                    sku = get_sku(cname, sname)
-                    cost = get_price_cost(cname, sname)
+                for v in tmpl.product_variant_ids:
+                    cval = v.product_template_attribute_value_ids.filtered(lambda x: x.attribute_id.id == color_attr.id)
+                    sval = v.product_template_attribute_value_ids.filtered(lambda x: x.attribute_id.id == size_attr.id)
+                    c_name = cval.name if cval else ""
+                    s_name = sval.name if sval else ""
+                    sku = get_sku(c_name, s_name)
+                    cost = get_cost(c_name, s_name)
                     if sku:
-                        variant.default_code = sku
-                    variant.standard_price = cost
-                    variant.lst_price = round(cost * 2, 2) if cost else 9.99
-                    _logger.info(f"🧵 Variante {variant.default_code} - {variant.name} - {cost}€")
+                        v.default_code = sku
+                    v.standard_price = cost
+                    v.lst_price = round(cost * 2, 2) if cost else 9.99
+                    _logger.info(f"🧵 Variante {v.default_code} - {v.name} coste={cost}")
             except Exception as e:
                 _logger.warning(f"⚠️ Precios/SKUs {catalog_ref}: {e}")
 
         if not any_valid:
-            _logger.info(f"✅ Página {page_number} sin novedades.")
+            _logger.info(f"✅ Lote página={page_number}, sin productos nuevos.")
         icp.set_param("toptex_last_page", str(page_number + 1))
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
     # -------------------------------------------------
-    # Stock (ya probado en tu entorno) -> WH/Stock
+    # Stock (WH/Stock) + OFFSET reanudable
     # -------------------------------------------------
     def sync_stock_from_api(self):
         icp = self.env["ir.config_parameter"].sudo()
-        proxy_url = icp.get_param("toptex_proxy_url")
-        api_key = icp.get_param("toptex_api_key")
+        proxy    = icp.get_param("toptex_proxy_url")
+        api_key  = icp.get_param("toptex_api_key")
         username = icp.get_param("toptex_username")
         password = icp.get_param("toptex_password")
 
-        # Auth
-        auth_url = f"{proxy_url}/v3/authenticate"
+        auth_url = f"{proxy}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        token = requests.post(
-            auth_url, json={"username": username, "password": password}, headers=headers, timeout=20
-        ).json().get("token")
+        token = requests.post(auth_url, json={"username": username, "password": password},
+                              headers=headers, timeout=20).json().get("token")
         if not token:
             _logger.error("❌ Error autenticando para stock.")
             return
         headers["x-toptex-authorization"] = token.strip()
 
         Product = self.env["product.product"]
-        Quant = self.env["stock.quant"]
-
-        # Siempre la ubicación principal del almacén principal
-        warehouse = self.env["stock.warehouse"].search([], limit=1)
-        location = warehouse.lot_stock_id if warehouse else self.env["stock.location"].search(
-            [("usage", "=", "internal")], limit=1
-        )
+        Quant   = self.env["stock.quant"]
+        wh = self.env["stock.warehouse"].search([], limit=1)
+        location = wh.lot_stock_id if wh else self.env["stock.location"].search([("usage", "=", "internal")], limit=1)
         if not location:
-            _logger.warning("❌ No se encontró ubicación interna para crear quants.")
+            _logger.warning("❌ No hay ubicación interna para crear quants.")
             return
 
-        for variant in Product.search([("default_code", "!=", False)]):
-            if variant.type != "consu" or not variant.product_tmpl_id.is_storable:
+        last_id = int(icp.get_param("toptex_stock_last_id") or 0)
+        variants = Product.search([("id", ">", last_id), ("default_code", "!=", False)], order="id", limit=2000)
+        if not variants:
+            variants = Product.search([("default_code", "!=", False)], order="id", limit=2000)
+            last_id = 0
+
+        start = time.monotonic()
+        new_last = last_id
+        processed = False
+
+        for v in variants:
+            new_last = v.id
+            processed = True
+
+            if v.type != "consu" or not v.product_tmpl_id.is_storable:
                 continue
 
-            sku = variant.default_code
-            inv_url = f"{proxy_url}/v3/products/{sku}/inventory"
+            sku = v.default_code
+            inv_url = f"{proxy}/v3/products/{sku}/inventory"
             r = requests.get(inv_url, headers=headers, timeout=20)
             if r.status_code != 200:
                 _logger.warning(f"❌ Inventario {sku}: {r.status_code} {r.text}")
@@ -271,161 +345,169 @@ class ProductTemplate(models.Model):
 
             try:
                 js = r.json()
-                warehouses = js.get("warehouses", []) if isinstance(js, dict) else (
-                    js[0].get("warehouses", []) if isinstance(js, list) and js else []
-                )
+                whs = js.get("warehouses", []) if isinstance(js, dict) else (js[0].get("warehouses", []) if isinstance(js, list) and js else [])
                 stock = 0
-                for wh in warehouses:
-                    if isinstance(wh, dict) and wh.get("id") == "toptex":
-                        stock = int(wh.get("stock", 0))
+                for whrow in whs:
+                    if isinstance(whrow, dict) and whrow.get("id") == "toptex":
+                        stock = int(whrow.get("stock", 0))
                         break
             except Exception as e:
                 _logger.error(f"❌ JSON inventario {sku}: {e}")
                 stock = 0
 
-            quant = Quant.search([("product_id", "=", variant.id), ("location_id", "=", location.id)], limit=1)
+            quant = Quant.search([("product_id", "=", v.id), ("location_id", "=", location.id)], limit=1)
             if quant:
                 quant.write({"quantity": stock, "inventory_quantity": stock})
             else:
-                Quant.create(
-                    {"product_id": variant.id, "location_id": location.id, "quantity": stock, "inventory_quantity": stock}
-                )
+                Quant.create({"product_id": v.id, "location_id": location.id, "quantity": stock, "inventory_quantity": stock})
             _logger.info(f"✅ stock.quant creado/actualizado para {sku} en WH/Stock: {stock}")
 
-    # -------------------------------------------------
-    # Imágenes por variante (nuevo, robusto con reanudación)
-    # -------------------------------------------------
-    def sync_variant_images_from_api(self, batch_size=300):
+            if time.monotonic() - start > 85:
+                icp.set_param("toptex_stock_last_id", str(new_last))
+                _logger.warning(f"⏱️ Tiempo límite alcanzado (stock). Guardando offset en {new_last} y saliendo.")
+                return
+
+        if processed:
+            icp.set_param("toptex_stock_last_id", str(new_last))
+            _logger.info(f"STOCK offset guardado: {new_last}")
+        else:
+            icp.set_param("toptex_stock_last_id", "0")
+            _logger.info("STOCK offset reiniciado a 0.")
+
+    # -------------------------------------------------------------------
+    # Imágenes por variante (robusto + reanudable + matching por color)
+    # -------------------------------------------------------------------
+    def sync_variant_images_from_api(self):
         icp = self.env["ir.config_parameter"].sudo()
-        proxy = icp.get_param("toptex_proxy_url")
-        api_key = icp.get_param("toptex_api_key")
+        proxy    = icp.get_param("toptex_proxy_url")
+        api_key  = icp.get_param("toptex_api_key")
         username = icp.get_param("toptex_username")
         password = icp.get_param("toptex_password")
 
-        # Auth
         auth_url = f"{proxy}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        token = requests.post(
-            auth_url, json={"username": username, "password": password}, headers=headers, timeout=20
-        ).json().get("token")
+        token = requests.post(auth_url, json={"username": username, "password": password}, headers=headers, timeout=30).json().get("token")
         if not token:
             _logger.error("❌ Error autenticando para imágenes.")
             return
         headers["x-toptex-authorization"] = token.strip()
 
-        # Reanudación + tiempo máximo
-        offset = int(icp.get_param("toptex_img_offset") or 0)
-        max_seconds = int(icp.get_param("toptex_img_max_seconds") or 840)  # ~14 min
-        t0 = time.monotonic()
+        last_id = int(icp.get_param("toptex_img_last_id") or 0)
+        Variant = self.env["product.product"]
 
-        Product = self.env["product.product"]
-        all_ids = Product.search([("default_code", "!=", False)], order="id asc")
-        if not all_ids:
-            _logger.info("⛔ No hay variantes con SKU para procesar.")
-            icp.set_param("toptex_img_offset", "0")
-            return
+        variants = Variant.search([("id", ">", last_id), ("default_code", "!=", False)], order="id", limit=600)
+        if not variants:
+            variants = Variant.search([("default_code", "!=", False)], order="id", limit=600)
+            last_id = 0
 
-        # Rango a procesar
-        to_process = all_ids[offset : offset + batch_size]
-        if not to_process:
-            offset = 0
-            to_process = all_ids[:batch_size]
+        start = time.monotonic()
+        processed_any = False
+        new_last_id = last_id
 
-        # Atributo color
-        color_attr = self.env["product.attribute"].search([("name", "ilike", "color")], limit=1)
+        def _extract_color_map(product_json):
+            """Devuelve dict {color_normalizado: url_packshot} con fallback de vistas."""
+            cmap = {}
+            if not isinstance(product_json, dict):
+                return cmap
+            for c in product_json.get("colors", []) or []:
+                col = (c.get("colors", {}) or {}).get("es") or (c.get("colors", {}) or {}).get("en") or ""
+                packshots = (c.get("packshots", {}) or {})
+                url = _choose_packshot_url(packshots)
+                if not url:
+                    # ultra-fallback: si hay 'images' a nivel de color
+                    imgs = c.get("images") or []
+                    if isinstance(imgs, list) and imgs:
+                        # busca la primera imagen con url_image
+                        for im in imgs:
+                            if isinstance(im, dict) and im.get("url_image"):
+                                url = im["url_image"]
+                                break
+                if col and url:
+                    cmap[_normalize_color_name(col)] = url
+            return cmap
 
-        processed = 0
-        for variant in to_process:
-            # Control de timeout
-            if time.monotonic() - t0 > max_seconds:
-                _logger.info(f"⏱️ Tiempo límite alcanzado, guardando offset y saliendo.")
-                break
-
-            sku = variant.default_code
-            color_name = ""
-            if color_attr:
-                pav = variant.product_template_attribute_value_ids.filtered(
-                    lambda v: v.attribute_id.id == color_attr.id
-                )
-                color_name = (pav.name or "").strip()
-
-            # Consulta por SKU
-            url = f"{proxy}/v3/products?sku={sku}&usage_right=b2b_b2c"
-            r = requests.get(url, headers=headers, timeout=20)
-            if r.status_code != 200:
-                _logger.warning(f"❌ {sku}: {r.status_code} {r.text}")
-                offset += 1
-                processed += 1
-                continue
-
-            # Parseo robusto
+        def _fetch_by_sku(sku):
             try:
-                js = r.json()
+                url = f"{proxy}/v3/products?sku={sku}&usage_right=b2b_b2c"
+                r = requests.get(url, headers=headers, timeout=25)
+                if r.status_code != 200:
+                    return None
+                data = r.json()
+                if isinstance(data, list) and data:
+                    return data[0]
+                if isinstance(data, dict) and data:
+                    return data
             except Exception as e:
-                _logger.warning(f"❌ JSON inválido para {sku}: {e}")
-                offset += 1
-                processed += 1
-                continue
+                _logger.warning(f"❌ Error SKU fetch ({sku}): {e}")
+            return None
 
-            item = js[0] if isinstance(js, list) and js else (js if isinstance(js, dict) else None)
-            if not item:
-                _logger.warning(f"✖️ Sin datos para SKU {sku}, saltando.")
-                offset += 1
-                processed += 1
-                continue
+        def _fetch_by_catalog_ref(catalog_ref):
+            try:
+                url = f"{proxy}/v3/products?catalog_reference={catalog_ref}&usage_right=b2b_b2c"
+                r = requests.get(url, headers=headers, timeout=25)
+                if r.status_code != 200:
+                    return None
+                data = r.json()
+                if isinstance(data, list) and data:
+                    return data[0]
+                if isinstance(data, dict) and data:
+                    return data
+            except Exception as e:
+                _logger.warning(f"❌ Error catalog_ref fetch ({catalog_ref}): {e}")
+            return None
 
-            def _best_packshot(rec):
-                """Devuelve mejor URL de packshot FACE o imagen alternativa."""
-                # 1) packshots directos
-                ps = rec.get("packshots") or {}
-                if isinstance(ps, dict):
-                    face = ps.get("FACE") or ps.get("face") or {}
-                    u = face.get("url_packshot") or face.get("url")
-                    if u:
-                        return u
-                # 2) por colores
-                for c in rec.get("colors", []) or []:
-                    cname = (c.get("colors") or {}).get("es") or (c.get("colors") or {}).get("en") or c.get("color") or ""
-                    if not color_name or (cname and cname.strip().lower() == color_name.lower()):
-                        cps = c.get("packshots") or {}
-                        face = cps.get("FACE") or cps.get("face") or {}
-                        u = face.get("url_packshot") or face.get("url")
-                        if u:
-                            return u
-                # 3) fallback a images
-                for im in rec.get("images", []) or []:
-                    u = im.get("url_image") or im.get("url")
-                    if u:
-                        return u
-                return None
+        for v in variants:
+            new_last_id = v.id
+            processed_any = True
 
-            img_url = _best_packshot(item)
-            if img_url and not img_url.startswith("http"):
-                if img_url.startswith("/"):
-                    img_url = "https://cdn.toptex.com" + img_url
-                else:
-                    img_url = f"{proxy}{img_url}"
+            color_pav = v.product_template_attribute_value_ids.filtered(lambda x: x.attribute_id.name.lower() == "color")
+            color_name = color_pav.name if color_pav else ""
+            norm_color = _normalize_color_name(color_name)
 
-            if not img_url:
-                _logger.warning(f"❌ Sin packshot para SKU/color: {sku} / {color_name or '-'} . Saltando.")
-                offset += 1
-                processed += 1
-                continue
+            sku = v.default_code or ""
+            catalog_ref = v.product_tmpl_id.default_code or ""
 
-            img_b64 = get_image_binary_from_url(img_url)
-            if img_b64:
-                try:
-                    variant.image_1920 = img_b64
-                    self.env.cr.commit()  # aseguramos persistencia si el server action corta
-                    _logger.info(f"✅ Imagen asignada a variante {sku} ({color_name or '-'})")
-                except Exception as e:
-                    _logger.warning(f"⚠️ No se pudo escribir imagen en {sku}: {e}")
+            # 1) Intento por SKU
+            pack_url = None
+            data = _fetch_by_sku(sku)
+            cmap = _extract_color_map(data or {})
+            if cmap:
+                pack_url = cmap.get(norm_color)
+                if not pack_url:
+                    close = get_close_matches(norm_color, list(cmap.keys()), n=1, cutoff=0.85)
+                    if close:
+                        pack_url = cmap.get(close[0])
+
+            # 2) Fallback por catalog_reference
+            if not pack_url and catalog_ref:
+                cdata = _fetch_by_catalog_ref(catalog_ref)
+                cmap2 = _extract_color_map(cdata or {})
+                if cmap2:
+                    pack_url = cmap2.get(norm_color)
+                    if not pack_url:
+                        close = get_close_matches(norm_color, list(cmap2.keys()), n=1, cutoff=0.85)
+                        if close:
+                            pack_url = cmap2.get(close[0])
+
+            if not pack_url:
+                _logger.warning(f"❌ Sin packshot para SKU/color: {sku} ({color_name}). Saltando.")
             else:
-                _logger.warning(f"❌ Falló descarga de imagen para {sku}")
+                img_bin = get_image_binary_from_url(pack_url)
+                if img_bin:
+                    try:
+                        v.write({"image_1920": img_bin})
+                        _logger.info(f"✅ Imagen asignada a variante {sku} ({color_name})")
+                    except Exception as e:
+                        _logger.warning(f"⚠️ No se pudo guardar imagen de {sku}: {e}")
 
-            offset += 1
-            processed += 1
+            if time.monotonic() - start > 85:
+                icp.set_param("toptex_img_last_id", str(new_last_id))
+                _logger.warning(f"⏱️ Tiempo límite alcanzado, guardando offset y saliendo. IMG offset guardado: {new_last_id}")
+                return
 
-        # Persistimos offset (reanudación)
-        icp.set_param("toptex_img_offset", str(offset))
-        _logger.info(f"🧾 IMG offset guardado: {offset} | Procesadas: {processed} | Tiempo: {int(time.monotonic()-t0)}s")
+        if processed_any:
+            icp.set_param("toptex_img_last_id", str(new_last_id))
+            _logger.info(f"IMG offset guardado: {new_last_id}")
+        else:
+            icp.set_param("toptex_img_last_id", "0")
+            _logger.info("IMG offset reiniciado a 0 (no había más variantes).")
