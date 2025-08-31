@@ -43,7 +43,6 @@ class ProductTemplate(models.Model):
 
     # -------------------------------------------------
     # Productos (creación/actualización por lotes)
-    # (tal como tenías: consu + is_storable True)
     # -------------------------------------------------
     @api.model
     def sync_product_from_api(self):
@@ -213,8 +212,8 @@ class ProductTemplate(models.Model):
                     return ""
 
                 for variant in product_template.product_variant_ids:
-                    color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == color_attr.id)
-                    size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.id == size_attr.id)
+                    color_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name == 'Color')
+                    size_val = variant.product_template_attribute_value_ids.filtered(lambda v: v.attribute_id.name == 'Talla')
                     color_name = color_val.name if color_val else ""
                     size_name = size_val.name if size_val else ""
                     sku = get_sku(color_name, size_name)
@@ -233,7 +232,7 @@ class ProductTemplate(models.Model):
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
     # -------------------------------------------------
-    # Stock (bloque PRO que te funcionaba) – WH/Stock
+    # Stock (bloque PRO que ya te funcionaba) – WH/Stock
     # -------------------------------------------------
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
@@ -255,7 +254,7 @@ class ProductTemplate(models.Model):
         ProductProduct = self.env['product.product']
         StockQuant = self.env['stock.quant']
 
-        # Usar siempre la ubicación interna principal del almacén
+        # Ubicación interna principal (WH/Stock)
         warehouse = self.env['stock.warehouse'].search([], limit=1)
         location = warehouse.lot_stock_id if warehouse else self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
         if not location:
@@ -310,14 +309,18 @@ class ProductTemplate(models.Model):
             _logger.info(f"✅ stock.quant creado/actualizado para {sku} en {location.display_name}: {stock}")
 
     # -------------------------------------------------
-    # Imágenes por variante (resumible + timeout)
-    #   - Busca por SKU (preferente) y por catalog_reference
-    #   - Fallback por color (packshot FACE o primera imagen)
-    #   - Guarda offset en ir.config_parameter (toptex_img_last_id)
+    # Imágenes por variante (15 min + offset + robusta)
     # -------------------------------------------------
-    def sync_variant_images_from_api(self, batch_size=200, max_seconds=45):
+    def sync_variant_images_from_api(self, batch_size=200, max_seconds=900):
+        """
+        - 15 minutos por ejecución (max_seconds) para evitar timeout de Odoo.sh (ajústalo si quieres).
+        - Reanuda por 'toptex_img_last_id' en ir.config_parameter.
+        - Busca por SKU; si vacío/403/404, fallback a catalog_reference.
+        - Empareja por color y usa packshot FACE o primera imagen del color.
+        - Ignora SKUs de demo (FURN, CONS, Delivery, TRANS, TYRO, ROOF, ACC, etc.).
+        """
         icp = self.env['ir.config_parameter'].sudo()
-        proxy   = icp.get_param('toptex_proxy_url')
+        proxy = icp.get_param('toptex_proxy_url')
         api_key = icp.get_param('toptex_api_key')
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
@@ -325,43 +328,50 @@ class ProductTemplate(models.Model):
         # Auth
         auth_url = f"{proxy}/v3/authenticate"
         headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        token = requests.post(
-            auth_url, json={"username": username, "password": password},
-            headers=headers, timeout=20
-        ).json().get("token")
+        token = requests.post(auth_url, json={"username": username, "password": password},
+                              headers=headers, timeout=20).json().get("token")
         if not token:
             _logger.error("❌ Error autenticando para imágenes.")
             return
         headers["x-toptex-authorization"] = token.strip()
 
-        # Reanudar desde último id procesado
-        last_id = int(icp.get_param("toptex_img_last_id") or 0)
         Product = self.env["product.product"].sudo()
 
+        # Recuperar offset
+        last_id = int(icp.get_param("toptex_img_last_id") or 0)
+
+        # normalizador
         def _norm(s):
             return re.sub(r"\s+", "", (s or "")).strip().lower()
+
+        # SKUs demo a ignorar
+        demo_prefixes = ("FURN", "CONS", "Delivery", "TRANS", "TYRO", "ROOF", "ACC")
 
         start = time.monotonic()
         processed_any = False
 
-        ids = Product.search(
-            [('default_code', '!=', False), ('id', '>', last_id)],
-            order='id', limit=batch_size
-        ).ids
+        # lote inicial
+        ids = Product.search([('default_code', '!=', False), ('id', '>', last_id)],
+                             order='id', limit=batch_size).ids
         if not ids:
+            # reiniciar ciclo (nueva pasada)
             last_id = 0
-            ids = Product.search(
-                [('default_code', '!=', False), ('id', '>', last_id)],
-                order='id', limit=batch_size
-            ).ids
+            ids = Product.search([('default_code', '!=', False), ('id', '>', last_id)],
+                                 order='id', limit=batch_size).ids
 
         for vid in ids:
+            # tiempo máximo
             if time.monotonic() - start > max_seconds:
                 _logger.info("⏹️ Tiempo límite alcanzado, guardando offset y saliendo…")
                 break
 
             variant = Product.browse(vid)
-            sku = variant.default_code
+            sku = (variant.default_code or "").strip()
+            # saltar demo
+            if any(sku.startswith(pfx) for pfx in demo_prefixes) or " " in sku:
+                last_id = vid
+                continue
+
             tmpl = variant.product_tmpl_id
             color_val = variant.product_template_attribute_value_ids.filtered(
                 lambda v: v.attribute_id.name.lower() == "color"
@@ -369,10 +379,10 @@ class ProductTemplate(models.Model):
             color_name = _norm(color_val.name if color_val else "")
             img_url = None
 
-            # (A) Buscar por SKU
+            # --- A) Buscar por SKU ---
             try:
                 url = f"{proxy}/v3/products?sku={sku}&usage_right=b2b_b2c"
-                r = requests.get(url, headers=headers, timeout=20)
+                r = requests.get(url, headers=headers, timeout=25)
                 data = None
                 if r.status_code == 200:
                     try:
@@ -387,13 +397,13 @@ class ProductTemplate(models.Model):
                         data = None
 
                 if data:
-                    # imagen directa
+                    # 1) imagen directa del producto
                     imgs = (data.get("images") or [])
                     if imgs:
                         img_url = (imgs[0] or {}).get("url_image")
 
-                    # fallback por color
-                    if not img_url:
+                    # 2) por color
+                    if not img_url and color_name:
                         color_imgs = {}
                         for c in (data.get("colors") or []):
                             name_es = ((c.get("colors") or {}).get("es")) or ""
@@ -406,49 +416,49 @@ class ProductTemplate(models.Model):
                             if face:
                                 color_imgs[_norm(name_es)] = face
                                 color_imgs[_norm(name_en)] = face
-                        if color_name:
-                            img_url = color_imgs.get(color_name)
+                        img_url = color_imgs.get(color_name)
             except Exception as e:
                 _logger.warning(f"⚠️ Error SKU {sku}: {e}")
 
-            # (B) Fallback por catalog_reference
+            # --- B) Fallback por catalog_reference ---
             if not img_url:
                 try:
-                    cref = tmpl.default_code or ""
-                    url = f"{proxy}/v3/products?catalog_reference={cref}&usage_right=b2b_b2c"
-                    r = requests.get(url, headers=headers, timeout=20)
-                    data = None
-                    if r.status_code == 200:
-                        try:
-                            j = r.json()
-                            if isinstance(j, dict) and j.get("items"):
-                                data = j["items"][0]
-                            elif isinstance(j, list) and j:
-                                data = j[0]
-                            elif isinstance(j, dict):
-                                data = j
-                        except Exception:
-                            data = None
+                    cref = (tmpl.default_code or "").strip()
+                    if cref:
+                        url = f"{proxy}/v3/products?catalog_reference={cref}&usage_right=b2b_b2c"
+                        r = requests.get(url, headers=headers, timeout=25)
+                        data = None
+                        if r.status_code == 200:
+                            try:
+                                j = r.json()
+                                if isinstance(j, dict) and j.get("items"):
+                                    data = j["items"][0]
+                                elif isinstance(j, list) and j:
+                                    data = j[0]
+                                elif isinstance(j, dict):
+                                    data = j
+                            except Exception:
+                                data = None
 
-                    if data:
-                        imgs = (data.get("images") or [])
-                        if imgs:
-                            img_url = (imgs[0] or {}).get("url_image")
+                        if data:
+                            imgs = (data.get("images") or [])
+                            if imgs:
+                                img_url = (imgs[0] or {}).get("url_image")
 
-                        if not img_url and color_name:
-                            color_imgs = {}
-                            for c in (data.get("colors") or []):
-                                name_es = ((c.get("colors") or {}).get("es")) or ""
-                                name_en = ((c.get("colors") or {}).get("en")) or ""
-                                face = (((c.get("packshots") or {}).get("FACE") or {}).get("url_packshot")) or ""
-                                if not face:
-                                    imgs_c = (c.get("images") or [])
-                                    if imgs_c:
-                                        face = (imgs_c[0] or {}).get("url_image") or ""
-                                if face:
-                                    color_imgs[_norm(name_es)] = face
-                                    color_imgs[_norm(name_en)] = face
-                            img_url = color_imgs.get(color_name)
+                            if not img_url and color_name:
+                                color_imgs = {}
+                                for c in (data.get("colors") or []):
+                                    name_es = ((c.get("colors") or {}).get("es")) or ""
+                                    name_en = ((c.get("colors") or {}).get("en")) or ""
+                                    face = (((c.get("packshots") or {}).get("FACE") or {}).get("url_packshot")) or ""
+                                    if not face:
+                                        imgs_c = (c.get("images") or [])
+                                        if imgs_c:
+                                            face = (imgs_c[0] or {}).get("url_image") or ""
+                                    if face:
+                                        color_imgs[_norm(name_es)] = face
+                                        color_imgs[_norm(name_en)] = face
+                                img_url = color_imgs.get(color_name)
                 except Exception as e:
                     _logger.warning(f"⚠️ Fallback catalog {tmpl.default_code} ({sku}): {e}")
 
