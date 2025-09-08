@@ -1,34 +1,47 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <record id="view_tree_serial_printer_product" model="ir.ui.view">
-        <field name="name">serial.printer.product.tree</field>
-        <field name="model">serial.printer.product</field>
-        <field name="arch" type="xml">
-            <list string="Productos">
-                <field name="name"/>
-                <field name="toptex_id"/>
-            </list>
-        </field>
-    </record>
+  <template id="serial_printer_product_stock" inherit_id="website_sale.product" name="Serial Printer Product View">
 
-    <record id="view_form_serial_printer_product" model="ir.ui.view">
-        <field name="name">serial.printer.product.form</field>
-        <field name="model">serial.printer.product</field>
-        <field name="arch" type="xml">
-            <form string="Producto">
-                <sheet>
-                    <group>
-                        <field name="name"/>
-                        <field name="toptex_id"/>
-                    </group>
-                </sheet>
-            </form>
-        </field>
-    </record>
+    <!-- Eliminar visual lateral fea -->
+    <xpath expr="//div[contains(@class, 'product_attributes')]" position="replace">
+      <!-- vacío -->
+    </xpath>
 
-    <record id="action_serial_printer_product" model="ir.actions.act_window">
-        <field name="name">Productos</field>
-        <field name="res_model">serial.printer.product</field>
-        <field name="view_mode">list,form</field>
-    </record>
+    <!-- Mostrar descripción editable -->
+    <xpath expr="//div[@id='product_details']" position="inside">
+      <t t-if="product.website_description">
+        <div class="oe_structure mt-4">
+          <t t-raw="product.website_description"/>
+        </div>
+      </t>
+    </xpath>
+
+    <!-- Mostrar stock disponible -->
+    <xpath expr="//div[@class='css_quantity']" position="after">
+      <t t-if="product.product_variant.qty_available &gt; 0">
+        <p class="text-success mt-2">
+          ✅ Stock disponible: <t t-esc="product.product_variant.qty_available"/> uds
+        </p>
+      </t>
+      <t t-else="">
+        <p class="text-danger mt-2">❌ Sin stock</p>
+      </t>
+    </xpath>
+
+    <!-- Botones con color real (html_color) -->
+    <xpath expr="//div[@class='js_add_cart_variants']" position="inside">
+      <t t-set="color_attribute" t-value="product.attribute_line_ids.filtered(lambda l: l.attribute_id.name.lower() == 'color')"/>
+      <t t-if="color_attribute">
+        <div class="d-flex flex-wrap my-2">
+          <t t-foreach="color_attribute.value_ids" t-as="color">
+            <label class="mx-1">
+              <input type="radio" name="color" t-att-value="color.id"/>
+              <span t-att-style="'display:inline-block;width:24px;height:24px;border-radius:50%;background-color:%s;border:1px solid #000'" t-attf-style="background-color:{{color.html_color or '#ccc'}}"></span>
+            </label>
+          </t>
+        </div>
+      </t>
+    </xpath>
+
+  </template>
 </odoo>
