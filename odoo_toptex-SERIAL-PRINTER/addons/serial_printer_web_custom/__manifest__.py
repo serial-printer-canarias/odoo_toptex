@@ -1,16 +1,13 @@
 {
-    'name': 'Catálogo TopTex',
-    'version': '1.0.0',
-    'category': 'Sales',
-    'summary': 'Importación de productos TopTex',
-    'description': 'Crea productos desde la API de TopTex en el modelo estándar de Odoo',
-    'author': 'Serial Printer',
-    'license': 'LGPL-3',
-    'depends': ['base', 'product'],
+    'name': 'Serial Printer Web Custom',
+    'version': '1.0',
+    'category': 'Website',
+    'summary': 'Plantilla visual personalizada para Serial Printer',
+    'author': 'Marc Bafa & ChatGPT',
+    'depends': ['website_sale'],
     'data': [
-        'data/cron_product.xml'
+        'views/product_template.xml',
     ],
     'installable': True,
     'application': False,
-    'auto_install': False,
 }
