@@ -11,15 +11,15 @@
       </t>
     </xpath>
 
-    <!-- ✅ Mostrar stock disponible -->
-    <xpath expr="//div[@class='css_quantity']" position="after">
+    <!-- ✅ Mostrar stock justo debajo del botón de compra -->
+    <xpath expr="//div[contains(@class, 'product_price')]" position="after">
       <t t-if="product.product_variant.qty_available &gt; 0">
-        <p class="text-success mt-2">
+        <p class="text-success mt-3">
           ✅ Stock disponible: <t t-esc="product.product_variant.qty_available"/> uds
         </p>
       </t>
       <t t-else="">
-        <p class="text-danger mt-2">❌ Sin stock</p>
+        <p class="text-danger mt-3">❌ Sin stock</p>
       </t>
     </xpath>
 
