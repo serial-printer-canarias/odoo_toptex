@@ -1,8 +1,8 @@
-<!-- views/personalization_wizard_views.xml -->
+<!-- views/personalizacion_wizard_views.xml -->
 <odoo>
-  <record id="view_form_product_personalization" model="ir.ui.view">
-    <field name="name">product.personalization.form</field>
-    <field name="model">product.personalization</field>
+  <record id="view_form_product_personalizacion" model="ir.ui.view">
+    <field name="name">product.personalizacion.form</field>
+    <field name="model">product.personalizacion</field>
     <field name="arch" type="xml">
       <form string="Personalización">
         <sheet>
@@ -29,13 +29,13 @@
 
   <record id="action_product_personalization" model="ir.actions.act_window">
     <field name="name">Personalizaciones</field>
-    <field name="res_model">product.personalization</field>
+    <field name="res_model">product.personalizacion</field>
     <field name="view_mode">tree,form</field>
     <field name="help" type="html">
       <p>Gestión de las personalizaciones vinculadas a pedidos y leads.</p>
     </field>
   </record>
 
-  <menuitem id="menu_product_personalization_root" name="Personalización" parent="sale.sale_order_menu" sequence="90"/>
-  <menuitem id="menu_product_personalization" name="Pedidos personalizados" parent="menu_product_personalization_root" action="action_product_personalization"/>
+  <menuitem id="menu_product_personalizacion_root" name="Personalización" parent="sale.sale_order_menu" sequence="90"/>
+  <menuitem id="menu_product_personalizacion" name="Pedidos personalizados" parent="menu_product_personalizacion_root" action="action_product_personalizacion"/>
 </odoo>
