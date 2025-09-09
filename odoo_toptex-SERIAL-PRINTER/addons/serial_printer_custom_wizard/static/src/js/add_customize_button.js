@@ -4,6 +4,16 @@ odoo.define('serial_printer_custom_wizard.add_customize_button', function (requi
 
     const publicWidget = require('web.public.widget');
 
+    // Dev-badge para verificar que el JS se cargó
+    function showBadge() {
+        if (document.getElementById('spw-badge')) return;
+        const b = document.createElement('div');
+        b.id = 'spw-badge';
+        b.textContent = 'SPW JS OK';
+        b.style.cssText = 'position:fixed;right:12px;bottom:12px;padding:6px 10px;border-radius:6px;background:#e9eefc;color:#1b3a8f;font:600 12px/1.2 system-ui;z-index:9999;';
+        document.body.appendChild(b);
+    }
+
     function first(selArr, root=document) {
         for (const s of selArr) {
             const el = root.querySelector(s);
@@ -13,13 +23,13 @@ odoo.define('serial_printer_custom_wizard.add_customize_button', function (requi
     }
 
     function getTemplateId(root=document) {
-        // hidden inputs habituales
+        // inputs ocultos habituales
         let el = first(['input[name="product_id"]','input[name="product_template_id"]'], root);
         if (el && el.value) return el.value;
         // wrapper con data-oe-model
         const holder = root.querySelector('[data-oe-model="product.template"]');
         if (holder && holder.dataset.oeId) return holder.dataset.oeId;
-        // id en la URL /shop/product/<id> o /product/<id>
+        // /shop/product/<id> o /product/<id>
         const m = window.location.pathname.match(/(?:shop\/product|product)\/(\d+)/);
         return m ? m[1] : null;
     }
@@ -53,15 +63,10 @@ odoo.define('serial_printer_custom_wizard.add_customize_button', function (requi
             '.o_wsale_product_btn .btn.btn-primary'
         ], root);
 
-        if (addToCart && addToCart.parentElement) addToCart.parentElement.appendChild(btn);
-        else buyBlock.appendChild(btn);
-
-        if (!document.querySelector('#spw-badge')) {
-            const badge = document.createElement('div');
-            badge.id = 'spw-badge';
-            badge.textContent = 'SPW JS OK';
-            badge.style.cssText = 'position:fixed;right:12px;bottom:12px;padding:6px 10px;border-radius:6px;background:#e9eefc;color:#1b3a8f;font:600 12px/1.2 system-ui;z-index:9999;';
-            document.body.appendChild(badge);
+        if (addToCart && addToCart.parentElement) {
+            addToCart.parentElement.appendChild(btn);
+        } else {
+            buyBlock.appendChild(btn);
         }
         return true;
     }
@@ -69,11 +74,17 @@ odoo.define('serial_printer_custom_wizard.add_customize_button', function (requi
     publicWidget.registry.SPWAddCustomizeBtn = publicWidget.Widget.extend({
         selector: 'body',
         start() {
+            showBadge();
+            // Reintenta porque el DOM del tema se hidrata poco a poco
             let tries = 0;
             const t = setInterval(() => {
                 tries += 1;
-                if (insertButton(document) || tries > 20) clearInterval(t);
+                if (insertButton(document) || tries > 24) clearInterval(t);
             }, 250);
+
+            // Y observa cambios dinámicos (por si el tema re-renderiza)
+            const mo = new MutationObserver(() => insertButton(document));
+            mo.observe(document.documentElement, {childList: true, subtree: true});
             return this._super(...arguments);
         },
     });
