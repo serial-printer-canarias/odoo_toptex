@@ -1,19 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <template id="customize_product_template" name="Personalizar Producto">
+    <template id="customize_product_template" name="Customize Product Template">
         <t t-call="website.layout">
             <div class="container my-5">
-                <h1 class="mb-4">Personalización de Producto</h1>
-                <form action="/personalizar-producto" method="POST" enctype="multipart/form-data">
+                <h1 class="mb-4">Personalización de producto</h1>
+                <form action="/personalizacion/submit" method="post" enctype="multipart/form-data" class="form">
+                    
+                    <!-- Logo -->
                     <div class="form-group mb-3">
-                        <label for="logo">Sube tu logo</label>
-                        <input type="file" id="logo" name="logo" class="form-control" required="required"/>
+                        <label for="logo">Subir logo</label>
+                        <input type="file" name="logo" class="form-control" required/>
                     </div>
 
+                    <!-- Técnica de impresión -->
                     <div class="form-group mb-3">
-                        <label for="tecnica">Técnica de Personalización</label>
-                        <select id="tecnica" name="tecnica" class="form-control" required="required">
-                            <option value="">-- Selecciona una técnica --</option>
+                        <label for="tecnica">Técnica de impresión</label>
+                        <select name="tecnica" class="form-control" required>
+                            <option value="">-- Selecciona una opción --</option>
                             <option value="serigrafia">Serigrafía</option>
                             <option value="bordado">Bordado</option>
                             <option value="dtf">DTF</option>
@@ -21,57 +24,37 @@
                         </select>
                     </div>
 
+                    <!-- Posición -->
                     <div class="form-group mb-3">
                         <label for="posicion">Posición del diseño</label>
-                        <select id="posicion" name="posicion" class="form-control" required="required">
-                            <option value="">-- Selecciona una posición --</option>
+                        <select name="posicion" class="form-control" required>
+                            <option value="">-- Selecciona una opción --</option>
                             <option value="pecho">Pecho</option>
                             <option value="espalda">Espalda</option>
                         </select>
                     </div>
 
+                    <!-- Tamaño -->
                     <div class="form-group mb-3">
                         <label for="tamano">Tamaño del diseño</label>
-                        <select id="tamano" name="tamano" class="form-control" required="required">
-                            <option value="">-- Selecciona un tamaño --</option>
-                            <option value="pequeno">Pequeño (10x10cm)</option>
-                            <option value="mediano">Mediano (20x20cm)</option>
-                            <option value="grande">Grande (30x30cm)</option>
+                        <select name="tamano" class="form-control" required>
+                            <option value="">-- Selecciona una opción --</option>
+                            <option value="pequeno">Pequeño</option>
+                            <option value="mediano">Mediano</option>
+                            <option value="grande">Grande</option>
                         </select>
                     </div>
 
-                    <div class="form-group mb-3">
-                        <label for="colores">Color de impresión</label>
-                        <select id="colores" name="colores" class="form-control">
-                            <option value="">-- Selecciona un color --</option>
-                            <option value="negro">Negro</option>
-                            <option value="blanco">Blanco</option>
-                            <option value="rojo">Rojo</option>
-                            <option value="azul">Azul</option>
-                            <option value="verde">Verde</option>
-                            <!-- Añade más según la carta NS300 -->
-                        </select>
-                    </div>
-
+                    <!-- Observaciones -->
                     <div class="form-group mb-4">
                         <label for="observaciones">Observaciones</label>
-                        <textarea id="observaciones" name="observaciones" class="form-control" rows="3" placeholder="Detalles adicionales..."></textarea>
+                        <textarea name="observaciones" class="form-control" rows="4" placeholder="Detalles adicionales..."></textarea>
                     </div>
 
+                    <!-- Submit -->
                     <button type="submit" class="btn btn-primary">Enviar personalización</button>
                 </form>
             </div>
         </t>
-    </template>
-
-    <!-- Botón visible en página de producto web -->
-    <template id="product_customize_button_inherit" inherit_id="website_sale.product">
-        <xpath expr="//div[@id='product_detail']//div[contains(@class, 'o_wsale_product_configurator')]" position="after">
-            <div class="mt-3">
-                <a t-attf-href="/personalizar-producto?product_id={{ product.id }}" class="btn btn-outline-primary btn-block">
-                    🎨 Personalizar este producto
-                </a>
-            </div>
-        </xpath>
     </template>
 </odoo>
