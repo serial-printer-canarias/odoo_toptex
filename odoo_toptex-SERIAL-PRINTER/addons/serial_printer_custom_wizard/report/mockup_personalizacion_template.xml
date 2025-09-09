@@ -1,6 +1,6 @@
 <odoo>
   <!-- TEMPLATE PDF -->
-  <template id="report_mockup_personalization">
+  <template id="report_mockup_personalizacion">
     <t t-call="web.html_container">
       <t t-foreach="docs" t-as="doc">
         <div class="page" style="padding: 25px; font-family: sans-serif;">
@@ -59,12 +59,12 @@
 
   <!-- DEFINICIÓN DEL INFORME -->
   <report
-    id="action_report_personalization_mockup"
-    model="product.personalization"
+    id="action_report_personalizacion_mockup"
+    model="product.personalizacion"
     string="Ficha de Personalización"
     report_type="qweb-pdf"
-    name="serial_printer_custom_wizard.report_mockup_personalization"
-    file="serial_printer_custom_wizard.report_mockup_personalization"
+    name="serial_printer_custom_wizard.report_mockup_personalizacion"
+    file="serial_printer_custom_wizard.report_mockup_personalizacion"
     print_report_name="(object.name or 'personalizacion') + '_mockup'"
   />
 </odoo>
