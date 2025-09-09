@@ -1,0 +1,41 @@
+<!-- views/personalization_wizard_views.xml -->
+<odoo>
+  <record id="view_form_product_personalization" model="ir.ui.view">
+    <field name="name">product.personalization.form</field>
+    <field name="model">product.personalization</field>
+    <field name="arch" type="xml">
+      <form string="Personalización">
+        <sheet>
+          <group>
+            <field name="product_id" readonly="1"/>
+            <field name="sale_order_line_id" readonly="1"/>
+            <field name="lead_id" readonly="1"/>
+          </group>
+          <group string="Diseño">
+            <field name="logo" filename="logo_filename"/>
+            <field name="technique"/>
+            <field name="position"/>
+            <field name="size"/>
+            <field name="print_color"/>
+          </group>
+          <group>
+            <field name="notes"/>
+            <field name="editable" readonly="1"/>
+          </group>
+        </sheet>
+      </form>
+    </field>
+  </record>
+
+  <record id="action_product_personalization" model="ir.actions.act_window">
+    <field name="name">Personalizaciones</field>
+    <field name="res_model">product.personalization</field>
+    <field name="view_mode">tree,form</field>
+    <field name="help" type="html">
+      <p>Gestión de las personalizaciones vinculadas a pedidos y leads.</p>
+    </field>
+  </record>
+
+  <menuitem id="menu_product_personalization_root" name="Personalización" parent="sale.sale_order_menu" sequence="90"/>
+  <menuitem id="menu_product_personalization" name="Pedidos personalizados" parent="menu_product_personalization_root" action="action_product_personalization"/>
+</odoo>
