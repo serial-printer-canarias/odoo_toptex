@@ -1,37 +1,38 @@
-from odoo import models, fields
+from odoo import models, fields, api
 
 class ProductPersonalizacion(models.Model):
     _name = 'product.personalizacion'
     _description = 'Personalización de producto'
+    _order = 'id desc'
 
-    product_id = fields.Many2one(
-        'product.template',
-        string='Producto',
-        required=True,
+    name = fields.Char('Referencia', compute='_compute_name', store=True)
+    product_tmpl_id = fields.Many2one(
+        'product.template', string='Producto', required=True, index=True, ondelete='cascade'
     )
 
+    logo = fields.Binary('Logo')
     tecnica_personalizacion = fields.Selection([
         ('serigrafia', 'Serigrafía'),
         ('bordado', 'Bordado'),
         ('dtf', 'DTF'),
         ('ninguna', 'Ninguna'),
-    ], string='Técnica de personalización', required=True)
+    ], string='Técnica de personalización', default='ninguna')
 
     posicion_diseno = fields.Selection([
-        ('pecho', 'Pecho'),
-        ('espalda', 'Espalda'),
-        ('manga_izquierda', 'Manga Izquierda'),
-        ('manga_derecha', 'Manga Derecha'),
-    ], string='Posición del diseño', required=True)
+        ('front', 'Frontal'),
+        ('back', 'Espalda'),
+    ], string='Posición del diseño')
 
-    color_impresion = fields.Char(string='Color de impresión')
     tamano_diseno = fields.Selection([
-        ('pequeno', 'Pequeño'),
-        ('mediano', 'Mediano'),
-        ('grande', 'Grande'),
+        ('small', 'Pequeño'),
+        ('medium', 'Mediano'),
+        ('large', 'Grande'),
     ], string='Tamaño del diseño')
 
-    observaciones = fields.Text(string='Observaciones')
+    color_impresion = fields.Char('Color de impresión')
+    observaciones = fields.Text('Observaciones')
 
-    logo = fields.Binary(string='Logo')
-    logo_filename = fields.Char(string="Nombre del archivo")
+    @api.depends('product_tmpl_id')
+    def _compute_name(self):
+        for rec in self:
+            rec.name = (rec.product_tmpl_id.display_name or 'Producto') + ' - Personalización'
