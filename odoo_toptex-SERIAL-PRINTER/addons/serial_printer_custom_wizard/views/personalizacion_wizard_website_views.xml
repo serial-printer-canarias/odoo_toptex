@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <template id="personalizacion_wizard_website_template" name="Formulario Personalización Web">
+        <t t-call="website.layout">
+            <div class="container mt-4 mb-5">
+                <h1 class="text-center mb-4">Personaliza tu producto</h1>
+                <form action="/personalizacion/submit" method="post" enctype="multipart/form-data" class="oe_website_login_form">
+                    <div class="form-group">
+                        <label for="logo">Sube tu logotipo</label>
+                        <input type="file" name="logo" accept="image/*" required="1" class="form-control"/>
+                    </div>
+
+                    <div class="form-group mt-3">
+                        <label for="tecnica_personalizacion">Técnica de personalización</label>
+                        <select name="tecnica_personalizacion" class="form-control" required="1">
+                            <option value="">Seleccione...</option>
+                            <option value="serigrafia">Serigrafía</option>
+                            <option value="bordado">Bordado</option>
+                            <option value="dtf">DTF</option>
+                            <option value="ninguna">Ninguna</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group mt-3">
+                        <label for="posicion_dibujo">Posición del diseño</label>
+                        <select name="posicion_dibujo" class="form-control">
+                            <option value="pecho">Pecho</option>
+                            <option value="espalda">Espalda</option>
+                            <option value="manga">Manga</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group mt-3">
+                        <label for="color_impresion">Color de impresión</label>
+                        <input type="text" name="color_impresion" class="form-control" placeholder="Ejemplo: Blanco o #FFFFFF"/>
+                    </div>
+
+                    <div class="form-group mt-3">
+                        <label for="tamano_dibujo">Tamaño del diseño</label>
+                        <select name="tamano_dibujo" class="form-control" required="1">
+                            <option value="">Seleccione...</option>
+                            <option value="pequeno">Pequeño</option>
+                            <option value="mediano">Mediano</option>
+                            <option value="grande">Grande</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group mt-3">
+                        <label for="observaciones">Observaciones</label>
+                        <textarea name="observaciones" class="form-control" rows="4" placeholder="¿Deseas añadir algún comentario especial?"></textarea>
+                    </div>
+
+                    <div class="form-group text-center mt-4">
+                        <button type="submit" class="btn btn-primary btn-lg">Enviar personalización</button>
+                    </div>
+                </form>
+            </div>
+        </t>
+    </template>
+</odoo>
