@@ -1,57 +1,44 @@
-/* SPW: inyecta botón 'Personalizar' y muestra badge de diagnóstico */
-(function () {
-    if (window.__SPW_LOADED__) return;  // evita dobles cargas
-    window.__SPW_LOADED__ = true;
+/** @odoo-module **/
+odoo.define('serial_printer_custom_wizard.add_customize_button', function (require) {
+    'use strict';
 
-    function ready(fn) {
-        if (document.readyState !== 'loading') fn();
-        else document.addEventListener('DOMContentLoaded', fn);
-    }
+    const publicWidget = require('web.public.widget');
 
-    function badge(text, color) {
-        try {
-            var el = document.createElement('div');
-            el.id = 'spw_probe';
-            el.textContent = text;
-            el.style.cssText =
-                'position:fixed;bottom:8px;right:8px;z-index:99999;' +
-                'padding:6px 10px;border-radius:6px;border:1px solid #333;' +
-                'background:' + (color || '#dff0ff') + ';font:12px system-ui;';
-            document.body.appendChild(el);
-            setTimeout(function () { el.remove(); }, 6000);
-        } catch (e) { /* nada */ }
-    }
+    publicWidget.registry.SPWAddCustomizeBtn = publicWidget.Widget.extend({
+        selector: 'form.o_wsale_product_form',
+        start() {
+            // 1) Localizamos el product.template id
+            const $form = this.$el;
+            let tmplId = $form.find('input[name="product_id"]').val(); // Odoo suele ponerlo aquí
+            if (!tmplId) {
+                const $holder = $form.closest('[data-oe-model="product.template"]');
+                tmplId = $holder.length ? $holder.data('oe-id') : null;
+            }
+            if (!tmplId) return this._super(...arguments);
 
-    ready(function () {
-        badge('SPW JS OK');  // <- si ves esto, el JS está cargando
+            // 2) Evitamos duplicar botón
+            if ($form.find('.spw-btn-personalizar').length) {
+                return this._super(...arguments);
+            }
 
-        // Localiza el <form> de compra en la ficha de producto (varía por tema)
-        var form =
-            document.querySelector('form.o_wsale_product_form') ||
-            document.querySelector('#product_details form') ||
-            document.querySelector('.o_wsale_product_page form') ||
-            document.querySelector('.o_product_page form');
+            // 3) URL con el editor APAGADO
+            const href = `/personalizar/${tmplId}?enable_editor=0`;
 
-        if (!form) { console.warn('SPW: no se encontró el form'); return; }
+            // 4) Creamos e insertamos el botón junto a "Añadir al carrito"
+            const $btn = $('<a/>', {
+                class: 'btn btn-outline-primary spw-btn-personalizar ms-2',
+                href: href,
+                text: 'Personalizar'
+            });
 
-        // Evitar duplicados
-        if (document.getElementById('spw_customize_btn')) return;
+            const $btnBar = $form.find('.o_wsale_product_btn').first();
+            if ($btnBar.length) {
+                $btnBar.append($btn);
+            } else {
+                $form.append($btn);
+            }
 
-        // ID del template desde la URL /shop/...-<id>
-        var m = window.location.pathname.match(/-(\d+)(?:\/)?$/);
-        var tmplId = m ? m[1] : null;
-        if (!tmplId) { badge('SPW: sin ID de producto', '#ffe3e3'); return; }
-
-        // Ancla: junto al botón Add to cart
-        var addToCartBtn = form.querySelector('button[type="submit"], .o_add_to_cart');
-        var anchor = addToCartBtn ? addToCartBtn.parentElement : form;
-
-        var btn = document.createElement('a');
-        btn.id = 'spw_customize_btn';
-        btn.href = '/personalizar/' + tmplId;
-        btn.className = 'btn btn-outline-primary ms-2';
-        btn.style.marginLeft = '8px';
-        btn.textContent = 'Personalizar';
-        anchor.appendChild(btn);
+            return this._super(...arguments);
+        },
     });
-})();
+});
