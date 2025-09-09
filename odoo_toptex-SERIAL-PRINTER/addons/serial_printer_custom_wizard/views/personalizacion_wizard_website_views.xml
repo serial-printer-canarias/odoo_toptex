@@ -3,11 +3,13 @@
     <!-- Plantilla de la página /personalizar/<id> -->
     <template id="personalizar" name="SPW Personalizar">
         <t t-call="website.layout">
-            <!-- Hacer visible el objeto principal al editor -->
+            <!-- Contexto necesario para el editor de Website -->
             <t t-set="main_object" t-value="product"/>
             <t t-set="main_object_name" t-value="'product.template'"/>
 
-            <div class="container my-5">
+            <div class="container my-5"
+                 data-oe-model="product.template"
+                 t-att-data-oe-id="product.id">
                 <h1 class="mb-4">
                     Personalizar: <t t-esc="product.name"/>
                 </h1>
@@ -17,29 +19,11 @@
                 </div>
 
                 <!-- Botón volver -->
-                <a class="btn btn-secondary" t-att-href="'/shop/product/%s' % product.id">
+                <a class="btn btn-secondary"
+                   t-att-href="'/shop/product/%s' % product.id">
                     ← Volver al producto
                 </a>
             </div>
-
-            <!-- Failsafe por si el editor está encendido y no recogiera el contexto -->
-            <t t-if="request.env.user.has_group('website.group_website_publisher')">
-                <script>
-                    (function () {
-                        try {
-                            if (window.odoo &&
-                                odoo.__WOWL_WEBSITE__ &&
-                                odoo.__WOWL_WEBSITE__.metadata &&
-                                !odoo.__WOWL_WEBSITE__.metadata.mainObject) {
-                                odoo.__WOWL_WEBSITE__.metadata.mainObject = {
-                                    model: 'product.template',
-                                    id: <t t-esc="product.id"/>
-                                };
-                            }
-                        } catch (e) {}
-                    })();
-                </script>
-            </t>
         </t>
     </template>
 </odoo>
