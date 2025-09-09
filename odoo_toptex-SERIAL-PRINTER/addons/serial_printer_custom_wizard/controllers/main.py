@@ -1,33 +1,35 @@
-# Directorio: serial_printer_custom_wizard/controllers/main.py
-
+# -*- coding: utf-8 -*-
 from odoo import http
 from odoo.http import request
-import base64
 
 class PersonalizacionController(http.Controller):
 
-    @http.route(['/personalizar/guardar'], type='http', auth='public', methods=['POST'], csrf=False, website=True)
-    def guardar_personalizacion(self, **post):
-        logo_file = post.get('logo')
-        values = {
-            'tecnica': post.get('tecnica'),
-            'tamano_dibujo': post.get('tamano'),
+    @http.route(
+        '/personalizacion/producto/<model("product.template"):product>',
+        type='http', auth='public', website=True)
+    def mostrar_formulario(self, product, **kw):
+        valores = {'product': product}
+        return request.render(
+            'serial_printer_custom_wizard.customize_product_template',
+            valores
+        )
+
+    @http.route(
+        '/personalizacion/submit',
+        type='http', auth='public', website=True, methods=['POST'], csrf=True)
+    def enviar_formulario(self, **post):
+        # Datos mínimos
+        vals = {
+            'product_id': int(post.get('product_id', 0)) if post.get('product_id') else False,
+            'tecnica_personalizacion': post.get('tecnica'),
+            'posicion_disenyo': post.get('posicion'),
+            'tamano_disenyo': post.get('tamano'),
             'color_impresion': post.get('color_impresion'),
-            'observaciones': post.get('observaciones') or '',
+            'notas': post.get('observaciones'),
         }
-
-        if logo_file:
-            logo_data = logo_file.read()
-            values['logo'] = base64.b64encode(logo_data)
-            values['logo_filename'] = logo_file.filename
-
-        request.env['product.personalizacion'].sudo().create(values)
-        return request.redirect('/personalizar/gracias')
-
-    @http.route(['/personalizar'], type='http', auth='public', website=True)
-    def ver_formulario_personalizacion(self, **kwargs):
-        return request.render("serial_printer_custom_wizard.personalizacion_formulario_web", {})
-
-    @http.route(['/personalizar/gracias'], type='http', auth='public', website=True)
-    def ver_gracias(self, **kwargs):
-        return request.render("serial_printer_custom_wizard.personalizacion_gracias", {})
+        # Crea el registro (si el modelo existe)
+        request.env['product.personalizacion'].sudo().create(vals)
+        # Redirige a la ficha del producto
+        if vals['product_id']:
+            return request.redirect('/shop/product/%s' % vals['product_id'])
+        return request.redirect('/shop')
