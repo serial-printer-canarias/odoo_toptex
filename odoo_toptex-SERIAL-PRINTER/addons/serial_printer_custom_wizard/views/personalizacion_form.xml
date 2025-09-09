@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_product_personalizacion_form" model="ir.ui.view">
+        <field name="name">product.personalizacion.form</field>
+        <field name="model">product.personalizacion</field>
+        <field name="arch" type="xml">
+            <form string="Personalización de producto">
+                <group>
+                    <field name="product_id"/>
+                    <field name="tecnica_personalizacion"/>
+                    <field name="posicion_diseno"/>
+                    <field name="tamanio_diseno"/>
+                    <field name="color_impresion"/>
+                    <field name="archivo_logo" filename="archivo_logo_nombre"/>
+                    <field name="observaciones"/>
+                </group>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_product_personalizacion" model="ir.actions.act_window">
+        <field name="name">Personalizaciones</field>
+        <field name="res_model">product.personalizacion</field>
+        <field name="view_mode">tree,form</field>
+        <field name="type">ir.actions.act_window</field>
+    </record>
+
+    <menuitem id="menu_product_personalizacion_root" name="Personalización" sequence="10"/>
+    <menuitem id="menu_product_personalizacion" name="Gestión de Personalizaciones"
+              parent="menu_product_personalizacion_root"
+              action="action_product_personalizacion"
+              sequence="10"/>
+</odoo>
