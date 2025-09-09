@@ -2,35 +2,39 @@
 from odoo import http
 from odoo.http import request
 
-class SerialPrinterCustomizer(http.Controller):
+class SPCustomizer(http.Controller):
 
-    @http.route(['/personalizar/<int:product_id>'], type='http', auth="public", website=True)
-    def personalizar(self, product_id, **kw):
-        """Página de personalización con preview"""
-        product = request.env['product.template'].sudo().browse(product_id)
-        if not product.exists():
-            return request.not_found()
-        # Variante inicial (si viene por querystring la respetamos)
+    @http.route('/personalizar/<model("product.template"):product>', type='http', auth='public', website=True, sitemap=False)
+    def website_personalizar(self, product, **kw):
+        # Variante seleccionada (si viene de la ficha de producto)
+        variant = None
         variant_id = kw.get('variant_id')
         if variant_id:
-            try:
-                variant_id = int(variant_id)
-            except Exception:
-                variant_id = False
-        if not variant_id and product.product_variant_id:
-            variant_id = product.product_variant_id.id
+            variant = request.env['product.product'].sudo().browse(int(variant_id))
+            if not variant.exists():
+                variant = None
+
+        # URL de imagen base (si hay variante usa su imagen, si no la del template)
+        if variant and variant.image_1920:
+            base_image_url = f"/web/image/product.product/{variant.id}/image_1920"
+        else:
+            base_image_url = f"/web/image/product.template/{product.id}/image_1920"
+
+        # Miniaturas de todas las variantes para elegir color/talla visualmente
+        variants = request.env['product.product'].sudo().search(
+            [('product_tmpl_id', '=', product.id)]
+        )
+        variant_thumbs = [{
+            'id': v.id,
+            'name': v.display_name,
+            'img': f"/web/image/product.product/{v.id}/image_1920",
+        } for v in variants]
 
         values = {
             'product': product,
-            'variants': product.product_variant_ids.sudo(),
-            'variant_id': variant_id,
+            'variant': variant,
+            'variant_id': variant.id if variant else (variants[:1].id if variants else False),
+            'base_image_url': base_image_url,
+            'variant_thumbs': variant_thumbs,
         }
         return request.render('serial_printer_custom_wizard.website_personalizar_page', values)
-
-    @http.route(['/personalizar/add'], type='http', auth='public', website=True, csrf=True)
-    def personalizar_add(self, **post):
-        """Recoge el formulario y (ejemplo) vuelve a la ficha del producto.
-        Aquí puedes crear líneas de pedido, adjuntos, etc.
-        """
-        product_id = int(post.get('product_id', 0))
-        return request.redirect('/shop/product/%s' % product_id)
