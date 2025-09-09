@@ -1,38 +1,47 @@
 from odoo import http
 from odoo.http import request
+import base64
 
 class PortalCustomizer(http.Controller):
 
-    @http.route(['/my/personalizations/<int:line_id>'], type='http', auth='user', website=True)
-    def personalize_from_order(self, line_id, **kw):
-        line = request.env['sale.order.line'].browse(line_id)
-        if not line.exists():
-            return request.not_found()
-
-        existing = request.env['product.personalizacion'].search(
-            [('sale_order_line_id', '=', line.id)],
-            limit=1
-        )
-
-        if existing and not existing.editable:
-            return request.render('serial_printer_custom_wizard.personalizacion_done', {
-                'order_line': line,
-                'product': line.product_id,
-                'personalizacion': existing,
-            })
-
-        values = {
-            'order_line': line,
-            'product': line.product_id,
-            'personalizacion': existing,
-        }
-        return request.render('serial_printer_custom_wizard.personalizacion_form', values)
-
-    @http.route(['/customize/<int:product_id>'], type='http', auth='public', website=True)
-    def public_customizer(self, product_id, **kw):
-        product = request.env['product.product'].browse(product_id)
+    @http.route(['/personalizar/<int:product_id>'], type='http', auth='public', website=True)
+    def public_customizer(self, product_id, **kwargs):
+        product = request.env['product.template'].sudo().browse(product_id)
         if not product.exists():
             return request.not_found()
-        return request.render('serial_printer_custom_wizard.public_customize_form', {
+        return request.render('serial_printer_custom_wizard.customize_product_template', {
             'product': product,
         })
+
+    @http.route(['/personalizacion/submit'], type='http', auth='public', methods=['POST'], website=True, csrf=True)
+    def submit_customization(self, **post):
+        # Datos básicos
+        product_id = int(post.get('product_id', 0))
+        tecnica = post.get('tecnica')
+        posicion = post.get('posicion')
+        tamano = post.get('tamano')
+        color = post.get('color_impresion')
+        observ = post.get('observaciones')
+
+        # Fichero
+        logo_file = request.httprequest.files.get('logo')
+        logo_b64 = False
+        if logo_file and logo_file.filename:
+            logo_b64 = base64.b64encode(logo_file.read())
+
+        # Crear registro (modelo transitorio o definitivo según tu diseño)
+        Personalizacion = request.env['product.personalizacion'].sudo()
+        vals = {
+            'product_id': product_id,
+            'print_technique': tecnica,
+            'design_position': posicion,
+            'size': tamano,
+            'color_impresion': color,
+            'notes': observ,
+        }
+        if logo_b64:
+            vals['logo'] = logo_b64
+        Personalizacion.create(vals)
+
+        # Volver a la ficha del producto con notificación
+        return request.redirect('/shop/product/%s' % product_id)
