@@ -3,26 +3,75 @@
     <!-- Plantilla de la página /personalizar/<id> -->
     <template id="personalizar" name="SPW Personalizar">
         <t t-call="website.layout">
-            <!-- Contexto necesario para el editor de Website -->
+            <!-- Contexto para el editor -->
             <t t-set="main_object" t-value="product"/>
             <t t-set="main_object_name" t-value="'product.template'"/>
 
             <div class="container my-5"
                  data-oe-model="product.template"
                  t-att-data-oe-id="product.id">
-                <h1 class="mb-4">
-                    Personalizar: <t t-esc="product.name"/>
-                </h1>
 
-                <div class="alert alert-info">
-                    Página de prueba del personalizador (ruta y contexto OK).
-                </div>
+                <h1 class="mb-4">Personalizar: <t t-esc="product.name"/></h1>
 
-                <!-- Botón volver -->
-                <a class="btn btn-secondary"
-                   t-att-href="'/shop/product/%s' % product.id">
-                    ← Volver al producto
-                </a>
+                <form action="/personalizar/submit" method="post" enctype="multipart/form-data" class="o_website_form">
+                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                    <input type="hidden" name="product_id" t-att-value="product.id"/>
+
+                    <!-- Logo -->
+                    <div class="mb-3">
+                        <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
+                        <input class="form-control" type="file" name="logo" accept=".png,.jpg,.jpeg,.svg"/>
+                    </div>
+
+                    <!-- Técnica -->
+                    <div class="mb-3">
+                        <label class="form-label">Técnica de personalización</label>
+                        <select class="form-select" name="tecnica_personalizacion" required="required">
+                            <option value="">Seleccione…</option>
+                            <option value="DTF">DTF</option>
+                            <option value="Serigrafía">Serigrafía</option>
+                            <option value="Bordado">Bordado</option>
+                            <option value="Vinilo">Vinilo</option>
+                        </select>
+                    </div>
+
+                    <!-- Posición -->
+                    <div class="mb-3">
+                        <label class="form-label">Posición</label>
+                        <select class="form-select" name="posicion_diseno" required="required">
+                            <option value="">Seleccione…</option>
+                            <option value="Pecho">Pecho</option>
+                            <option value="Espalda">Espalda</option>
+                            <option value="Manga Izquierda">Manga Izquierda</option>
+                            <option value="Manga Derecha">Manga Derecha</option>
+                            <option value="Frente">Frente</option>
+                            <option value="Lateral">Lateral</option>
+                        </select>
+                    </div>
+
+                    <!-- Color impresión -->
+                    <div class="mb-3">
+                        <label class="form-label">Color de impresión</label>
+                        <input class="form-control" type="text" name="color_impresion" placeholder="Ej. Blanco / Pantone 186C"/>
+                    </div>
+
+                    <!-- Cantidad -->
+                    <div class="mb-3">
+                        <label class="form-label">Cantidad</label>
+                        <input class="form-control" type="number" name="cantidad" min="1" step="1" value="1" required="required"/>
+                    </div>
+
+                    <!-- Observaciones -->
+                    <div class="mb-4">
+                        <label class="form-label">Observaciones</label>
+                        <textarea class="form-control" name="observaciones" rows="3" placeholder="Notas para el taller…"></textarea>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">Añadir al carrito con personalización</button>
+                        <a class="btn btn-secondary" t-att-href="'/shop/product/%s' % product.id">← Volver al producto</a>
+                    </div>
+                </form>
             </div>
         </t>
     </template>
