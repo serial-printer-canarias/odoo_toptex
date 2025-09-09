@@ -4,14 +4,22 @@ from odoo.http import request
 
 
 class SpwPersonalizar(http.Controller):
-    # Atendemos dos rutas por si el tema añade /shop/ delante
-    @http.route(['/personalizar/<int:product_id>',
-                 '/shop/personalizar/<int:product_id>'],
-                type='http', auth='public', website=True, sitemap=False)
+
+    @http.route(
+        ['/personalizar/<int:product_id>',
+         '/shop/personalizar/<int:product_id>'],
+        type='http', auth='public', website=True, sitemap=False
+    )
     def personalizar(self, product_id, **kwargs):
-        # Buscamos el template del producto y renderizamos la página
+        """Página de personalización para un product.template."""
         product = request.env['product.template'].sudo().browse(product_id)
         if not product.exists():
             return request.not_found()
-        values = {'product': product}
+
+        # EXPLICAR AL EDITOR DE WEBSITE CUÁL ES EL MAIN OBJECT
+        values = {
+            'product': product,
+            'main_object': product,                 # recordset
+            'main_object_name': 'product.template', # nombre del modelo
+        }
         return request.render('serial_printer_custom_wizard.personalizar', values)
