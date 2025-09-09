@@ -1,13 +1,14 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <!-- Botón "Personalizar" en la ficha de producto web -->
+  <!-- Inserta un botón "Personalizar" en la ficha de producto del eCommerce -->
   <template id="add_customize_button" inherit_id="website_sale.product">
-    <!-- Colocamos el botón justo después del formulario de compra -->
-    <xpath expr="//form[contains(@class, 'o_wsale_product_form')]" position="after">
-      <a t-attf-href="/personalizacion/producto/#{product.id}"
-         class="btn btn-primary mt-2">
+    <!-- Añadimos el botón al final del <form> del detalle de producto -->
+    <t t-jquery="#product_details form" t-operation="append">
+      <a class="btn btn-secondary mt-2"
+         t-if="product"
+         t-att-href="'/personalizacion/%s' % product.id">
         Personalizar
       </a>
-    </xpath>
+    </t>
   </template>
 </odoo>
