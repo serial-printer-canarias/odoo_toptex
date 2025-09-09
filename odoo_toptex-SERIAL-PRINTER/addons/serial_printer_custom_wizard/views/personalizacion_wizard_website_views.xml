@@ -1,114 +1,96 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Página del personalizador con preview -->
+
+  <!-- Página del personalizador -->
   <template id="website_personalizar_page" name="SPW Personalizar">
     <t t-call="website.layout">
-      <div class="container my-6 spw-customizer">
+      <div class="container my-5">
         <h1 class="mb-4">
           Personalizar:
-          <t t-esc="product.name"/>
+          <t t-esc="product.display_name"/>
         </h1>
 
-        <div class="row g-5">
-          <!-- Columna PREVIEW -->
+        <div class="row g-4">
+          <!-- Pre-visualización -->
           <div class="col-12 col-lg-6">
-            <div class="spw-preview">
-              <!-- Imagen base = plantilla o variante -->
-              <t t-set="base_src">
-                <t t-if="variant_id">
-                  <t t-esc="'/web/image/product.product/%s/image_1920' % variant_id"/>
-                </t>
-                <t t-if="not variant_id">
-                  <t t-esc="'/web/image/product.template/%s/image_1920' % product.id"/>
-                </t>
-              </t>
-              <img t-att-src="base_src" id="spw_base_img" alt="Producto"/>
-
-              <!-- Slot de posicionamiento y preview del logo -->
-              <div id="spw_slot">
-                <img id="spw_logo_preview" alt="Preview"/>
-              </div>
+            <div id="spw-preview" class="spw-preview shadow-sm">
+              <img id="spw-base"
+                   t-att-src="base_image_url"
+                   alt="Producto" />
+              <img id="spw-logo" alt="Logo" style="display:none;" />
             </div>
 
-            <!-- Thumbnails de variantes (si tienen imagen) -->
-            <t t-if="variants">
-              <div class="spw-thumbs">
-                <t t-foreach="variants" t-as="v">
-                  <a t-att-data-variant="v.id"
-                     t-att-data-img="'/web/image/product.product/%s/image_1920' % v.id"
-                     t-attf-class="spw-thumb #{'active' if v.id==variant_id else ''}"
-                     href="#">
-                    <img t-att-src="'/web/image/product.product/%s/image_1920' % v.id"
-                         t-att-alt="v.display_name"/>
-                  </a>
-                </t>
-              </div>
-            </t>
+            <!-- Thumbnails de variantes -->
+            <div class="d-flex flex-wrap gap-2 mt-3">
+              <t t-foreach="variant_thumbs" t-as="v">
+                <img t-att-src="v['img']"
+                     t-att-alt="v['name']"
+                     t-att-data-variant_id="v['id']"
+                     class="spw-thumb" />
+              </t>
+            </div>
           </div>
 
-          <!-- Columna FORM -->
+          <!-- Formulario -->
           <div class="col-12 col-lg-6">
-            <form action="/personalizar/add" method="post" enctype="multipart/form-data" class="o_website_form">
-              <input type="hidden" name="product_id" t-att-value="product.id"/>
-              <input type="hidden" name="variant_id" t-att-value="variant_id or ''"/>
+            <form action="#" method="post" enctype="multipart/form-data" class="o_website_form">
+              <!-- la variante seleccionada -->
+              <input type="hidden" id="variant_id" name="variant_id" t-att-value="variant_id or ''"/>
 
               <div class="mb-3">
-                <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
-                <input class="form-control" type="file" name="logo" accept=".png,.jpg,.jpeg,.svg"/>
+                <label class="form-label fw-semibold">Subir logo (PNG/JPG/SVG)</label>
+                <input type="file" id="spw_logo_input" name="logo" accept=".png,.jpg,.jpeg,.svg" class="form-control"/>
               </div>
 
               <div class="mb-3">
-                <label class="form-label">Técnica de personalización</label>
-                <select class="form-select" name="tecnica_personalizacion">
+                <label class="form-label fw-semibold">Técnica de personalización</label>
+                <select class="form-select" name="tecnica_personalizacion" id="tecnica">
                   <option value="DTF">DTF</option>
                   <option value="Vinilo">Vinilo</option>
-                  <option value="Serigrafía">Serigrafía</option>
                   <option value="Bordado">Bordado</option>
+                  <option value="Sublimación">Sublimación</option>
                 </select>
               </div>
 
               <div class="mb-3">
-                <label class="form-label">Posición</label>
-                <select class="form-select" name="posicion_diseno">
+                <label class="form-label fw-semibold">Posición</label>
+                <select class="form-select" name="posicion_diseno" id="posicion">
                   <option value="pecho">Pecho</option>
                   <option value="espalda">Espalda</option>
-                  <option value="manga">Manga</option>
-                  <option value="gorra_frente">Gorra (frente)</option>
-                  <option value="frente">Frente</option>
-                  <option value="trasera">Trasera</option>
+                  <option value="manga_izquierda">Manga Izquierda</option>
+                  <option value="manga_derecha">Manga Derecha</option>
                 </select>
               </div>
 
               <div class="mb-3">
-                <label class="form-label">Color de impresión</label>
-                <input class="form-control" type="text" name="color_impresion" placeholder="Ej. Blanco / Pantone 186C"/>
+                <label class="form-label fw-semibold">Color de impresión</label>
+                <input type="text" class="form-control" name="color_impresion" placeholder="Ej. Blanco / Pantone 186C"/>
               </div>
 
               <div class="mb-3">
-                <label class="form-label">Cantidad</label>
-                <input class="form-control" type="number" name="cantidad" min="1" value="1"/>
+                <label class="form-label fw-semibold">Cantidad</label>
+                <input type="number" min="1" value="1" name="cantidad" class="form-control"/>
               </div>
 
               <div class="mb-4">
-                <label class="form-label">Observaciones</label>
-                <textarea class="form-control" name="observaciones" placeholder="Notas para el taller..." rows="3"></textarea>
+                <label class="form-label fw-semibold">Observaciones</label>
+                <textarea name="observaciones" class="form-control" rows="3" placeholder="Notas para el taller..."></textarea>
               </div>
 
-              <div class="d-flex gap-3">
+              <div class="d-flex gap-2">
                 <button type="submit" class="btn btn-primary">
                   Añadir al carrito con personalización
                 </button>
-                <a t-att-href="'/shop/product/%s' % product.id" class="btn btn-outline-secondary">
+                <a t-attf-href="/shop/product/#{product.id}"
+                   class="btn btn-secondary">
                   ← Volver al producto
                 </a>
               </div>
             </form>
           </div>
         </div>
-
-        <!-- Sello de carga JS opcional -->
-        <div class="text-end mt-3"><span class="badge bg-light text-dark">SPW Preview</span></div>
       </div>
     </t>
   </template>
+
 </odoo>
