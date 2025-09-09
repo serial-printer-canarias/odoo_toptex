@@ -1,22 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <template id="customize_product_template" name="Customize Product Template">
+    <template id="customize_product_template" name="Personalizar producto">
         <t t-call="website.layout">
             <div class="container my-5">
                 <h1 class="mb-4">Personalización de producto</h1>
-                <form action="/personalizacion/submit" method="post" enctype="multipart/form-data" class="form">
-                    
-                    <!-- Logo -->
+                <form action="/personalizacion/submit" method="post" enctype="multipart/form-data">
                     <div class="form-group mb-3">
-                        <label for="logo">Subir logo</label>
-                        <input type="file" name="logo" class="form-control" required/>
+                        <label for="logo">Sube tu logo:</label>
+                        <input type="file" name="logo" class="form-control"/>
                     </div>
 
-                    <!-- Técnica de impresión -->
                     <div class="form-group mb-3">
-                        <label for="tecnica">Técnica de impresión</label>
-                        <select name="tecnica" class="form-control" required>
-                            <option value="">-- Selecciona una opción --</option>
+                        <label for="tecnica">Técnica de impresión:</label>
+                        <select name="tecnica" class="form-control">
+                            <option value="">Seleccionar</option>
                             <option value="serigrafia">Serigrafía</option>
                             <option value="bordado">Bordado</option>
                             <option value="dtf">DTF</option>
@@ -24,34 +21,31 @@
                         </select>
                     </div>
 
-                    <!-- Posición -->
                     <div class="form-group mb-3">
-                        <label for="posicion">Posición del diseño</label>
-                        <select name="posicion" class="form-control" required>
-                            <option value="">-- Selecciona una opción --</option>
+                        <label for="posicion">Posición del diseño:</label>
+                        <select name="posicion" class="form-control">
+                            <option value="">Seleccionar</option>
                             <option value="pecho">Pecho</option>
                             <option value="espalda">Espalda</option>
+                            <option value="manga">Manga</option>
                         </select>
                     </div>
 
-                    <!-- Tamaño -->
                     <div class="form-group mb-3">
-                        <label for="tamano">Tamaño del diseño</label>
-                        <select name="tamano" class="form-control" required>
-                            <option value="">-- Selecciona una opción --</option>
+                        <label for="tamano">Tamaño del diseño:</label>
+                        <select name="tamano" class="form-control">
+                            <option value="">Seleccionar</option>
                             <option value="pequeno">Pequeño</option>
                             <option value="mediano">Mediano</option>
                             <option value="grande">Grande</option>
                         </select>
                     </div>
 
-                    <!-- Observaciones -->
-                    <div class="form-group mb-4">
-                        <label for="observaciones">Observaciones</label>
-                        <textarea name="observaciones" class="form-control" rows="4" placeholder="Detalles adicionales..."></textarea>
+                    <div class="form-group mb-3">
+                        <label for="observaciones">Observaciones:</label>
+                        <textarea name="observaciones" class="form-control"></textarea>
                     </div>
 
-                    <!-- Submit -->
                     <button type="submit" class="btn btn-primary">Enviar personalización</button>
                 </form>
             </div>
