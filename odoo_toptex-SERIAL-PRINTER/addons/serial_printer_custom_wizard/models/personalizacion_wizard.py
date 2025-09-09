@@ -1,60 +1,59 @@
 from odoo import models, fields, api
 from odoo.exceptions import ValidationError
 
+
 class PersonalizationWizard(models.TransientModel):
     _name = 'personalization.wizard'
-    _description = 'Personalización de producto textil'
+    _description = 'Personalization Wizard'
 
-    order_id = fields.Many2one('sale.order', string='Pedido')
-    product_id = fields.Many2one('product.product', string='Producto')
-    design_file = fields.Binary(string='Logo del cliente', attachment=True, required=True)
-    design_filename = fields.Char(string='Nombre del archivo')
-    
+    product_template_id = fields.Many2one('product.template', string="Product", required=True)
+    logo = fields.Binary("Logo File", required=True)
+    logo_filename = fields.Char("Logo Filename")
     technique = fields.Selection([
-        ('serigrafia', 'Serigrafía'),
-        ('bordado', 'Bordado'),
+        ('serigraphy', 'Serigrafía'),
+        ('embroidery', 'Bordado'),
         ('dtf', 'DTF'),
-        ('ninguna', 'Sin personalización')
-    ], string='Técnica', required=True)
-
+        ('none', 'Ninguna')
+    ], string="Técnica", required=True)
     position = fields.Selection([
-        ('pecho_izquierdo', 'Pecho izquierdo'),
-        ('pecho_derecho', 'Pecho derecho'),
-        ('espalda', 'Espalda'),
-        ('manga_derecha', 'Manga derecha'),
-        ('manga_izquierda', 'Manga izquierda'),
-    ], string='Posición del diseño', required=True)
-
+        ('front', 'Pecho'),
+        ('back', 'Espalda'),
+        ('sleeve', 'Manga')
+    ], string="Posición", required=True)
     size = fields.Selection([
-        ('pequeno', 'Pequeño (≤10cm)'),
-        ('mediano', 'Mediano (10-20cm)'),
-        ('grande', 'Grande (≥20cm)')
-    ], string='Tamaño del diseño', required=True)
+        ('small', 'Pequeño'),
+        ('medium', 'Mediano'),
+        ('large', 'Grande')
+    ], string="Tamaño", required=True)
+    color = fields.Selection([
+        ('white', 'Blanco'),
+        ('black', 'Negro'),
+        ('red', 'Rojo'),
+        ('blue', 'Azul'),
+        ('yellow', 'Amarillo')
+    ], string="Color de impresión", required=True)
+    notes = fields.Text("Observaciones")
 
-    print_color = fields.Selection([
-        ('blanco', 'Blanco'),
-        ('negro', 'Negro'),
-        ('rojo', 'Rojo'),
-        ('amarillo', 'Amarillo'),
-        ('azul_marino', 'Azul Marino'),
-        ('verde', 'Verde'),
-        ('morado', 'Morado'),
-        ('gris', 'Gris'),
-        ('naranja', 'Naranja'),
-    ], string='Color de impresión', required=True)
-
-    notes = fields.Text(string='Observaciones')
-
-    @api.constrains('design_file')
-    def _check_design_file(self):
-        for record in self:
-            if not record.design_file:
-                raise ValidationError("Debes subir un archivo de diseño para continuar.")
-
-    def confirm_personalization(self):
-        # Aquí puedes guardar los datos como adjunto o generar un PDF
+    def generate_personalization_pdf(self):
         self.ensure_one()
-        # Lógica personalizada de guardado o creación de registro
+        if not self.logo:
+            raise ValidationError("Debe subir un logo.")
+
+        # Generación de PDF en adjuntos (pendiente implementación real)
+        pdf_content = b"%PDF-1.4\n%..."  # Aquí deberías generar el contenido real del PDF
+        attachment = self.env['ir.attachment'].create({
+            'name': f"personalizacion_{self.product_template_id.name}.pdf",
+            'type': 'binary',
+            'datas': pdf_content.encode('base64'),
+            'res_model': 'personalization.wizard',
+            'res_id': self.id,
+            'mimetype': 'application/pdf',
+        })
+
+        # Enlace a cliente o pedido en producción (pendiente implementación real)
+
         return {
-            'type': 'ir.actions.act_window_close'
+            'type': 'ir.actions.act_url',
+            'url': f'/web/content/{attachment.id}?download=true',
+            'target': 'self',
         }
