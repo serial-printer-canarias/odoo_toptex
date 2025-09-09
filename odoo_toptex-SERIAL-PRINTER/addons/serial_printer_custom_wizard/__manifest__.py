@@ -1,4 +1,3 @@
-# __manifest__.py
 {
     'name': 'Asistente de Personalización Serial Printer',
     'version': '1.0',
