@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <!-- Inyecta el JS directamente en web.assets_frontend -->
-    <template id="spw_assets_frontend" name="SPW Front Assets" inherit_id="web.assets_frontend">
+    <!-- Inyectamos el JS en los assets del frontend -->
+    <template id="spw_assets_frontend" name="SPW Assets" inherit_id="web.assets_frontend">
         <xpath expr="." position="inside">
-            <script type="module" src="/serial_printer_custom_wizard/static/src/js/add_customize_button.js"/>
+            <!-- SIN type="module" para evitar problemas con el loader -->
+            <script src="/serial_printer_custom_wizard/static/src/js/add_customize_button.js"/>
         </xpath>
     </template>
 </odoo>
