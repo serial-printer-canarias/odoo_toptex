@@ -1,66 +1,36 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-
-    <!-- Vista Formulario -->
-    <record id="view_personalizacion_form" model="ir.ui.view">
-        <field name="name">personalizacion.form</field>
+    <record id="view_product_personalizacion_form" model="ir.ui.view">
+        <field name="name">product.personalizacion.form</field>
         <field name="model">product.personalizacion</field>
         <field name="arch" type="xml">
             <form string="Personalización de producto">
-                <sheet>
-                    <group>
-                        <field name="producto_id"/>
-                        <field name="logo"/>
-                        <field name="tecnica"/>
-                        <field name="posicion"/>
-                        <field name="color_impresion"/>
-                        <field name="tamano"/>
-                        <field name="observaciones"/>
-                    </group>
-                </sheet>
+                <group>
+                    <field name="producto_id"/>
+                    <field name="tecnica_personalizacion"/>
+                    <field name="posicion_disenyo"/>
+                    <field name="tamano_disenyo"/>
+                    <field name="color_impresion"/>
+                    <field name="observaciones"/>
+                    <field name="logo_cliente"/>
+                </group>
             </form>
         </field>
     </record>
 
-    <!-- Vista Tree -->
-    <record id="view_personalizacion_tree" model="ir.ui.view">
-        <field name="name">personalizacion.tree</field>
-        <field name="model">product.personalizacion</field>
-        <field name="arch" type="xml">
-            <tree string="Personalizaciones">
-                <field name="producto_id"/>
-                <field name="tecnica"/>
-                <field name="posicion"/>
-                <field name="tamano"/>
-                <field name="color_impresion"/>
-            </tree>
-        </field>
-    </record>
-
-    <!-- Acción para abrir el wizard -->
-    <record id="action_personalizacion_wizard" model="ir.actions.act_window">
-        <field name="name">Solicitudes de Personalización</field>
+    <record id="action_product_personalizacion" model="ir.actions.act_window">
+        <field name="name">Personalizaciones</field>
         <field name="res_model">product.personalizacion</field>
         <field name="view_mode">tree,form</field>
-        <field name="help" type="html">
-            <p class="o_view_nocontent_smiling_face">
-                Crea solicitudes de personalización para tus productos.
-            </p>
-        </field>
     </record>
 
-    <!-- Menú principal Serial Printer -->
-    <menuitem id="menu_serial_printer_root" name="Serial Printer" sequence="10"/>
+    <menuitem id="menu_product_personalizacion_root"
+              name="Personalización"
+              sequence="10"/>
 
-    <!-- Submenú Personalización -->
-    <menuitem id="menu_personalizacion" name="Personalización"
-              parent="menu_serial_printer_root" sequence="20"/>
-
-    <!-- Submenú Wizard -->
-    <menuitem id="menu_personalizacion_wizard"
-              name="Solicitudes de Personalización"
-              parent="menu_personalizacion"
-              action="action_personalizacion_wizard"
-              sequence="30"/>
-
+    <menuitem id="menu_product_personalizacion"
+              name="Pedidos Personalizados"
+              parent="menu_product_personalizacion_root"
+              action="action_product_personalizacion"
+              sequence="10"/>
 </odoo>
