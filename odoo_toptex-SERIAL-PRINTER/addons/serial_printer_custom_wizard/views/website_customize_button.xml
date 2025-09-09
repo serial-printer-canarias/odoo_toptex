@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+  <template id="product_customize_button_inherit" inherit_id="website_sale.product">
+    <xpath expr="//div[@id='product_detail']//div[contains(@class, 'o_wsale_product_configurator')]" position="after">
+      <div class="mt-3">
+        <a t-attf-href="/personalizar-producto?product_id={{ product.id }}" class="btn btn-outline-primary btn-block">
+          🎨 Personalizar este producto
+        </a>
+      </div>
+    </xpath>
+  </template>
+</odoo>
