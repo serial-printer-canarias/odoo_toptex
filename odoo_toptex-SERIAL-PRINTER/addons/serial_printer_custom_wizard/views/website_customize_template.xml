@@ -1,6 +1,6 @@
 <!-- views/website_customize_template.xml -->
 <odoo>
-  <template id="form_personalization_portal" name="Formulario de personalización desde pedido" inherit_id="portal.portal_my_home">
+  <template id="form_personalizacion_portal" name="Formulario de personalización desde pedido" inherit_id="portal.portal_my_home">
     <t t-call="website.layout">
       <div class="container my-5">
         <h2>Personalización de tu producto</h2>
@@ -57,7 +57,7 @@
     </t>
   </template>
 
-  <template id="form_personalization_public" name="Formulario público de personalización">
+  <template id="form_personalizacion_public" name="Formulario público de personalización">
     <t t-call="website.layout">
       <div class="container my-5">
         <h2>Personaliza tu prenda</h2>
