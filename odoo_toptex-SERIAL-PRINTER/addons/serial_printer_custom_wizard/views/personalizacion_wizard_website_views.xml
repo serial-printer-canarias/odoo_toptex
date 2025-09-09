@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <!-- Página súper simple para probar la navegación desde el botón -->
     <template id="website_personalizar_page" name="Página Personalizar" inherit_id="website.layout">
         <xpath expr="//main" position="inside">
             <section class="container my-5">
                 <h1 class="mb-3">Personalizar: <t t-esc="product.name"/></h1>
-                <p>OK: la ruta web funciona. Aquí después podrás poner el formulario real.</p>
+                <p>Ruta OK. Aquí pondremos el formulario real.</p>
                 <a t-att-href="'/shop/product/%s' % product.id" class="btn btn-secondary mt-3">Volver al producto</a>
             </section>
         </xpath>
