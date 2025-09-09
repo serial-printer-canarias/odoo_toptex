@@ -1,56 +1,81 @@
 from odoo import models, fields, api
+from odoo.exceptions import UserError
 
-class ProductPersonalization(models.Model):
-    _name = 'product.personalization'
-    _description = 'Personalización de producto textil'
 
-    name = fields.Char(string="Referencia", compute="_compute_name", store=True)
-    sale_order_line_id = fields.Many2one('sale.order.line', string='Línea de pedido')
-    lead_id = fields.Many2one('crm.lead', string='Lead (preventa)')
-    product_id = fields.Many2one('product.product', string='Producto personalizado', required=True)
+class PersonalizationWizard(models.TransientModel):
+    _name = 'personalization.wizard'
+    _description = 'Asistente de Personalización de Pedido'
 
-    logo = fields.Binary(string='Logo subido', required=True)
-    logo_filename = fields.Char(string='Nombre del archivo')
+    order_id = fields.Many2one('sale.order', string='Pedido', required=True)
+    product_id = fields.Many2one('product.product', string='Producto', required=True)
+    image_front = fields.Image(string='Vista Frontal (desde Odoo)')
+    image_back = fields.Image(string='Vista Trasera (opcional)')
+    
+    logo = fields.Binary(string="Logo del Cliente", required=True, help="Sube tu logo en PNG con fondo transparente si es posible.")
+    logo_filename = fields.Char(string="Nombre del archivo")
+    
     technique = fields.Selection([
         ('serigrafia', 'Serigrafía'),
         ('bordado', 'Bordado'),
         ('dtf', 'DTF'),
-        ('ninguna', 'Sin personalización')
-    ], string='Técnica de personalización', required=True)
+        ('ninguna', 'Ninguna')
+    ], string="Técnica de personalización", required=True)
 
-    position = fields.Selection([
+    print_size = fields.Selection([
+        ('pequeno', 'Pequeño'),
+        ('mediano', 'Mediano'),
+        ('grande', 'Grande')
+    ], string="Tamaño del diseño", required=True)
+
+    print_position = fields.Selection([
         ('pecho', 'Pecho'),
         ('espalda', 'Espalda'),
-        ('manga_derecha', 'Manga derecha'),
-        ('manga_izquierda', 'Manga izquierda')
-    ], string='Zona del diseño', required=True)
+        ('manga', 'Manga'),
+        ('otros', 'Otros')
+    ], string="Posición del diseño", required=True)
 
     print_color = fields.Selection([
-        ('blanco', 'Blanco'),
-        ('negro', 'Negro'),
-        ('rojo', 'Rojo'),
-        ('azul', 'Azul'),
-        ('amarillo', 'Amarillo'),
-        ('verde', 'Verde'),
-        ('otro', 'Otro')
-    ], string='Color de impresión', required=True)
+        ('white', 'Blanco'),
+        ('black', 'Negro'),
+        ('gold', 'Oro'),
+        ('silver', 'Plata'),
+        ('navy', 'Marino'),
+        ('red', 'Rojo'),
+        ('green', 'Verde'),
+        ('yellow', 'Amarillo')
+        # Puedes extender esta lista según la carta de colores NS300
+    ], string="Color de impresión", required=True)
 
-    size = fields.Selection([
-        ('pequeno', 'Diseño pequeño'),
-        ('mediano', 'Diseño mediano'),
-        ('grande', 'Diseño grande')
-    ], string='Tamaño del diseño', required=True)
+    notes = fields.Text(string="Observaciones para el taller")
 
-    notes = fields.Text(string='Observaciones')
-    editable = fields.Boolean(string='Editable', default=True)
+    def action_confirm_personalization(self):
+        # Validación básica
+        if not self.logo:
+            raise UserError("Debes subir el logo del cliente antes de continuar.")
+        
+        # Guardar los datos en un modelo persistente si hace falta
+        self.env['personalization.record'].create({
+            'order_id': self.order_id.id,
+            'product_id': self.product_id.id,
+            'logo': self.logo,
+            'logo_filename': self.logo_filename,
+            'technique': self.technique,
+            'print_size': self.print_size,
+            'print_position': self.print_position,
+            'print_color': self.print_color,
+            'notes': self.notes,
+            'image_front': self.image_front,
+            'image_back': self.image_back,
+        })
 
-    @api.depends('sale_order_line_id', 'lead_id', 'product_id')
-    def _compute_name(self):
-        for rec in self:
-            base = rec.product_id.display_name or 'Personalización'
-            if rec.sale_order_line_id:
-                rec.name = f"{base} (Pedido {rec.sale_order_line_id.order_id.name})"
-            elif rec.lead_id:
-                rec.name = f"{base} (Lead {rec.lead_id.name})"
-            else:
-                rec.name = base
+        # Acciones adicionales como generar PDF, enviar por email, etc., se pueden hacer desde aquí
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': '¡Personalización guardada!',
+                'message': 'El pedido ha sido personalizado correctamente.',
+                'type': 'success',
+                'sticky': False,
+            }
+        }
