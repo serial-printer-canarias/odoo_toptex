@@ -1,14 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Página de personalización (con meta para Website Editor) -->
   <template id="website_personalizar_page" name="SPW Personalizar">
-    <!-- MUY IMPORTANTE: definir website_meta ANTES de llamar a website.layout -->
-    <t t-set="website_meta"
-       t-value="{
-         'main_object': product,
-         'main_object_name': 'product.template',
-         'main_object_id': product and product.id or False,
-       }"/>
+    <!-- METADATA para el Website Editor: declarar ANTES de llamar a website.layout -->
+    <t t-set="website_meta">
+      <t t-set="main_object" t-value="product"/>
+      <t t-set="main_object_name" t-value="'product.template'"/>
+      <t t-set="main_object_id" t-value="product and product.id or False"/>
+    </t>
 
     <t t-call="website.layout">
       <t t-set="title">Personalizar: <t t-esc="product.name"/></t>
@@ -17,7 +15,7 @@
         <h1 class="mb-4">Personalizar: <t t-esc="product.name"/></h1>
 
         <div class="row g-4">
-          <!-- Imagen del producto + zona de preview del logo -->
+          <!-- Imagen del producto + zona de preview -->
           <div class="col-12 col-md-6">
             <div class="spw-stage position-relative">
               <img id="spw_product_img"
@@ -37,8 +35,7 @@
 
               <div class="mb-3">
                 <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
-                <input id="spw_logo" class="form-control" type="file"
-                       name="logo" accept=".png,.jpg,.jpeg,.svg"/>
+                <input id="spw_logo" class="form-control" type="file" name="logo" accept=".png,.jpg,.jpeg,.svg"/>
               </div>
 
               <div class="mb-3">
@@ -63,8 +60,7 @@
 
               <div class="mb-3">
                 <label class="form-label">Color de impresión</label>
-                <input type="text" name="color_impresion" class="form-control"
-                       placeholder="Ej. Blanco / Pantone 186C"/>
+                <input type="text" name="color_impresion" class="form-control" placeholder="Ej. Blanco / Pantone 186C"/>
               </div>
 
               <div class="mb-3">
@@ -74,16 +70,11 @@
 
               <div class="mb-4">
                 <label class="form-label">Observaciones</label>
-                <textarea name="observaciones" class="form-control" rows="3"
-                          placeholder="Notas para el taller..."></textarea>
+                <textarea name="observaciones" class="form-control" rows="3" placeholder="Notas para el taller..."></textarea>
               </div>
 
-              <button type="submit" class="btn btn-primary">
-                Añadir al carrito con personalización
-              </button>
-              <a t-att-href="'/shop/product/%s' % product.id" class="btn btn-secondary ms-2">
-                ← Volver al producto
-              </a>
+              <button type="submit" class="btn btn-primary">Añadir al carrito con personalización</button>
+              <a t-att-href="'/shop/product/%s' % product.id" class="btn btn-secondary ms-2">← Volver al producto</a>
             </form>
           </div>
         </div>
