@@ -4,27 +4,34 @@ class ProductPersonalizacion(models.Model):
     _name = 'product.personalizacion'
     _description = 'Personalización de producto'
 
-    sale_order_line_id = fields.Many2one('sale.order.line', string='Línea de pedido')
-    tecnica = fields.Selection([
+    product_id = fields.Many2one(
+        'product.template',
+        string='Producto',
+        required=True,
+    )
+
+    tecnica_personalizacion = fields.Selection([
         ('serigrafia', 'Serigrafía'),
         ('bordado', 'Bordado'),
         ('dtf', 'DTF'),
         ('ninguna', 'Ninguna'),
-    ], string='Técnica', required=True)
-    posicion = fields.Selection([
-        ('pecho_izquierdo', 'Pecho izquierdo'),
-        ('pecho_derecho', 'Pecho derecho'),
+    ], string='Técnica de personalización', required=True)
+
+    posicion_diseno = fields.Selection([
+        ('pecho', 'Pecho'),
         ('espalda', 'Espalda'),
-        ('manga_derecha', 'Manga derecha'),
-        ('manga_izquierda', 'Manga izquierda'),
+        ('manga_izquierda', 'Manga Izquierda'),
+        ('manga_derecha', 'Manga Derecha'),
     ], string='Posición del diseño', required=True)
+
     color_impresion = fields.Char(string='Color de impresión')
     tamano_diseno = fields.Selection([
         ('pequeno', 'Pequeño'),
         ('mediano', 'Mediano'),
         ('grande', 'Grande'),
-    ], string='Tamaño del diseño', required=True)
-    logo = fields.Binary(string='Logo')
-    logo_filename = fields.Char(string='Nombre del archivo')
+    ], string='Tamaño del diseño')
+
     observaciones = fields.Text(string='Observaciones')
-    editable = fields.Boolean(default=True)
+
+    logo = fields.Binary(string='Logo')
+    logo_filename = fields.Char(string="Nombre del archivo")
