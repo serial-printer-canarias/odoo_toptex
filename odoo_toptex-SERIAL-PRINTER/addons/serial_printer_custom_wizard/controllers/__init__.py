@@ -1,2 +1,2 @@
-from . import portal_customizer
+# -*- coding: utf-8 -*-
 from . import main
