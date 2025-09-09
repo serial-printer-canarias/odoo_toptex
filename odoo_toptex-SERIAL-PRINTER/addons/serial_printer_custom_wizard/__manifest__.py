@@ -1,25 +1,39 @@
+# -*- coding: utf-8 -*-
 {
-    "name": "Serial Printer Custom Wizard",
-    "version": "1.2.0",
-    "summary": "Botón “Personalizar” en la ficha de producto",
-    "category": "Website/Shop",
-    "author": "Serial Printer Fuerteventura",
-    "website": "https://serial-printer.com",
-    "license": "LGPL-3",
-    "depends": ["base", "product", "website", "website_sale"],
-    "data": [
-        "security/ir.model.access.csv",
-        "views/personalizacion_wizard_website_views.xml",  # página destino de prueba
+    'name': 'Serial Printer Custom Wizard',
+    'version': '1.0',
+    'category': 'Website',
+    'summary': 'Personalizador sencillo con preview en la web',
+    'description': '''
+Permite al cliente subir logo, escoger técnica/posición/color, ver una previsualización
+sobre la imagen del producto y enviar los datos al carrito / al taller.
+''',
+    'author': 'Serial Printer Fuerteventura',
+    'website': 'https://serial-printer.com',
+    'depends': [
+        'website',
+        'website_sale',
+        'sale',
+        'portal',
+        'mail',
     ],
-    "assets": {
-        # Inyectamos el JS en todos los frontends de web/website
-        "web.assets_frontend": [
-            "serial_printer_custom_wizard/static/src/js/add_customize_button.js",
-        ],
-        "website.assets_frontend": [
-            "serial_printer_custom_wizard/static/src/js/add_customize_button.js",
+    'data': [
+        'security/ir.model.access.csv',
+        'views/personalizacion_wizard_views.xml',
+        'views/personalizacion_wizard_website_views.xml',
+        'views/website_customize_button.xml',
+        'report/mockup_personalizacion_template.xml',
+    ],
+    'assets': {
+        'web.assets_frontend': [
+            # JS del botón en la ficha (si lo estás usando)
+            'serial_printer_custom_wizard/static/src/js/add_customize_button.js',
+            # NUEVOS assets del previsualizador
+            'serial_printer_custom_wizard/static/src/js/customizer_preview.js',
+            'serial_printer_custom_wizard/static/src/css/customizer.css',
         ],
     },
-    "installable": True,
-    "application": False,
+    'installable': True,
+    'application': True,
+    'license': 'LGPL-3',
 }
