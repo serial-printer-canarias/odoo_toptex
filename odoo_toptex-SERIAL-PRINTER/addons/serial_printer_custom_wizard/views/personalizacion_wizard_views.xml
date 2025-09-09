@@ -27,7 +27,7 @@
     </field>
   </record>
 
-  <record id="action_product_personalization" model="ir.actions.act_window">
+  <record id="action_product_personalizacion" model="ir.actions.act_window">
     <field name="name">Personalizaciones</field>
     <field name="res_model">product.personalizacion</field>
     <field name="view_mode">tree,form</field>
