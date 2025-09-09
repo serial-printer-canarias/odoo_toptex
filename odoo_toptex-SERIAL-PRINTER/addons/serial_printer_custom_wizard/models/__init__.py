@@ -1,2 +1,2 @@
-from . import personalizacion_wizard
+# -*- coding: utf-8 -*-
 from . import product_personalizacion
