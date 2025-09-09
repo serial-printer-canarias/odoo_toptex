@@ -1,10 +1,11 @@
 from odoo import models, fields
 
-class PersonalizationWizard(models.TransientModel):
-    _name = 'personalization.wizard'
-    _description = 'Personalization Wizard'
+class PersonalizacionWizard(models.TransientModel):
+    _name = 'personalizacion.wizard'
+    _description = 'Asistente de Personalización de Producto'
 
     logo = fields.Binary("Logo")
+    
     print_technique = fields.Selection([
         ('serigrafia', 'Serigrafía'),
         ('bordado', 'Bordado'),
@@ -15,13 +16,13 @@ class PersonalizationWizard(models.TransientModel):
     design_position = fields.Selection([
         ('front', 'Frontal'),
         ('back', 'Espalda')
-    ], string="Posición del diseño")
+    ], string="Posición del diseño", required=True)
 
     size = fields.Selection([
         ('small', 'Pequeño'),
         ('medium', 'Mediano'),
         ('large', 'Grande')
-    ], string="Tamaño del diseño")
+    ], string="Tamaño del diseño", required=True)
 
     color = fields.Char("Color de impresión")
     notes = fields.Text("Observaciones")
