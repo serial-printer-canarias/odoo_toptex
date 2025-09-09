@@ -1,19 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
   <template id="website_personalizar_page" name="SPW Personalizar">
-    <!-- 1) META para Website Editor (antes del layout) -->
-    <t t-set="website_meta">
-      <t t-set="main_object" t-value="product"/>
-      <t t-set="main_object_name" t-value="'product.template'"/>
-      <t t-set="main_object_id" t-value="product and product.id or False"/>
-    </t>
+    <!-- IMPORTANTE: website_meta con camelCase ANTES del layout -->
+    <t t-set="website_meta"
+       t-value="{
+         'mainObject': {'model': 'product.template', 'id': product and product.id or False}
+       }"/>
 
     <t t-call="website.layout">
       <t t-set="title">Personalizar: <t t-esc="product.name"/></t>
 
-      <!-- 2) Marcador invisible para el editor (fallback robusto) -->
-      <div id="spw_meta_marker"
-           class="d-none"
+      <!-- Marcador extra para el editor (por si acaso) -->
+      <div class="d-none"
            data-oe-model="product.template"
            t-att-data-oe-id="product.id"></div>
 
