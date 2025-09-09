@@ -1,17 +1,22 @@
-# -*- coding: utf-8 -*-
 {
     'name': 'Serial Printer Custom Wizard',
-    'version': '1.0.0',
-    'category': 'Website',
+    'version': '1.1.0',
+    'summary': 'Gestión de personalización + botón en eCommerce',
+    'category': 'Sales/Customization',
     'author': 'Serial Printer Fuerteventura',
-    'depends': ['website', 'website_sale', 'sale', 'portal', 'mail'],
+    'website': 'https://serial-printer.com',
+    'license': 'LGPL-3',
+    'depends': ['base', 'product', 'sale', 'website', 'website_sale'],
     'data': [
+        # Backoffice
         'security/ir.model.access.csv',
-        # (de momento SIN vistas para no romper la carga)
+        'views/personalizacion_wizard_views.xml',
+        # Página web muy simple para probar la ruta
+        'views/personalizacion_wizard_website_views.xml',
     ],
     'assets': {
+        # Solo un JS pequeño que inserta el botón en la ficha de producto
         'web.assets_frontend': [
-            # lo puedes dejar ya, no rompe builds
             'serial_printer_custom_wizard/static/src/js/add_customize_button.js',
         ],
     },
