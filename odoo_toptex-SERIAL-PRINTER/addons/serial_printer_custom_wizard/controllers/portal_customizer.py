@@ -11,15 +11,10 @@ class SPWPortalCustomizer(http.Controller):
         if not product.exists():
             return request.not_found()
 
-        # Pasamos el objeto principal para el editor del Website
+        # Pasamos explícitamente el objeto principal al contexto
         values = {
             'product': product,
-            'product_tmpl': product,
-            'main_object': product,  # <-- clave para evitar el TypeError
+            'main_object': product,              # <- clave para editor
+            'main_object_name': 'product.template',
         }
         return request.render('serial_printer_custom_wizard.website_personalizar_page', values)
-
-    @http.route(['/personalizar/submit'], type='http', auth='public', website=True, csrf=False)
-    def personalizar_submit(self, **post):
-        pid = int(post.get('product_id', 0))
-        return request.redirect(f'/shop/product/{pid}')
