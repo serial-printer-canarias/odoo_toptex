@@ -1,7 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Página de personalización -->
+  <!-- Página de personalización (con meta para Website Editor) -->
   <template id="website_personalizar_page" name="SPW Personalizar">
+    <!-- MUY IMPORTANTE: definir website_meta ANTES de llamar a website.layout -->
+    <t t-set="website_meta"
+       t-value="{
+         'main_object': product,
+         'main_object_name': 'product.template',
+         'main_object_id': product and product.id or False,
+       }"/>
+
     <t t-call="website.layout">
       <t t-set="title">Personalizar: <t t-esc="product.name"/></t>
 
@@ -9,21 +17,20 @@
         <h1 class="mb-4">Personalizar: <t t-esc="product.name"/></h1>
 
         <div class="row g-4">
-          <!-- Columna imagen + preview -->
+          <!-- Imagen del producto + zona de preview del logo -->
           <div class="col-12 col-md-6">
             <div class="spw-stage position-relative">
               <img id="spw_product_img"
                    class="img-fluid w-100"
                    t-att-src="'/web/image/product.template/%s/image_1920' % product.id"
                    t-att-alt="product.name"/>
-              <!-- preview del logo (se muestra con JS al elegir fichero) -->
               <img id="spw_logo_preview"
                    class="position-absolute d-none"
                    style="top:35%; left:35%; width:30%; pointer-events:none;"/>
             </div>
           </div>
 
-          <!-- Columna formulario -->
+          <!-- Formulario -->
           <div class="col-12 col-md-6">
             <form id="spw_form" action="/personalizar/submit" method="post" enctype="multipart/form-data">
               <input type="hidden" name="product_id" t-att-value="product.id"/>
