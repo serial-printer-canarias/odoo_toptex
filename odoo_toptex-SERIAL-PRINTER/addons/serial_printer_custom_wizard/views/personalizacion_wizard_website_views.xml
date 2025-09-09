@@ -1,29 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <!-- Regrabar la vista como QWeb normal (sin herencia) -->
-    <record id="website_personalizar_page" model="ir.ui.view">
-        <field name="name">SPW Personalizar</field>
-        <field name="type">qweb</field>
-        <!-- Muy importante: dejar sin herencia -->
-        <field name="inherit_id" eval="False"/>
-        <!-- clave QWeb (t-name) -->
-        <field name="key">serial_printer_custom_wizard.website_personalizar_page</field>
-        <field name="arch" type="xml">
-            <t t-name="serial_printer_custom_wizard.website_personalizar_page">
-                <t t-call="website.layout">
-                    <main id="wrap" class="o_spw_personalizar">
-                        <section class="container my-5">
-                            <h1 class="mb-3">
-                                Personalizar:
-                                <t t-esc="product and product.name or 'Producto'"/>
-                            </h1>
-                            <p>Vista cargada correctamente. Aquí irá el formulario.</p>
-                            <a t-att-href="'/shop/product/%s' % product.id"
-                               class="btn btn-secondary mt-3">Volver al producto</a>
-                        </section>
-                    </main>
-                </t>
-            </t>
-        </field>
-    </record>
+    <!-- Página básica para /personalizar/<id> -->
+    <template id="personalizar" name="SPW Personalizar">
+        <t t-call="website.layout">
+            <div class="container my-5">
+                <h1 class="mb-4">
+                    Personalizar: <t t-esc="product.name"/>
+                </h1>
+                <p>ID del producto: <t t-esc="product.id"/></p>
+
+                <!-- Aquí luego pondremos el formulario/wizard real -->
+                <div class="alert alert-info">
+                    Página de prueba del personalizador (funciona la ruta).
+                </div>
+                <a class="btn btn-secondary" t-att-href="'/shop/product/%s' % product.id">
+                    ← Volver al producto
+                </a>
+            </div>
+        </t>
+    </template>
 </odoo>
