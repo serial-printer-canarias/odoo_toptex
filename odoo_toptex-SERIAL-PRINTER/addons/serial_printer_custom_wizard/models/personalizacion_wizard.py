@@ -1,30 +1,30 @@
-# models/personalizacion_wizard.py
+from odoo import models, fields
 
-from odoo import models, fields, api
-
-class PersonalizacionWizard(models.TransientModel):
+class ProductPersonalizacion(models.Model):
     _name = 'product.personalizacion'
-    _description = 'Asistente de Personalización'
+    _description = 'Personalización de producto'
 
-    sale_order_line_id = fields.Many2one('sale.order.line', string='Línea de Pedido')
-    product_id = fields.Many2one('product.product', string='Producto')
+    sale_order_line_id = fields.Many2one('sale.order.line', string='Línea de pedido')
     tecnica = fields.Selection([
         ('serigrafia', 'Serigrafía'),
         ('bordado', 'Bordado'),
         ('dtf', 'DTF'),
-        ('ninguna', 'Ninguna')
-    ], string='Técnica de personalización', required=True)
-    tamanio = fields.Selection([
+        ('ninguna', 'Ninguna'),
+    ], string='Técnica', required=True)
+    posicion = fields.Selection([
+        ('pecho_izquierdo', 'Pecho izquierdo'),
+        ('pecho_derecho', 'Pecho derecho'),
+        ('espalda', 'Espalda'),
+        ('manga_derecha', 'Manga derecha'),
+        ('manga_izquierda', 'Manga izquierda'),
+    ], string='Posición del diseño', required=True)
+    color_impresion = fields.Char(string='Color de impresión')
+    tamano_diseno = fields.Selection([
         ('pequeno', 'Pequeño'),
         ('mediano', 'Mediano'),
-        ('grande', 'Grande')
+        ('grande', 'Grande'),
     ], string='Tamaño del diseño', required=True)
-    posicion = fields.Selection([
-        ('pecho', 'Pecho'),
-        ('espalda', 'Espalda'),
-        ('manga', 'Manga')
-    ], string='Posición del diseño', required=True)
-    color = fields.Char(string='Color de impresión')
     logo = fields.Binary(string='Logo')
-    logo_filename = fields.Char(string='Nombre del archivo del logo')
+    logo_filename = fields.Char(string='Nombre del archivo')
     observaciones = fields.Text(string='Observaciones')
+    editable = fields.Boolean(default=True)
