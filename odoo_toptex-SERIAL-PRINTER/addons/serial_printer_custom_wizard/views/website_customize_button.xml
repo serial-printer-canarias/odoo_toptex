@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <!-- Inserta un botón "Personalizar" en la ficha de producto del eCommerce -->
+  <!-- Añade un botón "Personalizar" en la página de producto del eCommerce.
+       Usamos //main como ancla universal para evitar fallos de xpath/t-jquery. -->
   <template id="add_customize_button" inherit_id="website_sale.product">
-    <!-- Añadimos el botón al final del <form> del detalle de producto -->
-    <t t-jquery="#product_details form" t-operation="append">
-      <a class="btn btn-secondary mt-2"
-         t-if="product"
-         t-att-href="'/personalizacion/%s' % product.id">
-        Personalizar
-      </a>
-    </t>
+    <xpath expr="//main" position="inside">
+      <div class="container my-3">
+        <a class="btn btn-secondary"
+           t-if="product"
+           t-att-href="'/personalizacion/%s' % product.id">
+          Personalizar
+        </a>
+      </div>
+    </xpath>
   </template>
 </odoo>
