@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
   <template id="website_personalizar_page" name="SPW Personalizar">
-    <!-- METADATA para el Website Editor: declarar ANTES de llamar a website.layout -->
+    <!-- 1) META para Website Editor (antes del layout) -->
     <t t-set="website_meta">
       <t t-set="main_object" t-value="product"/>
       <t t-set="main_object_name" t-value="'product.template'"/>
@@ -11,11 +11,16 @@
     <t t-call="website.layout">
       <t t-set="title">Personalizar: <t t-esc="product.name"/></t>
 
+      <!-- 2) Marcador invisible para el editor (fallback robusto) -->
+      <div id="spw_meta_marker"
+           class="d-none"
+           data-oe-model="product.template"
+           t-att-data-oe-id="product.id"></div>
+
       <div class="container my-5" id="spw_wrapper" t-att-data-product-id="product.id">
         <h1 class="mb-4">Personalizar: <t t-esc="product.name"/></h1>
 
         <div class="row g-4">
-          <!-- Imagen del producto + zona de preview -->
           <div class="col-12 col-md-6">
             <div class="spw-stage position-relative">
               <img id="spw_product_img"
@@ -28,7 +33,6 @@
             </div>
           </div>
 
-          <!-- Formulario -->
           <div class="col-12 col-md-6">
             <form id="spw_form" action="/personalizar/submit" method="post" enctype="multipart/form-data">
               <input type="hidden" name="product_id" t-att-value="product.id"/>
