@@ -1,69 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Página con el formulario de personalización -->
-  <template id="customize_product_template" name="Formulario de personalización">
-    <t t-call="website.layout">
+  <template id="customize_product_template" name="Personalización de producto" inherit_id="website.layout">
+    <xpath expr="//main" position="inside">
       <div class="container my-5">
-        <h1 class="mb-4">Personalización de <t t-esc="product.name"/></h1>
-
-        <form action="/personalizacion/submit" method="post" enctype="multipart/form-data" class="o_website_form">
-          <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
-          <input type="hidden" name="product_id" t-att-value="product.id"/>
-
-          <!-- Logo -->
-          <div class="form-group mb-3">
-            <label for="logo">Sube tu logo (opcional)</label>
-            <input type="file" name="logo" id="logo" class="form-control"/>
-          </div>
-
-          <!-- Técnica -->
-          <div class="form-group mb-3">
-            <label for="tecnica">Técnica de personalización</label>
-            <select name="tecnica" id="tecnica" class="form-control">
-              <option value="serigrafia">Serigrafía</option>
-              <option value="bordado">Bordado</option>
-              <option value="dtf">DTF</option>
-              <option value="ninguna">Ninguna</option>
-            </select>
-          </div>
-
-          <!-- Posición -->
-          <div class="form-group mb-3">
-            <label for="posicion">Posición</label>
-            <select name="posicion" id="posicion" class="form-control">
-              <option value="front">Frontal</option>
-              <option value="back">Espalda</option>
-            </select>
-          </div>
-
-          <!-- Tamaño -->
-          <div class="form-group mb-3">
-            <label for="tamano">Tamaño del diseño</label>
-            <select name="tamano" id="tamano" class="form-control">
-              <option value="small">Pequeño</option>
-              <option value="medium">Mediano</option>
-              <option value="large">Grande</option>
-            </select>
-          </div>
-
-          <!-- Color -->
-          <div class="form-group mb-3">
-            <label for="color_impresion">Color de impresión</label>
-            <input type="text" name="color_impresion" id="color_impresion" class="form-control"/>
-          </div>
-
-          <!-- Observaciones -->
-          <div class="form-group mb-4">
-            <label for="observaciones">Observaciones</label>
-            <textarea name="observaciones" id="observaciones" class="form-control" rows="3"></textarea>
-          </div>
-
-          <div class="form-group">
-            <button type="submit" class="btn btn-primary">Enviar personalización</button>
-            <a t-attf-href="/shop/product/#{product.id}" class="btn btn-secondary ms-2">Volver al producto</a>
-          </div>
+        <h1 class="mb-4">Personalización</h1>
+        <form t-att-action="'/personalizacion/%s' % product.id" method="post" enctype="multipart/form-data">
+          <!-- aquí tus campos de logo / técnica / posición / color / tamaño / observaciones -->
         </form>
       </div>
-    </t>
+    </xpath>
   </template>
 </odoo>
