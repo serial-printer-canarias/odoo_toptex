@@ -1,81 +1,60 @@
 from odoo import models, fields, api
-from odoo.exceptions import UserError
-
+from odoo.exceptions import ValidationError
 
 class PersonalizationWizard(models.TransientModel):
     _name = 'personalization.wizard'
-    _description = 'Asistente de Personalización de Pedido'
+    _description = 'Personalización de producto textil'
 
-    order_id = fields.Many2one('sale.order', string='Pedido', required=True)
-    product_id = fields.Many2one('product.product', string='Producto', required=True)
-    image_front = fields.Image(string='Vista Frontal (desde Odoo)')
-    image_back = fields.Image(string='Vista Trasera (opcional)')
-    
-    logo = fields.Binary(string="Logo del Cliente", required=True, help="Sube tu logo en PNG con fondo transparente si es posible.")
-    logo_filename = fields.Char(string="Nombre del archivo")
+    order_id = fields.Many2one('sale.order', string='Pedido')
+    product_id = fields.Many2one('product.product', string='Producto')
+    design_file = fields.Binary(string='Logo del cliente', attachment=True, required=True)
+    design_filename = fields.Char(string='Nombre del archivo')
     
     technique = fields.Selection([
         ('serigrafia', 'Serigrafía'),
         ('bordado', 'Bordado'),
         ('dtf', 'DTF'),
-        ('ninguna', 'Ninguna')
-    ], string="Técnica de personalización", required=True)
+        ('ninguna', 'Sin personalización')
+    ], string='Técnica', required=True)
 
-    print_size = fields.Selection([
-        ('pequeno', 'Pequeño'),
-        ('mediano', 'Mediano'),
-        ('grande', 'Grande')
-    ], string="Tamaño del diseño", required=True)
-
-    print_position = fields.Selection([
-        ('pecho', 'Pecho'),
+    position = fields.Selection([
+        ('pecho_izquierdo', 'Pecho izquierdo'),
+        ('pecho_derecho', 'Pecho derecho'),
         ('espalda', 'Espalda'),
-        ('manga', 'Manga'),
-        ('otros', 'Otros')
-    ], string="Posición del diseño", required=True)
+        ('manga_derecha', 'Manga derecha'),
+        ('manga_izquierda', 'Manga izquierda'),
+    ], string='Posición del diseño', required=True)
+
+    size = fields.Selection([
+        ('pequeno', 'Pequeño (≤10cm)'),
+        ('mediano', 'Mediano (10-20cm)'),
+        ('grande', 'Grande (≥20cm)')
+    ], string='Tamaño del diseño', required=True)
 
     print_color = fields.Selection([
-        ('white', 'Blanco'),
-        ('black', 'Negro'),
-        ('gold', 'Oro'),
-        ('silver', 'Plata'),
-        ('navy', 'Marino'),
-        ('red', 'Rojo'),
-        ('green', 'Verde'),
-        ('yellow', 'Amarillo')
-        # Puedes extender esta lista según la carta de colores NS300
-    ], string="Color de impresión", required=True)
+        ('blanco', 'Blanco'),
+        ('negro', 'Negro'),
+        ('rojo', 'Rojo'),
+        ('amarillo', 'Amarillo'),
+        ('azul_marino', 'Azul Marino'),
+        ('verde', 'Verde'),
+        ('morado', 'Morado'),
+        ('gris', 'Gris'),
+        ('naranja', 'Naranja'),
+    ], string='Color de impresión', required=True)
 
-    notes = fields.Text(string="Observaciones para el taller")
+    notes = fields.Text(string='Observaciones')
 
-    def action_confirm_personalization(self):
-        # Validación básica
-        if not self.logo:
-            raise UserError("Debes subir el logo del cliente antes de continuar.")
-        
-        # Guardar los datos en un modelo persistente si hace falta
-        self.env['personalization.record'].create({
-            'order_id': self.order_id.id,
-            'product_id': self.product_id.id,
-            'logo': self.logo,
-            'logo_filename': self.logo_filename,
-            'technique': self.technique,
-            'print_size': self.print_size,
-            'print_position': self.print_position,
-            'print_color': self.print_color,
-            'notes': self.notes,
-            'image_front': self.image_front,
-            'image_back': self.image_back,
-        })
+    @api.constrains('design_file')
+    def _check_design_file(self):
+        for record in self:
+            if not record.design_file:
+                raise ValidationError("Debes subir un archivo de diseño para continuar.")
 
-        # Acciones adicionales como generar PDF, enviar por email, etc., se pueden hacer desde aquí
+    def confirm_personalization(self):
+        # Aquí puedes guardar los datos como adjunto o generar un PDF
+        self.ensure_one()
+        # Lógica personalizada de guardado o creación de registro
         return {
-            'type': 'ir.actions.client',
-            'tag': 'display_notification',
-            'params': {
-                'title': '¡Personalización guardada!',
-                'message': 'El pedido ha sido personalizado correctamente.',
-                'type': 'success',
-                'sticky': False,
-            }
+            'type': 'ir.actions.act_window_close'
         }
