@@ -1,54 +1,58 @@
 odoo.define('serial_printer_custom_wizard.add_customize_button', function (require) {
     'use strict';
 
-    function firstSelector(selectors) {
-        for (const sel of selectors) {
-            const el = document.querySelector(sel);
-            if (el) return el;
-        }
-        return null;
-    }
+    // Ejecuta cuando el DOM está listo (esto hace que Odoo "requiera" el módulo)
+    require('web.dom_ready');
 
     function getProductIdFromUrl() {
-        const m = window.location.pathname.match(/\/shop\/product\/(?:.*-)?(\d+)(?:\/)?$/);
+        // /shop/slug-del-producto-305  ->  305
+        const m = window.location.pathname.match(/-(\d+)(?:$|[/?#])/);
         return m ? m[1] : null;
     }
 
-    function addButton() {
+    function insertButton() {
+        // Solo en páginas de producto de eCommerce
+        if (!/\/shop\//.test(window.location.pathname)) return;
+
         const pid = getProductIdFromUrl();
         if (!pid) return;
 
-        // Contenedores típicos según tema
-        const container = firstSelector([
-            '#product_details',
-            '.o_wsale_product_information',
-            '.o_wsale_product_page',
-            '.product_main',
-            '#wrap .container',
-            '#wrap'
-        ]);
-        if (!container) return;
+        // Evitar duplicados
+        if (document.getElementById('spw_customize_btn')) return;
 
-        if (document.querySelector('#spw_customize_btn')) return;
+        // Localizar el botón "Add to cart" (robusto para temas distintos)
+        const addToCartBtn = document.querySelector(
+            'form[action*="/shop/cart/update"] button[type="submit"], ' +
+            'button#add_to_cart, ' +
+            '.o_wsale_product_btn button[type="submit"]'
+        );
 
+        // Contenedor alternativo si no encontramos el botón
+        const fallbackContainer = document.querySelector(
+            '#product_details, .o_wsale_product_information, .product_main, #wrap .container, #wrap'
+        );
+
+        const where = addToCartBtn ? addToCartBtn.parentElement : fallbackContainer;
+        if (!where) return;
+
+        // Crear el botón
         const btn = document.createElement('a');
         btn.id = 'spw_customize_btn';
-        btn.className = 'btn btn-secondary my-3';
+        btn.className = 'btn btn-outline-primary ms-2';
         btn.href = '/personalizacion/' + pid;
         btn.textContent = 'Personalizar';
 
-        // Si existe el botón de carrito, colócalo después para que se vea siempre
-        const addToCart = document.querySelector('form[action*="/shop/cart/update"] button[type="submit"]');
-        if (addToCart && addToCart.parentElement) {
-            addToCart.parentElement.insertAdjacentElement('afterend', btn);
+        if (addToCartBtn) {
+            addToCartBtn.insertAdjacentElement('afterend', btn);
         } else {
-            container.insertBefore(btn, container.firstChild);
+            where.appendChild(btn);
         }
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', addButton);
-    } else {
-        addButton();
-    }
+    // Insertar ahora…
+    insertButton();
+
+    // …y reintentar si el DOM se re-renderiza (cambios de variante, etc.)
+    const observer = new MutationObserver(() => insertButton());
+    observer.observe(document.body, { childList: true, subtree: true });
 });
