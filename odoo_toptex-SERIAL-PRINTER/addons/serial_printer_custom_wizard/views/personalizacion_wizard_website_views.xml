@@ -1,14 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <template id="website_personalizar_page" name="SPW Personalizar" inherit_id="website.layout">
-        <xpath expr="//main" position="inside">
-            <section class="container my-5">
-                <h1 class="mb-3">Personalizar: <t t-esc="product.name"/></h1>
-                <p>Ruta OK. Aquí irá el formulario.</p>
-                <a t-att-href="'/shop/product/%s' % product.id" class="btn btn-secondary mt-3">
-                    Volver al producto
-                </a>
-            </section>
-        </xpath>
+    <!-- Página propia; no hereda globalmente -->
+    <template id="website_personalizar_page" name="SPW Personalizar">
+        <t t-call="website.layout">
+            <main id="wrap" class="o_spw_personalizar">
+                <section class="container my-5">
+                    <h1 class="mb-3">
+                        Personalizar:
+                        <t t-esc="product and product.name or 'Producto'"/>
+                    </h1>
+                    <p>Ruta OK. Aquí irá el formulario.</p>
+                    <a t-att-href="'/shop/product/%s' % product.id"
+                       class="btn btn-secondary mt-3">
+                        Volver al producto
+                    </a>
+                </section>
+            </main>
+        </t>
     </template>
 </odoo>
