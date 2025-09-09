@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <template id="add_customize_button" inherit_id="website_sale.product">
-    <xpath expr="//div[@id='product_details']" position="inside">
-      <a href="/personalizar" class="btn btn-secondary mt-3">
-        Personalizar este producto
-      </a>
-    </xpath>
-  </template>
+    <!-- Botón "Personalizar" en la ficha del producto del eCommerce -->
+    <template id="website_customize_button" inherit_id="website_sale.product">
+        <!-- Insertar el botón justo después del formulario de añadir al carrito -->
+        <xpath expr="//form[contains(@action, '/shop/cart/update')]" position="after">
+            <a t-att-href="'/personalizar/%s' % product.id"
+               class="btn btn-secondary mt-2">
+                Personalizar
+            </a>
+        </xpath>
+    </template>
 </odoo>
