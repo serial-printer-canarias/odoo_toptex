@@ -1,16 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
   <template id="website_personalizar_page" name="SPW Personalizar">
-    <!-- IMPORTANTE: website_meta con camelCase ANTES del layout -->
-    <t t-set="website_meta"
-       t-value="{
-         'mainObject': {'model': 'product.template', 'id': product and product.id or False}
-       }"/>
+    <!-- 0) Fuerza editor OFF solo para esta página -->
+    <t t-set="editable" t-value="False"/>
+
+    <!-- 1) Meta que el editor espera (backup) -->
+    <t t-set="website_meta">
+      <t t-set="main_object" t-value="product"/>
+      <t t-set="main_object_name" t-value="'product.template'"/>
+      <t t-set="main_object_id" t-value="product and product.id or False"/>
+    </t>
 
     <t t-call="website.layout">
       <t t-set="title">Personalizar: <t t-esc="product.name"/></t>
 
-      <!-- Marcador extra para el editor (por si acaso) -->
+      <!-- 2) Marcador adicional por si el editor lo necesita -->
       <div class="d-none"
            data-oe-model="product.template"
            t-att-data-oe-id="product.id"></div>
