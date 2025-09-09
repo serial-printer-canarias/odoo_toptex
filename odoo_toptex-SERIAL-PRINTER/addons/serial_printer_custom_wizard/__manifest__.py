@@ -3,21 +3,21 @@
     'name': 'Serial Printer Custom Wizard',
     'version': '1.0',
     'category': 'Website',
-    'summary': 'Formulario simple de personalización en la web',
-    'description': 'Añade un botón en la ficha de producto que abre un formulario web de personalización.',
+    'summary': 'Formulario de personalización desde la página de producto',
+    'description': 'Añade un botón "Personalizar" en la página de producto y muestra un formulario web.',
     'author': 'Serial Printer Fuerteventura',
     'website': 'https://serial-printer.com',
-    'depends': [
-        'website',
-        'website_sale',
-    ],
+    'depends': ['website', 'website_sale'],
     'data': [
-        'security/ir.model.access.csv',
-        'views/website_customize_button.xml',
+        # Solo cargamos lo que es seguro y no rompe la instalación
         'views/website_customize_template.xml',
     ],
-    'assets': {},
+    'assets': {
+        'web.assets_frontend': [
+            'serial_printer_custom_wizard/static/src/js/add_customize_button.js',
+        ],
+    },
     'installable': True,
-    'application': False,
+    'application': True,
     'license': 'LGPL-3',
 }
