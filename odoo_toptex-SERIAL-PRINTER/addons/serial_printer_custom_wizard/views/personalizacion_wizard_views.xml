@@ -1,20 +1,39 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
+
+    <!-- Vistas backend -->
     <record id="view_product_personalizacion_form" model="ir.ui.view">
         <field name="name">product.personalizacion.form</field>
         <field name="model">product.personalizacion</field>
         <field name="arch" type="xml">
             <form string="Personalización de producto">
-                <group>
-                    <field name="producto_id"/>
-                    <field name="tecnica_personalizacion"/>
-                    <field name="posicion_disenyo"/>
-                    <field name="tamano_disenyo"/>
-                    <field name="color_impresion"/>
-                    <field name="observaciones"/>
-                    <field name="logo_cliente"/>
-                </group>
+                <sheet>
+                    <group>
+                        <field name="product_tmpl_id"/>
+                        <field name="logo"/>
+                        <field name="tecnica_personalizacion"/>
+                        <field name="posicion_diseno"/>
+                        <field name="tamano_diseno"/>
+                        <field name="color_impresion"/>
+                        <field name="observaciones"/>
+                    </group>
+                </sheet>
             </form>
+        </field>
+    </record>
+
+    <record id="view_product_personalizacion_tree" model="ir.ui.view">
+        <field name="name">product.personalizacion.tree</field>
+        <field name="model">product.personalizacion</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="name"/>
+                <field name="product_tmpl_id"/>
+                <field name="tecnica_personalizacion"/>
+                <field name="posicion_diseno"/>
+                <field name="tamano_diseno"/>
+                <field name="color_impresion"/>
+            </tree>
         </field>
     </record>
 
@@ -24,13 +43,11 @@
         <field name="view_mode">tree,form</field>
     </record>
 
+    <!-- Menú en Website > Configuración -->
     <menuitem id="menu_product_personalizacion_root"
-              name="Personalización"
-              sequence="10"/>
-
-    <menuitem id="menu_product_personalizacion"
-              name="Pedidos Personalizados"
-              parent="menu_product_personalizacion_root"
+              name="Personalizaciones"
+              parent="website.menu_website_configuration"
               action="action_product_personalizacion"
-              sequence="10"/>
+              sequence="90"/>
+
 </odoo>
