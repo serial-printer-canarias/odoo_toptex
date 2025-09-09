@@ -1,45 +1,36 @@
-import base64
+# -*- coding: utf-8 -*-
 from odoo import http
 from odoo.http import request
 
-class PortalCustomizer(http.Controller):
+class SerialPrinterCustomizer(http.Controller):
 
-    @http.route(['/customizar/<int:product_id>'], type='http', auth='public', website=True)
-    def public_customizer(self, product_id, **kw):
+    @http.route(['/personalizar/<int:product_id>'], type='http', auth="public", website=True)
+    def personalizar(self, product_id, **kw):
+        """Página de personalización con preview"""
         product = request.env['product.template'].sudo().browse(product_id)
         if not product.exists():
             return request.not_found()
-        return request.render(
-            'serial_printer_custom_wizard.customize_product_template',
-            {'product': product}
-        )
+        # Variante inicial (si viene por querystring la respetamos)
+        variant_id = kw.get('variant_id')
+        if variant_id:
+            try:
+                variant_id = int(variant_id)
+            except Exception:
+                variant_id = False
+        if not variant_id and product.product_variant_id:
+            variant_id = product.product_variant_id.id
 
-    @http.route(['/personalizacion/enviar'], type='http', auth='public', methods=['POST'], csrf=True, website=True)
-    def submit_personalizacion(self, **post):
-        # Producto
-        product_id = int(post.get('product_tmpl_id', '0') or 0)
-        product = request.env['product.template'].sudo().browse(product_id)
-        if not product.exists():
-            return request.not_found()
-
-        # Valores del formulario
-        vals = {
-            'product_tmpl_id': product.id,
-            'tecnica_personalizacion': post.get('tecnica') or 'ninguna',
-            'posicion_diseno': post.get('posicion') or False,
-            'tamano_diseno': post.get('tamano') or False,
-            'color_impresion': post.get('color_impresion') or False,
-            'observaciones': post.get('observaciones') or False,
+        values = {
+            'product': product,
+            'variants': product.product_variant_ids.sudo(),
+            'variant_id': variant_id,
         }
+        return request.render('serial_printer_custom_wizard.website_personalizar_page', values)
 
-        # Logo (archivo)
-        fileobj = request.httprequest.files.get('logo')
-        if fileobj:
-            vals['logo'] = base64.b64encode(fileobj.read())
-
-        request.env['product.personalizacion'].sudo().create(vals)
-
-        return request.render(
-            'serial_printer_custom_wizard.customize_thanks',
-            {'product': product}
-        )
+    @http.route(['/personalizar/add'], type='http', auth='public', website=True, csrf=True)
+    def personalizar_add(self, **post):
+        """Recoge el formulario y (ejemplo) vuelve a la ficha del producto.
+        Aquí puedes crear líneas de pedido, adjuntos, etc.
+        """
+        product_id = int(post.get('product_id', 0))
+        return request.redirect('/shop/product/%s' % product_id)
