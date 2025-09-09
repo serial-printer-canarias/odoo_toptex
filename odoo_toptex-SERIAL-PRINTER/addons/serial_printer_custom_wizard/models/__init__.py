@@ -1,1 +1,1 @@
-from . import personalization_wizard
+from . import personalizacion_wizard
