@@ -1,15 +1,12 @@
+# -*- coding: utf-8 -*-
 {
-    'name': 'Serial Printer Custom Wizard',
+    'name': 'Personalización de productos (Serial Printer)',
     'version': '1.0',
+    'summary': 'Formulario web de personalización + botón en producto',
     'category': 'Website',
-    'summary': 'Formulario de personalización de productos',
-    'description': '''
-        Permite al cliente subir logo, elegir técnica de impresión, 
-        posición del diseño, color, tamaño, etc.
-        Genera un PDF para el taller y guarda los datos en el portal del cliente.
-    ''',
     'author': 'Serial Printer Fuerteventura',
     'website': 'https://serial-printer.com',
+    'license': 'LGPL-3',
     'depends': [
         'website',
         'website_sale',
@@ -18,14 +15,12 @@
         'mail',
     ],
     'data': [
-        'views/website_customize_template.xml',
+        'security/ir.model.access.csv',
+        'views/personalizacion_views.xml',
         'views/website_customize_button.xml',
+        'views/website_customize_template.xml',
     ],
-    'assets': {
-        'web.assets_frontend': [
-            # Puedes añadir CSS/JS si hace falta
-        ],
-    },
+    'assets': {},
     'installable': True,
-    'application': True,
+    'application': False,
 }
