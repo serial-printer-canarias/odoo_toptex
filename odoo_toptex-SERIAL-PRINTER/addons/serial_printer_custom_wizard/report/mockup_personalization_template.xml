@@ -1,0 +1,52 @@
+<!-- report/mockup_personalization_template.xml -->
+<odoo>
+  <template id="report_mockup_personalization">
+    <t t-call="web.html_container">
+      <t t-foreach="docs" t-as="doc">
+        <div class="page" style="padding: 25px; font-family: sans-serif;">
+
+          <!-- LOGO SERIAL PRINTER -->
+          <div class="d-flex justify-content-between" style="margin-bottom: 20px;">
+            <img t-att-src="'/web/image/res.company/%s/logo' % doc.env.company.id" height="60"/>
+            <h2 style="text-align: right;">Ficha de Personalización</h2>
+          </div>
+
+          <!-- INFORMACIÓN DEL PEDIDO / CLIENTE -->
+          <p><strong>Producto:</strong> <t t-esc="doc.product_id.display_name"/></p>
+          <t t-if="doc.sale_order_line_id">
+            <p><strong>Pedido:</strong> <t t-esc="doc.sale_order_line_id.order_id.name"/></p>
+            <p><strong>Cliente:</strong> <t t-esc="doc.sale_order_line_id.order_id.partner_id.name"/></p>
+          </t>
+          <t t-if="doc.lead_id">
+            <p><strong>Lead (preventa):</strong> <t t-esc="doc.lead_id.name"/></p>
+          </t>
+
+          <!-- IMAGEN BASE DEL PRODUCTO -->
+          <div style="margin-top: 25px;">
+            <p><strong>Vista base del producto:</strong> (Se personaliza en zona: <t t-esc="doc.position"/>)</p>
+            <img t-att-src="'/web/image/product.product/%s/image_1920' % doc.product_id.id" style="max-width: 300px; margin-top: 10px;"/>
+          </div>
+
+          <!-- LOGO DEL CLIENTE -->
+          <div style="margin-top: 25px;">
+            <p><strong>Logo subido:</strong></p>
+            <img t-att-src="'data:image/png;base64,%s' % doc.logo.decode('utf-8')" style="max-width: 200px; border: 1px solid #ccc; padding: 5px;"/>
+          </div>
+
+          <!-- DETALLES -->
+          <div style="margin-top: 25px;">
+            <p><strong>Técnica:</strong> <t t-esc="doc.technique"/></p>
+            <p><strong>Tamaño del diseño:</strong> <t t-esc="doc.size"/></p>
+            <p><strong>Color de impresión:</strong> <t t-esc="doc.print_color"/></p>
+            <p><strong>Observaciones:</strong></p>
+            <p><t t-esc="doc.notes or '---'"/></p>
+          </div>
+
+          <hr style="margin: 40px 0;"/>
+          <p style="text-align: center; font-size: 11px; color: #888;">Generado por Serial Printer · Fecha: <t t-esc="format_date(doc.create_date)"/></p>
+
+        </div>
+      </t>
+    </t>
+  </template>
+</odoo>
