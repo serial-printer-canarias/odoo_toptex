@@ -43,4 +43,17 @@
 
           <div class="form-group mb-3">
             <label for="tamano">Tamaño</label>
-            <input type="text
+            <input type="text" name="tamano" id="tamano" class="form-control" placeholder="Ej: 8 cm"/>
+          </div>
+
+          <div class="form-group mb-4">
+            <label for="observaciones">Observaciones</label>
+            <textarea name="observaciones" id="observaciones" rows="3" class="form-control"></textarea>
+          </div>
+
+          <button type="submit" class="btn btn-primary">Enviar personalización</button>
+        </form>
+      </div>
+    </t>
+  </template>
+</odoo>
