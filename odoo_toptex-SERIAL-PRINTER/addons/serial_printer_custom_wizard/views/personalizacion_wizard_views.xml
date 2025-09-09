@@ -1,54 +1,53 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <!-- FORM -->
-    <record id="view_product_personalizacion_form" model="ir.ui.view">
-        <field name="name">product.personalizacion.form</field>
-        <field name="model">product.personalizacion</field>
-        <field name="arch" type="xml">
-            <form string="Personalización">
-                <sheet>
-                    <group>
-                        <field name="product_tmpl_id" options="{'no_open': True}"/>
-                        <field name="logo" filename="logo_filename"/>
-                        <field name="tecnica_personalizacion"/>
-                        <field name="posicion_diseno"/>
-                        <field name="color_impresion"/>
-                        <field name="cantidad"/>
-                        <field name="observaciones"/>
-                    </group>
-                </sheet>
-            </form>
-        </field>
-    </record>
 
-    <!-- TREE -->
-    <record id="view_product_personalizacion_tree" model="ir.ui.view">
-        <field name="name">product.personalizacion.tree</field>
-        <field name="model">product.personalizacion</field>
-        <field name="arch" type="xml">
-            <tree>
-                <field name="product_tmpl_id"/>
-                <field name="tecnica_personalizacion"/>
-                <field name="posicion_diseno"/>
-                <field name="color_impresion"/>
-                <field name="cantidad"/>
-                <field name="create_date"/>
-            </tree>
-        </field>
-    </record>
+  <!-- FORM de product.personalizacion -->
+  <record id="view_product_personalizacion_form" model="ir.ui.view">
+    <field name="name">product.personalizacion.form</field>
+    <field name="model">product.personalizacion</field>
+    <field name="arch" type="xml">
+      <form string="Personalización">
+        <sheet>
+          <group>
+            <field name="product_tmpl_id"/>
+            <field name="logo"/>
+            <field name="tecnica_personalizacion"/>
+            <field name="posicion_diseno"/>
+            <field name="color_impresion"/>
+            <field name="cantidad"/>
+            <field name="observaciones"/>
+          </group>
+        </sheet>
+      </form>
+    </field>
+  </record>
 
-    <!-- ACTION -->
-    <record id="action_product_personalizacion" model="ir.actions.act_window">
-        <field name="name">Personalizaciones</field>
-        <field name="res_model">product.personalizacion</field>
-        <field name="view_mode">tree,form</field>
-    </record>
+  <!-- LIST (en Odoo 17 sustituye a tree) -->
+  <record id="view_product_personalizacion_list" model="ir.ui.view">
+    <field name="name">product.personalizacion.list</field>
+    <field name="model">product.personalizacion</field>
+    <field name="arch" type="xml">
+      <list string="Personalizaciones">
+        <field name="product_tmpl_id"/>
+        <field name="tecnica_personalizacion"/>
+        <field name="posicion_diseno"/>
+        <field name="color_impresion"/>
+        <field name="cantidad"/>
+        <field name="create_date"/>
+      </list>
+    </field>
+  </record>
 
-    <!-- MENÚ (raíz simple para ubicarlo) -->
-    <menuitem id="menu_serial_printer_root" name="Serial Printer" sequence="10"/>
-    <menuitem id="menu_product_personalizacion"
-              name="Personalizaciones"
-              parent="menu_serial_printer_root"
-              action="action_product_personalizacion"
-              sequence="10"/>
+  <!-- Acción y menú (opcional, útil para revisar registros) -->
+  <record id="action_product_personalizacion" model="ir.actions.act_window">
+    <field name="name">Personalizaciones</field>
+    <field name="res_model">product.personalizacion</field>
+    <field name="view_mode">list,form</field>
+  </record>
+
+  <menuitem id="menu_product_personalizacion_root"
+            name="Personalizaciones"
+            parent="website.menu_website_configuration"
+            action="action_product_personalizacion"
+            sequence="90"/>
 </odoo>
