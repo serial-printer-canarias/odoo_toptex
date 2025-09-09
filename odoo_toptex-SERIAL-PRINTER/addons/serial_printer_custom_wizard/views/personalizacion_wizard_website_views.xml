@@ -1,96 +1,86 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-
-  <!-- Página del personalizador -->
+  <!-- Página de personalización -->
   <template id="website_personalizar_page" name="SPW Personalizar">
     <t t-call="website.layout">
-      <div class="container my-5">
-        <h1 class="mb-4">
-          Personalizar:
-          <t t-esc="product.display_name"/>
-        </h1>
+      <t t-set="title">Personalizar: <t t-esc="product.name"/></t>
+
+      <div class="container my-5" id="spw_wrapper" t-att-data-product-id="product.id">
+        <h1 class="mb-4">Personalizar: <t t-esc="product.name"/></h1>
 
         <div class="row g-4">
-          <!-- Pre-visualización -->
-          <div class="col-12 col-lg-6">
-            <div id="spw-preview" class="spw-preview shadow-sm">
-              <img id="spw-base"
-                   t-att-src="base_image_url"
-                   alt="Producto" />
-              <img id="spw-logo" alt="Logo" style="display:none;" />
-            </div>
-
-            <!-- Thumbnails de variantes -->
-            <div class="d-flex flex-wrap gap-2 mt-3">
-              <t t-foreach="variant_thumbs" t-as="v">
-                <img t-att-src="v['img']"
-                     t-att-alt="v['name']"
-                     t-att-data-variant_id="v['id']"
-                     class="spw-thumb" />
-              </t>
+          <!-- Columna imagen + preview -->
+          <div class="col-12 col-md-6">
+            <div class="spw-stage position-relative">
+              <img id="spw_product_img"
+                   class="img-fluid w-100"
+                   t-att-src="'/web/image/product.template/%s/image_1920' % product.id"
+                   t-att-alt="product.name"/>
+              <!-- preview del logo (se muestra con JS al elegir fichero) -->
+              <img id="spw_logo_preview"
+                   class="position-absolute d-none"
+                   style="top:35%; left:35%; width:30%; pointer-events:none;"/>
             </div>
           </div>
 
-          <!-- Formulario -->
-          <div class="col-12 col-lg-6">
-            <form action="#" method="post" enctype="multipart/form-data" class="o_website_form">
-              <!-- la variante seleccionada -->
-              <input type="hidden" id="variant_id" name="variant_id" t-att-value="variant_id or ''"/>
+          <!-- Columna formulario -->
+          <div class="col-12 col-md-6">
+            <form id="spw_form" action="/personalizar/submit" method="post" enctype="multipart/form-data">
+              <input type="hidden" name="product_id" t-att-value="product.id"/>
 
               <div class="mb-3">
-                <label class="form-label fw-semibold">Subir logo (PNG/JPG/SVG)</label>
-                <input type="file" id="spw_logo_input" name="logo" accept=".png,.jpg,.jpeg,.svg" class="form-control"/>
+                <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
+                <input id="spw_logo" class="form-control" type="file"
+                       name="logo" accept=".png,.jpg,.jpeg,.svg"/>
               </div>
 
               <div class="mb-3">
-                <label class="form-label fw-semibold">Técnica de personalización</label>
-                <select class="form-select" name="tecnica_personalizacion" id="tecnica">
+                <label class="form-label">Técnica de personalización</label>
+                <select name="tecnica" class="form-select" required="">
                   <option value="DTF">DTF</option>
                   <option value="Vinilo">Vinilo</option>
                   <option value="Bordado">Bordado</option>
-                  <option value="Sublimación">Sublimación</option>
+                  <option value="Serigrafía">Serigrafía</option>
                 </select>
               </div>
 
               <div class="mb-3">
-                <label class="form-label fw-semibold">Posición</label>
-                <select class="form-select" name="posicion_diseno" id="posicion">
+                <label class="form-label">Posición</label>
+                <select name="posicion" class="form-select" required="">
                   <option value="pecho">Pecho</option>
                   <option value="espalda">Espalda</option>
-                  <option value="manga_izquierda">Manga Izquierda</option>
-                  <option value="manga_derecha">Manga Derecha</option>
+                  <option value="manga_izquierda">Manga izquierda</option>
+                  <option value="manga_derecha">Manga derecha</option>
                 </select>
               </div>
 
               <div class="mb-3">
-                <label class="form-label fw-semibold">Color de impresión</label>
-                <input type="text" class="form-control" name="color_impresion" placeholder="Ej. Blanco / Pantone 186C"/>
+                <label class="form-label">Color de impresión</label>
+                <input type="text" name="color_impresion" class="form-control"
+                       placeholder="Ej. Blanco / Pantone 186C"/>
               </div>
 
               <div class="mb-3">
-                <label class="form-label fw-semibold">Cantidad</label>
-                <input type="number" min="1" value="1" name="cantidad" class="form-control"/>
+                <label class="form-label">Cantidad</label>
+                <input type="number" name="cantidad" class="form-control" min="1" value="1" required=""/>
               </div>
 
               <div class="mb-4">
-                <label class="form-label fw-semibold">Observaciones</label>
-                <textarea name="observaciones" class="form-control" rows="3" placeholder="Notas para el taller..."></textarea>
+                <label class="form-label">Observaciones</label>
+                <textarea name="observaciones" class="form-control" rows="3"
+                          placeholder="Notas para el taller..."></textarea>
               </div>
 
-              <div class="d-flex gap-2">
-                <button type="submit" class="btn btn-primary">
-                  Añadir al carrito con personalización
-                </button>
-                <a t-attf-href="/shop/product/#{product.id}"
-                   class="btn btn-secondary">
-                  ← Volver al producto
-                </a>
-              </div>
+              <button type="submit" class="btn btn-primary">
+                Añadir al carrito con personalización
+              </button>
+              <a t-att-href="'/shop/product/%s' % product.id" class="btn btn-secondary ms-2">
+                ← Volver al producto
+              </a>
             </form>
           </div>
         </div>
       </div>
     </t>
   </template>
-
 </odoo>
