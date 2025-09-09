@@ -1,26 +1,37 @@
 {
-    "name": "Personalización de productos Serial Printer",
-    "version": "1.0",
-    "summary": "Permite a los clientes personalizar productos tras la compra",
+    "name": "Asistente de Personalización de Productos",
+    "summary": "Permite a los clientes personalizar productos con logo, técnica y observaciones.",
     "description": """
-        Este módulo permite la personalización post-venta de productos,
-        así como una opción pública de personalización previa a la compra para captar leads.
+Este módulo añade un asistente de personalización de productos, permitiendo a los clientes:
+- Subir su logo
+- Elegir técnica de personalización (serigrafía, bordado, DTF, ninguna)
+- Seleccionar el tamaño y color de impresión
+- Indicar observaciones
+- Visualizar el producto personalizado
+
+Funciona tanto tras la compra como en formato de presupuesto desde la web.
     """,
-    "category": "Website",
+    "version": "1.0",
+    "category": "Personalización",
     "author": "Serial Printer Canarias",
-    "website": "https://serial-printer.com",
-    "license": "LGPL-3",
+    "website": "https://serial-printer-canarias.odoo.com",
+    "license": "AGPL-3",
     "depends": [
-        "base",
+        "website",
+        "portal",
+        "product",
         "sale",
-        "website_sale",
-        "portal"
     ],
     "data": [
         "views/personalizacion_wizard_views.xml",
-        "views/website_customize_template.xml"
+        "views/website_customize_template.xml",
     ],
+    "assets": {
+        "web.assets_frontend": [
+            "/serial_printer_custom_wizard/static/src/css/custom_wizard.css",
+        ],
+    },
     "installable": True,
-    "application": False,
-    "auto_install": False
+    "application": True,
+    "auto_install": False,
 }
