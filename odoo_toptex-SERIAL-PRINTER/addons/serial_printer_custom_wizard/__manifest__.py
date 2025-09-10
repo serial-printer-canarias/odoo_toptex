@@ -1,15 +1,12 @@
-# -*- coding: utf-8 -*-
 {
-    "name": "Serial Printer - Custom Wizard (minimal)",
-    "summary": "Botón Personalizar en la ficha y página de destino",
-    "version": "17.0.1.0.1",            # <— súbelo para forzar upgrade
+    "name": "Serial Printer – Customize button",
+    "version": "17.0.1.0.0",   # <- semver válido
+    "summary": "Añade el botón «Personalizar» en la página de producto.",
     "category": "Website/Website",
+    "author": "Serial Printer",
     "license": "LGPL-3",
-    "author": "SPW",
-    "depends": ["website", "website_sale"],
-    "data": [
-        "views/personalizacion_wizard_website_views.xml",
-    ],
+    "depends": ["website_sale"],
+    "data": [],
     "assets": {
         "web.assets_frontend": [
             "serial_printer_custom_wizard/static/src/js/add_customize_button.js",
