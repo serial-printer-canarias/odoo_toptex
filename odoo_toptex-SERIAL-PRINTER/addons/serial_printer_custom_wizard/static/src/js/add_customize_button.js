@@ -1,64 +1,46 @@
-odoo.define('serial_printer_custom_wizard.add_customize_button', function (require) {
-    'use strict';
+/** @odoo-module **/
 
-    function getProductIdFromUrl() {
-        // /shop/slug-305  ó  /shop/product/305
-        let m = location.pathname.match(/-(\d+)(?:$|\/)/);
-        if (m) return m[1];
-        m = location.pathname.match(/\/product\/(\d+)(?:$|\/)/);
-        return m ? m[1] : null;
-    }
+import publicWidget from "@web/legacy/js/public/public_widget";
 
-    function firstSelector(list) {
-        for (const sel of list) {
-            const el = document.querySelector(sel);
-            if (el) return el;
+publicWidget.registry.SPWCustomizeButton = publicWidget.Widget.extend({
+    selector: ".o_wsale_product_page, .oe_website_sale",
+    disabledInEditableMode: false,
+
+    start() {
+        // Inserta el botón cuando carga la página
+        this._insertButton();
+        // Y por si hay variantes que cambian dinámicamente:
+        this._observeDOM();
+        return this._super(...arguments);
+    },
+
+    _observeDOM() {
+        const obs = new MutationObserver(() => this._insertButton());
+        obs.observe(this.el, { childList: true, subtree: true });
+    },
+
+    _insertButton() {
+        // si ya existe, no duplicar
+        if (this.el.querySelector("#spw_customize_btn")) return;
+
+        const productIdInput = this.el.querySelector('input[name="product_id"]');
+        if (!productIdInput) {
+            console.warn("SPW: no se encontró input[name=product_id]");
+            return;
         }
-        return null;
-    }
+        const productId = productIdInput.value;
 
-    function ensureButton() {
-        const pid = getProductIdFromUrl();
-        if (!pid) return; // no estamos en producto
+        // sitio razonable junto al "Add to cart"
+        const cartBtn = this.el.querySelector(".o_wsale_add_to_cart, button[name='add_to_cart']");
+        const target = cartBtn?.parentElement || this.el.querySelector(".o_wsale_product_buttons") || this.el;
 
-        if (document.getElementById('spw_customize_btn')) return; // ya existe
+        const a = document.createElement("a");
+        a.id = "spw_customize_btn";
+        a.className = "btn btn-outline-secondary ms-2";
+        a.href = `/personalizar/${productId}`;
+        a.innerHTML = `<i class="fa fa-magic me-1"></i><span>Personalizar</span>`;
 
-        // Sitios típicos donde insertar (según tema)
-        const container =
-            firstSelector([
-                '#product_details',             // theme default
-                '.o_wsale_product_information', // otro tema
-                '.product_main',                // fallback
-                '#wrap .container',
-                '#wrap'
-            ]) || document.body;
-
-        const btn = document.createElement('a');
-        btn.id = 'spw_customize_btn';
-        btn.className = 'btn btn-outline-primary mt-2';
-        btn.textContent = 'Personalizar';
-        // Cambia la ruta si tu página es distinta:
-        btn.href = '/shop/personalizar/' + pid;
-
-        // Si existe el botón de añadir al carrito, lo colocamos a su lado
-        const addToCart = document.querySelector('#add_to_cart, .o_add_to_cart, form[action*="/shop/cart/update"]');
-        if (addToCart && addToCart.parentElement) {
-            addToCart.parentElement.appendChild(btn);
-        } else {
-            container.appendChild(btn);
-        }
-
-        console.log('SPW JS OK: botón insertado');
-    }
-
-    function run() {
-        try { ensureButton(); } catch (e) { console.error('SPW JS error', e); }
-    }
-
-    if (document.readyState !== 'loading') run();
-    else document.addEventListener('DOMContentLoaded', run);
-
-    // Reintenta cuando Odoo recarga fragmentos dinámicos
-    document.addEventListener('page:loaded', run);
-    document.addEventListener('DOMContentUpdated', run);
+        target.appendChild(a);
+        console.log("SPW: botón insertado", a.href);
+    },
 });
