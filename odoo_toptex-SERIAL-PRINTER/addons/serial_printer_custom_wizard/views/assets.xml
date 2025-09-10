@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <!-- Inyectamos el JS en los assets del frontend -->
-    <template id="spw_assets_frontend" name="SPW Assets" inherit_id="web.assets_frontend">
+    <!-- Cargamos el JS en el frontend -->
+    <template id="assets_frontend" name="SPW Assets" inherit_id="web.assets_frontend">
         <xpath expr="." position="inside">
-            <!-- SIN type="module" para evitar problemas con el loader -->
+            <!-- SIN type='module' para que funcione con odoo.define -->
             <script src="/serial_printer_custom_wizard/static/src/js/add_customize_button.js"/>
         </xpath>
     </template>
