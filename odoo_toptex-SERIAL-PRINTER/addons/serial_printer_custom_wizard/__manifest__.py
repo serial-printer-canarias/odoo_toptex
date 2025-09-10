@@ -1,18 +1,16 @@
 # -*- coding: utf-8 -*-
 {
-    "name": "Serial Printer – Custom Wizard (mínimo)",
+    "name": "Serial Printer – Custom Wizard (mínimo estable)",
     "version": "16.0.1.0.0",
+    "summary": "Botón 'Personalizar' en la ficha + página dummy",
     "category": "Website/Website",
-    "summary": "Botón 'Personalizar' en la ficha de producto + página dummy",
     "depends": ["website_sale"],
     "data": [
-        "views/website_templates.xml",
+        # SOLO cargamos estos dos XML de tu carpeta views
+        "views/assets.xml",
+        "views/website_customize_template.xml",
     ],
-    "assets": {
-        "web.assets_frontend": [
-            "serial_printer_custom_wizard/static/src/js/add_customize_button.js",
-        ],
-    },
+    # No usamos assets aquí para evitar duplicados; van en views/assets.xml
     "license": "LGPL-3",
     "installable": True,
     "application": False,
