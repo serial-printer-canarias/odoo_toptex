@@ -1,82 +1,84 @@
 odoo.define('serial_printer_custom_wizard.add_customize_button', function (require) {
     'use strict';
-    require('web.dom_ready');
 
-    // --- Diagnóstico visual: pequeña píldora "SPW JS OK" ---
-    (function spwBadge(){
-        if (document.getElementById('spw_js_ok')) return;
-        const b = document.createElement('div');
-        b.id = 'spw_js_ok';
-        b.textContent = 'SPW JS OK';
-        Object.assign(b.style, {
-            position:'fixed', right:'12px', bottom:'12px',
-            padding:'6px 10px', background:'#e8eefc', border:'1px solid #c9d7ff',
-            borderRadius:'6px', fontSize:'12px', zIndex: 9999
-        });
-        document.body.appendChild(b);
-    })();
+    const publicWidget = require('web.public.widget');
 
-    function firstSelector(selectors) {
-        for (const sel of selectors) {
-            const el = document.querySelector(sel);
+    function firstSelector(list) {
+        for (const s of list) {
+            const el = document.querySelector(s);
             if (el) return el;
         }
         return null;
     }
 
-    function getTemplateId() {
-        // 1) url /shop/product/slug-305  ó /shop/product/305
-        const m = location.pathname.match(/(?:-|\b)(\d+)(?:\/)?$/);
-        if (m) return m[1];
-
-        // 2) atributo de edición (cuando está en modo editor)
-        const editNode = document.querySelector('[data-oe-model="product.template"][data-oe-id]');
-        if (editNode) return editNode.getAttribute('data-oe-id');
-
-        return null;
+    function isProductPage() {
+        // Odoo 17 ecommerce
+        if (document.querySelector('[data-oe-model="product.template"]')) return true;
+        return /\/shop\/.*product/.test(location.pathname);
     }
 
-    function ensureButton() {
-        const pid = getTemplateId();
-        if (!pid) return;
+    const SPW = publicWidget.Widget.extend({
+        selector: 'body',
 
-        // Dónde colocar el botón (al lado del Add to cart)
-        const container = firstSelector([
-            '.o_we_buy_now',                            // Odoo 16/17 estándar
-            '.o_wsale_product_information',             // variación de tema
-            '.o_wsale_product_page',                    // fallback
-            'form[action*="/shop/cart/update"]',        // cerca del form de carrito
-        ]);
-        if (!container) return;
+        start() {
+            // Garantizamos la píldora aunque se desactive la vista anterior
+            if (!document.getElementById('spw-pill')) {
+                const p = document.createElement('div');
+                p.id = 'spw-pill';
+                p.textContent = 'SPW JS OK';
+                p.style.cssText = 'position:fixed;right:10px;bottom:10px;z-index:99999;background:#e6eefc;border:1px solid #bcd;padding:6px 10px;border-radius:8px;font-size:12px;';
+                document.body.appendChild(p);
+            }
+            if (isProductPage()) {
+                this._placeButton();
+                // Recolocar si cambian variantes / recarga parcial
+                document.addEventListener('change', (ev) => {
+                    if (ev.target.closest('form.js_product')) this._placeButton();
+                });
+            }
+            return this._super(...arguments);
+        },
 
-        if (document.getElementById('spw_customize_btn')) return; // no duplicar
+        _placeButton() {
+            if (document.getElementById('spw_customize_btn')) return;
 
-        const btn = document.createElement('a');
-        btn.id = 'spw_customize_btn';
-        btn.href = `/personalizar/${pid}`;
-        btn.textContent = 'Personalizar';
-        btn.className = 'btn btn-outline-secondary mt-3';
+            const container =
+                firstSelector([
+                    '.o_wsale_product_buy',           // contenedor de compra
+                    '.o_wsale_product_page .product_main',
+                    '#product_details',
+                    '.o_wsale_product_page',
+                    '#wrap'
+                ]) || document.body;
 
-        // Si existe el contenedor del botón de carrito, lo dejamos justo detrás
-        const cartBtn = container.querySelector('button[name="add_to_cart"], a[href*="cart"]');
-        if (cartBtn && cartBtn.parentElement) {
-            cartBtn.parentElement.appendChild(btn);
-        } else {
-            container.appendChild(btn);
-        }
-    }
+            const btn = document.createElement('button');
+            btn.id = 'spw_customize_btn';
+            btn.type = 'button';
+            btn.className = 'btn btn-outline-secondary mt-3';
+            btn.textContent = 'Personalizar';
 
-    // Ejecutar de forma robusta (render tardío, cambios de variantes, etc.)
-    let ticks = 0;
-    const tryInterval = setInterval(function () {
-        ticks += 1;
-        try { ensureButton(); } catch (e) {}
-        if (document.getElementById('spw_customize_btn') || ticks > 40) {
-            clearInterval(tryInterval);
-        }
-    }, 250);
+            // Insertar lo más cerca posible del Add to cart
+            const addToCart =
+                firstSelector(['.o_wsale_add_to_cart', '.o_wsale_product_buy', 'form.js_product']);
+            (addToCart && addToCart.parentElement ? addToCart.parentElement : container)
+                .appendChild(btn);
 
-    // Además, observar cambios en DOM para reinsertar si la vista se recompone
-    const obs = new MutationObserver(() => ensureButton());
-    obs.observe(document.body, { childList: true, subtree: true });
+            const pid = this._currentProductId();
+            btn.addEventListener('click', () => {
+                // Ruta simple de prueba; cámbiala luego por tu página real
+                const dest = pid ? `/spw/personalizar/${pid}` : `/spw/personalizar`;
+                window.location.href = dest;
+            });
+        },
+
+        _currentProductId() {
+            const main = document.querySelector('[data-oe-model="product.template"]');
+            if (main && main.dataset.oeId) return main.dataset.oeId;
+            const m = window.location.pathname.match(/(\d+)(?:-[^\/]*)?$/);
+            return m ? m[1] : null;
+        },
+    });
+
+    publicWidget.registry.spwCustomizeButton = SPW;
+    return SPW;
 });
