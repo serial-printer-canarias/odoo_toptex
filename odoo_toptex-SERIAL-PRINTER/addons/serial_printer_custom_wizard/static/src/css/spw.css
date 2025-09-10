@@ -1,22 +1,27 @@
-/* serial_printer_custom_wizard/static/src/css/spw.css */
-.spw-stage {
-  background: #f8f9fa;
-  min-height: 360px;
+/* Contenedor de previsualización */
+#spw_preview {
+  position: relative;
+  max-width: 850px;
+  margin: 0 auto 1rem;
 }
-
-.spw-stage img#spw_base_img {
+#spw_preview img {
   display: block;
   width: 100%;
   height: auto;
 }
 
-.spw-stage img.spw-logo {
+/* Logo sobre la prenda */
+#spw_logo {
   position: absolute;
-  top: 0; left: 0;
-  width: 30%;
-  max-width: 40%;
-  pointer-events: auto;
-  cursor: move;
-  /* punto central para transformaciones */
-  transform: translate(-50%, -50%) translate(50%, 50%);
+  left: 50%;
+  top: 50%;
+  width: 22%;              /* tamaño inicial (en % del ancho de la imagen base) */
+  transform: translate(-50%, -50%) rotate(0deg);
+  opacity: 0.98;
+  pointer-events: none;     /* que no moleste al arrastrar la página */
 }
+#spw_logo.hidden { display: none; }
+
+/* Espaciado de controles */
+.spw-controls .form-label { font-weight: 600; }
+.spw-controls .form-group { margin-bottom: 1rem; }
