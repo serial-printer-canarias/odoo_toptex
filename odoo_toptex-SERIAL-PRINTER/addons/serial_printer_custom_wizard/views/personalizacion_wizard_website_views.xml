@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <!-- Página sencilla de destino para comprobar que la ruta funciona -->
     <template id="website_personalizar_page" name="SPW Personalizar">
         <t t-call="website.layout">
             <div id="wrap" class="oe_structure">
