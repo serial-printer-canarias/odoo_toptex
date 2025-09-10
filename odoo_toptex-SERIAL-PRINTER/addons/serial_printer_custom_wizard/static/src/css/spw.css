@@ -1,4 +1,22 @@
-#spw_customizer { max-width: 980px; margin: 0 auto; }
-#spwCanvas { width: 100%; height: auto; display: block; border: 1px solid var(--o-gray-300); border-radius: .5rem; }
-.spw-controls .form-control, .spw-controls .form-select { margin-bottom: .75rem; }
-#spw_customize_btn { white-space: nowrap; }
+/* serial_printer_custom_wizard/static/src/css/spw.css */
+.spw-stage {
+  background: #f8f9fa;
+  min-height: 360px;
+}
+
+.spw-stage img#spw_base_img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.spw-stage img.spw-logo {
+  position: absolute;
+  top: 0; left: 0;
+  width: 30%;
+  max-width: 40%;
+  pointer-events: auto;
+  cursor: move;
+  /* punto central para transformaciones */
+  transform: translate(-50%, -50%) translate(50%, 50%);
+}
