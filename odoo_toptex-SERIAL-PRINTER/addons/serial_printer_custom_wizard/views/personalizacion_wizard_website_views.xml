@@ -1,5 +1,4 @@
 <odoo>
-  <!-- Página sencilla de destino: confirma contexto y enlace de vuelta -->
   <template id="website_personalizar_page" name="SPW Personalizar">
     <t t-call="website.layout">
       <div class="container my-5">
@@ -7,8 +6,9 @@
         <div class="alert alert-info">
           Página de prueba del personalizador (ruta y contexto OK).
         </div>
-        <a t-att-href="product.website_url"
-           class="btn btn-secondary mt-3">← Volver al producto</a>
+        <a t-att-href="product.website_url" class="btn btn-secondary mt-3">
+          ← Volver al producto
+        </a>
       </div>
     </t>
   </template>
