@@ -1,13 +1,42 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <template id="spw_debug_pill" inherit_id="website.layout">
-        <xpath expr="//body" position="inside">
-            <div id="spw-pill"
-                 style="position:fixed;right:10px;bottom:10px;z-index:99999;
-                        background:#e6eefc;border:1px solid #bcd;padding:6px 10px;
-                        border-radius:8px;font-size:12px;">
-                SPW JS OK
-            </div>
-        </xpath>
-    </template>
+  <!-- Opción 1: justo donde está el Add to cart en 17/18 -->
+  <template id="spw_btn_in_product_add_to_cart"
+            inherit_id="website_sale.product_add_to_cart"
+            name="SPW add button in product_add_to_cart">
+    <xpath expr="//div[contains(@class,'o_wsale_product_btn') or contains(@class,'o_wsale_product_btns')]"
+           position="inside">
+      <a t-att-href="'/personalizar/%s' % (product.id,)"
+         class="btn btn-outline-primary ms-2"
+         id="spw_customize_btn_qweb">
+        <i class="fa fa-magic me-1"/><span>Personalizar</span>
+      </a>
+    </xpath>
+  </template>
+
+  <!-- Opción 2 (fallback QWeb): al final del formulario de producto -->
+  <template id="spw_btn_in_product_page"
+            inherit_id="website_sale.product"
+            name="SPW add button in product page">
+    <xpath expr="//form[contains(@class,'o_wsale_product_form')]"
+           position="inside">
+      <div class="mt-2">
+        <a t-att-href="'/personalizar/%s' % (product.id,)"
+           class="btn btn-outline-primary"
+           id="spw_customize_btn_fallback">
+          <i class="fa fa-magic me-1"/><span>Personalizar</span>
+        </a>
+      </div>
+    </xpath>
+  </template>
+
+  <!-- Página mínima para no tener 404 al pulsar -->
+  <template id="spw_customize_page" name="SPW Personalizar page">
+    <t t-call="website.layout">
+      <div class="container my-5">
+        <h1>Personalizar: <t t-esc="product.name"/></h1>
+        <div class="alert alert-info">Página de prueba del personalizador.</div>
+        <a t-att-href="product.website_url" class="btn btn-secondary">← Volver al producto</a>
+      </div>
+    </t>
+  </template>
 </odoo>
