@@ -1,11 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- SPW: añadir botón "Personalizar" en la ficha de producto -->
+  <!-- SPW: Botón "Personalizar" en la ficha de producto -->
   <template id="spw_add_customize_button"
             name="SPW: Add Personalizar Button"
             inherit_id="website_sale.product">
-
-    <!-- Dentro del contenedor de botones de compra -->
     <xpath expr="//div[contains(@class,'o_wsale_product_btns') or contains(@class,'o_wsale_product_btn')]"
            position="inside">
       <a t-att-href="'/personalizar/%s' % (product.id,)"
