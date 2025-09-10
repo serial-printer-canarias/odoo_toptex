@@ -1,80 +1,81 @@
 /** @odoo-module **/
-import publicWidget from "@web/legacy/js/public/public_widget";
 
-export class SpwCustomizerPreview extends publicWidget.Widget {
-  selector = "#spw-customizer";
+class SPWPreview {
+    constructor(root) {
+        this.root = root;
+        this.canvas = root.querySelector("#spwCanvas");
+        this.ctx = this.canvas.getContext("2d");
+        this.logoInput = root.querySelector("#spw_logo");
+        this.positionSelect = root.querySelector("#spw_position");
+        this.productImgUrl = root.dataset.productImage || "";
+        this.logoImg = new Image();
+        this.baseImg = new Image();
+        this._bind();
+        this._loadBase();
+    }
 
-  start() {
-    this.base = this.el.querySelector("#spw-base");
-    this.logo = this.el.querySelector("#spw-logo");
-    this.scale = this.el.querySelector("#spw-scale");
-    this.form = this.el.querySelector("#spw-form");
-    this.overlayJson = this.el.querySelector("#spw-overlay-json");
+    _bind() {
+        if (this.logoInput) {
+            this.logoInput.addEventListener("change", (ev) => this._onLogo(ev));
+        }
+        if (this.positionSelect) {
+            this.positionSelect.addEventListener("change", () => this.render());
+        }
+        window.addEventListener("resize", () => this.render());
+    }
 
-    // Carga del logo
-    this.el.querySelector("#spw-logo-input").addEventListener("change", (ev) => {
-      const file = ev.target.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        this.logo.src = reader.result;
-        this.logo.classList.remove("d-none");
-      };
-      reader.readAsDataURL(file);
-    });
+    _loadBase() {
+        if (!this.productImgUrl) return;
+        this.baseImg.crossOrigin = "anonymous";
+        this.baseImg.onload = () => this.render();
+        this.baseImg.src = this.productImgUrl;
+    }
 
-    // Drag simple
-    let dragging = false, offX = 0, offY = 0;
-    this.logo.addEventListener("mousedown", (e) => {
-      dragging = true; this.logo.classList.add("dragging");
-      const rect = this.logo.getBoundingClientRect();
-      offX = e.clientX - rect.left; offY = e.clientY - rect.top;
-      e.preventDefault();
-    });
-    document.addEventListener("mouseup", () => { dragging = false; this.logo.classList.remove("dragging"); });
-    document.addEventListener("mousemove", (e) => {
-      if (!dragging) return;
-      const box = this.base.getBoundingClientRect();
-      const x = e.clientX - box.left - offX;
-      const y = e.clientY - box.top - offY;
-      this.logo.style.left = `${(x / box.width) * 100}%`;
-      this.logo.style.top  = `${(y / box.height) * 100}%`;
-      this.logo.style.transform = "translate(0, 0)";
-    });
+    _onLogo(ev) {
+        const file = ev.target.files?.[0];
+        if (!file) return;
+        const r = new FileReader();
+        r.onload = () => {
+            this.logoImg = new Image();
+            this.logoImg.onload = () => this.render();
+            this.logoImg.src = r.result;
+            const hidden = this.root.querySelector("#spw_logo_data");
+            if (hidden) hidden.value = r.result; // base64 para backend
+        };
+        r.readAsDataURL(file);
+    }
 
-    // Escala
-    this.scale.addEventListener("input", () => {
-      this.logo.style.width = `${this.scale.value}%`;
-      this.logo.style.height = "auto";
-    });
+    render() {
+        const maxW = Math.min(700, this.root.clientWidth || 700);
+        const ratio = this.baseImg.naturalWidth ? (this.baseImg.naturalHeight / this.baseImg.naturalWidth) : 1;
+        this.canvas.width = maxW;
+        this.canvas.height = Math.round(maxW * (ratio || 1));
+        const ctx = this.ctx;
+        ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // Envío
-    this.form.addEventListener("submit", (e) => this._submit(e));
-    return super.start();
-  }
+        if (this.baseImg && this.baseImg.src) {
+            ctx.drawImage(this.baseImg, 0, 0, this.canvas.width, this.canvas.height);
+        }
 
-  _submit(e) {
-    e.preventDefault();
-
-    // Guardamos overlay relativo a la imagen base
-    const box = this.base.getBoundingClientRect();
-    const logoBox = this.logo.getBoundingClientRect();
-    const overlay = {
-      left: (logoBox.left - box.left) / box.width,
-      top:  (logoBox.top  - box.top)  / box.height,
-      width: logoBox.width / box.width,
-      scale: Number(this.scale.value) / 100,
-    };
-    this.overlayJson.value = JSON.stringify(overlay);
-
-    const fd = new FormData(this.form);
-    fetch("/spw/customize/add_to_cart", { method: "POST", body: fd })
-      .then(r => r.json())
-      .then(data => {
-        if (data.ok) window.location.href = "/shop/cart";
-        else alert(data.error || "No se pudo añadir al carrito.");
-      })
-      .catch(() => alert("Error de red."));
-  }
+        if (this.logoImg && this.logoImg.src) {
+            // tamaño y posición aproximados
+            const pos = (this.positionSelect && this.positionSelect.value) || "pecho";
+            const logoW = Math.round(this.canvas.width * 0.28);
+            const logoH = Math.round(logoW * ((this.logoImg.naturalHeight || 1) / (this.logoImg.naturalWidth || 1)));
+            let x = (this.canvas.width - logoW) / 2;
+            let y = Math.round(this.canvas.height * 0.25);
+            if (pos === "espalda") y = Math.round(this.canvas.height * 0.35);
+            if (pos === "lateral") x = Math.round(this.canvas.width * 0.7);
+            ctx.globalAlpha = 0.92;
+            ctx.drawImage(this.logoImg, x, y, logoW, logoH);
+            ctx.globalAlpha = 1;
+        }
+    }
 }
-publicWidget.registry.SpwCustomizerPreview = SpwCustomizerPreview;
+
+document.addEventListener("DOMContentLoaded", () => {
+    const root = document.getElementById("spw_customizer");
+    if (root) new SPWPreview(root);
+});
+
+export default {};
