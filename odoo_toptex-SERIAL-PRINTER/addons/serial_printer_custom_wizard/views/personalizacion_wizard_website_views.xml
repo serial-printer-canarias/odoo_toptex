@@ -1,15 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <template id="website_personalizar_page" name="SPW Personalizar">
-    <t t-call="website.layout">
-      <div class="container my-5">
-        <h1>Personalizar: <t t-esc="product.name"/></h1>
-        <div class="alert alert-info">
-          Página de prueba del personalizador (ruta y contexto OK).
-        </div>
-        <a t-att-href="product.website_url" class="btn btn-secondary mt-3">
-          ← Volver al producto
-        </a>
-      </div>
-    </t>
-  </template>
+    <!-- Página sencilla de destino para comprobar que la ruta funciona -->
+    <template id="website_personalizar_page" name="SPW Personalizar">
+        <t t-call="website.layout">
+            <div id="wrap" class="oe_structure">
+                <section class="s_text_block container my-5">
+                    <h1 class="mb-3">Personalizar: <t t-esc="product.name"/></h1>
+                    <div class="alert alert-info">
+                        Página de prueba del personalizador (ruta y contexto OK).
+                    </div>
+                    <a class="btn btn-secondary" t-att-href="return_url">← Volver al producto</a>
+                </section>
+            </div>
+        </t>
+    </template>
 </odoo>
