@@ -1,0 +1,4 @@
+.spw-preview { min-height: 380px; overflow: hidden; }
+#spw-base { width: 100%; height: auto; display: block; }
+#spw-logo { top: 40%; left: 50%; transform: translate(-50%, -50%); max-width: 60%; }
+#spw-logo.dragging { cursor: move; }
