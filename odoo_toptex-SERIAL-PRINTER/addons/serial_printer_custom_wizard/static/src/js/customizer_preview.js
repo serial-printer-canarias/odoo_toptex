@@ -1,194 +1,183 @@
 /**
- * Serial Printer – Customizer Preview (Frontend)
- * - Muestra el logo subido encima de la imagen del producto
- * - Controles: tamaño (%), rotación (º), posición X/Y (%)
- * - Guarda un JSON oculto con toda la personalización antes de enviar el formulario
- *
- * Requiere en la plantilla estos IDs (ya los tienes):
- *  - spw_preview             (div contenedor relativo)
- *  - spw_product_img         (img base del producto)
- *  - spw_logo                (img overlay del logo)
- *  - spw_logo_input          (input[type=file])
- *  - spw_size, spw_rotate    (input[type=range])
- *  - spw_pos_x, spw_pos_y    (input[type=range])
- *  - spw_tech, spw_position  (selects)
- *  - spw_color               (input/select para color)
- *  - spw_add_to_cart         (botón submit)
- *  - spw_payload             (input[type=hidden] name=spw_customization_json) – si no existe se crea
- *  - spw_form (opcional)     (form de personalización). Si no existe, se usa el primer <form> de la página.
+ * serial_printer_custom_wizard/static/src/js/customizer_preview.js
+ * Vista de personalización – previsualización en <canvas>
+ * Sin dependencias de Odoo. Carga y manipula un logo sobre la imagen base.
  */
 (function () {
-  const $ = (id) => document.getElementById(id);
-  const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-  const asNum = (v, def) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : def;
+  const $ = (sel, root = document) => root.querySelector(sel);
+
+  const canvas   = $('#spw_canvas');
+  if (!canvas) return; // No estamos en la página de personalización
+
+  const ctx      = canvas.getContext('2d');
+  const baseImgEl = $('#spw_base_img') || $('#spw_base_holder img') || $('.spw-base img');
+
+  // Controles (si faltan, el código sigue funcionando con valores por defecto)
+  const fileInput = $('#spw_file') || $('input[type="file"][name="spw_file"]');
+  const sizeInput = $('#spw_size') || $('input[type="range"][name="spw_size"]');
+  const rotInput  = $('#spw_rotate') || $('input[type="range"][name="spw_rotate"]');
+  const posXInput = $('#spw_pos_x') || $('input[type="range"][name="spw_pos_x"]');
+  const posYInput = $('#spw_pos_y') || $('input[type="range"][name="spw_pos_y"]');
+
+  const S = {
+    base: null,     // Image()
+    logo: null,     // Image() del archivo subido
+    scale: sizeInput ? Number(sizeInput.value)/100 : 0.25,
+    rot:   rotInput ? Number(rotInput.value) * Math.PI/180 : 0,
+    x:     posXInput ? Number(posXInput.value) : 0,
+    y:     posYInput ? Number(posYInput.value) : 0,
+    dragging: false,
+    dragOffX: 0,
+    dragOffY: 0,
   };
 
-  function getProductId() {
-    // 1) si el contenedor tiene data-product-id
-    const cont = $("spw_preview");
-    if (cont && cont.dataset && cont.dataset.productId) {
-      return cont.dataset.productId;
-    }
-    // 2) input oculto de Odoo
-    const hid = document.querySelector('input[name="product_id"]');
-    if (hid && hid.value) return hid.value;
-    return null;
+  function fitCanvasToBase() {
+    if (!S.base) return;
+    const r = baseImgEl.getBoundingClientRect();
+    const w = Math.round(r.width  || S.base.naturalWidth);
+    const h = Math.round(r.height || S.base.naturalHeight);
+    canvas.width = w;
+    canvas.height = h;
   }
 
-  function ensureHiddenPayload() {
-    let input = $("spw_payload");
-    if (!input) {
-      const form = $("spw_form") || document.querySelector("form") || document.body;
-      input = document.createElement("input");
-      input.type = "hidden";
-      input.id = "spw_payload";
-      input.name = "spw_customization_json";
-      form.appendChild(input);
-    }
-    return input;
-  }
-
-  function ready(fn) {
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", fn, { once: true });
-    } else {
-      fn();
+  function render() {
+    if (!S.base) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(S.base, 0, 0, canvas.width, canvas.height);
+    if (S.logo) {
+      const w = S.logo.naturalWidth  * S.scale;
+      const h = S.logo.naturalHeight * S.scale;
+      ctx.save();
+      ctx.translate(S.x, S.y);
+      ctx.rotate(S.rot);
+      ctx.drawImage(S.logo, -w/2, -h/2, w, h);
+      ctx.restore();
     }
   }
 
-  ready(() => {
-    const preview   = $("spw_preview");
-    if (!preview) return; // No estamos en la página de personalización
-
-    const productImg = $("spw_product_img");
-    const logoImg    = $("spw_logo");
-
-    const inpFile = $("spw_logo_input");
-    const inpSize = $("spw_size");
-    const inpRot  = $("spw_rotate");
-    const inpX    = $("spw_pos_x");
-    const inpY    = $("spw_pos_y");
-
-    const selTech = $("spw_tech");
-    const selPos  = $("spw_position");
-    const inpCol  = $("spw_color");
-
-    const btnAdd  = $("spw_add_to_cart");
-    const hidden  = ensureHiddenPayload();
-
-    // Valores por defecto (por si los controles vienen vacíos)
-    if (inpSize && !inpSize.value) inpSize.value = "22";
-    if (inpRot  && !inpRot.value)  inpRot.value  = "0";
-    if (inpX    && !inpX.value)    inpX.value    = "50";
-    if (inpY    && !inpY.value)    inpY.value    = "50";
-
-    // ---------- Pintado ----------
-    function applyTransform() {
-      if (!logoImg) return;
-      const size = asNum(inpSize && inpSize.value, 22); // en %
-      const rot  = asNum(inpRot && inpRot.value, 0);    // en grados
-      const x    = clamp(asNum(inpX && inpX.value, 50), 0, 100);
-      const y    = clamp(asNum(inpY && inpY.value, 50), 0, 100);
-
-      logoImg.style.width = size + "%";
-      logoImg.style.left  = x + "%";
-      logoImg.style.top   = y + "%";
-      logoImg.style.transform = `translate(-50%, -50%) rotate(${rot}deg)`;
-    }
-
-    // ---------- Carga del logo ----------
-    function loadLogoFromFile(file) {
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        if (logoImg) {
-          logoImg.src = ev.target.result;
-          logoImg.classList.remove("hidden");
-          applyTransform();
+  function loadLogoFromFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        S.logo = img;
+        // Valores por defecto: centrado y tamaño relativo al lienzo
+        S.x = canvas.width / 2;
+        S.y = canvas.height / 2;
+        if (sizeInput && !sizeInput.dataset.userTouched) {
+          const rel = Math.min(0.5, (canvas.width * 0.25) / img.naturalWidth);
+          S.scale = rel;
+          sizeInput.value = Math.round(S.scale * 100);
         }
+        render();
       };
-      reader.readAsDataURL(file);
-    }
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
 
-    inpFile && inpFile.addEventListener("change", (e) => {
+  // Sliders
+  if (sizeInput) sizeInput.addEventListener('input', (e) => {
+    sizeInput.dataset.userTouched = '1';
+    S.scale = Math.max(0.05, (Number(e.target.value) || 0) / 100);
+    render();
+  });
+
+  if (rotInput) rotInput.addEventListener('input', (e) => {
+    S.rot = (Number(e.target.value) || 0) * Math.PI / 180;
+    render();
+  });
+
+  if (posXInput) posXInput.addEventListener('input', (e) => {
+    S.x = Number(e.target.value) || 0;
+    render();
+  });
+
+  if (posYInput) posYInput.addEventListener('input', (e) => {
+    S.y = Number(e.target.value) || 0;
+    render();
+  });
+
+  // Subida de archivo
+  if (fileInput) {
+    fileInput.addEventListener('change', (e) => {
       const f = e.target.files && e.target.files[0];
       loadLogoFromFile(f);
     });
+  }
 
-    // ---------- Drag sobre la imagen para posicionar ----------
-    let dragging = false;
-    function updateXYFromPointer(ev) {
-      if (!productImg || !inpX || !inpY) return;
-      const rect = productImg.getBoundingClientRect();
-      const px = clamp(((ev.clientX - rect.left) / rect.width) * 100, 0, 100);
-      const py = clamp(((ev.clientY - rect.top) / rect.height) * 100, 0, 100);
-      inpX.value = String(px.toFixed(2));
-      inpY.value = String(py.toFixed(2));
-      applyTransform();
+  // Arrastrar el logo encima del canvas (puntero / táctil)
+  function pointFromEvent(ev) {
+    const rect = canvas.getBoundingClientRect();
+    const t = ev.touches ? ev.touches[0] : ev;
+    return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+  }
+
+  canvas.addEventListener('pointerdown', (ev) => {
+    if (!S.logo) return;
+    const p = pointFromEvent(ev);
+    const w = S.logo.naturalWidth  * S.scale;
+    const h = S.logo.naturalHeight * S.scale;
+
+    // Invertir rotación para testear colisión
+    const cos = Math.cos(-S.rot), sin = Math.sin(-S.rot);
+    const dx = p.x - S.x, dy = p.y - S.y;
+    const rx = dx * cos - dy * sin;
+    const ry = dx * sin + dy * cos;
+
+    if (rx >= -w/2 && rx <= w/2 && ry >= -h/2 && ry <= h/2) {
+      S.dragging = true;
+      S.dragOffX = rx;
+      S.dragOffY = ry;
+      canvas.setPointerCapture(ev.pointerId);
     }
-
-    preview.addEventListener("pointerdown", (ev) => {
-      dragging = true;
-      updateXYFromPointer(ev);
-      preview.setPointerCapture && preview.setPointerCapture(ev.pointerId);
-    });
-    preview.addEventListener("pointermove", (ev) => {
-      if (!dragging) return;
-      updateXYFromPointer(ev);
-    });
-    preview.addEventListener("pointerup", (ev) => {
-      dragging = false;
-      preview.releasePointerCapture && preview.releasePointerCapture(ev.pointerId);
-    });
-    window.addEventListener("resize", applyTransform);
-
-    // ---------- Controles ----------
-    [inpSize, inpRot, inpX, inpY].forEach((el) => {
-      el && el.addEventListener("input", applyTransform);
-      el && el.addEventListener("change", applyTransform);
-    });
-
-    // ---------- Guardado del JSON antes de enviar ----------
-    function buildPayload() {
-      const payload = {
-        v: 1,
-        product_id: getProductId(),
-        tech: selTech ? selTech.value : "",
-        color: inpCol ? inpCol.value : "",
-        position: selPos ? selPos.value : "",
-        size_pct: asNum(inpSize && inpSize.value, 22),
-        rotate_deg: asNum(inpRot && inpRot.value, 0),
-        pos_x_pct: asNum(inpX && inpX.value, 50),
-        pos_y_pct: asNum(inpY && inpY.value, 50),
-        // Nota: guardar el dataURL del logo en el JSON.
-        // Si te preocupa el tamaño, en backend puedes procesarlo y limpiarlo.
-        logo_data_url: (logoImg && logoImg.src && !logoImg.classList.contains("hidden")) ? logoImg.src : "",
-      };
-      return payload;
-    }
-
-    function beforeSubmit() {
-      const payload = buildPayload();
-      hidden.value = JSON.stringify(payload);
-    }
-
-    // Si el botón es submit, guardamos justo antes del envío
-    if (btnAdd) {
-      btnAdd.addEventListener("click", () => {
-        beforeSubmit();
-      });
-    }
-    // Por si el usuario envía el form con Enter
-    const form = $("spw_form") || btnAdd && btnAdd.closest("form") || document.querySelector("form");
-    if (form) {
-      form.addEventListener("submit", () => {
-        beforeSubmit();
-      });
-    }
-
-    // Primera aplicación de estilos (por si hay valores precargados)
-    applyTransform();
   });
+
+  canvas.addEventListener('pointermove', (ev) => {
+    if (!S.dragging) return;
+    const p = pointFromEvent(ev);
+    const cos = Math.cos(S.rot), sin = Math.sin(S.rot);
+    S.x = p.x - (S.dragOffX * cos - S.dragOffY * sin);
+    S.y = p.y - (S.dragOffX * sin + S.dragOffY * cos);
+    if (posXInput) posXInput.value = Math.round(S.x);
+    if (posYInput) posYInput.value = Math.round(S.y);
+    render();
+  });
+
+  function endDrag(ev) {
+    if (!S.dragging) return;
+    S.dragging = false;
+    try { canvas.releasePointerCapture(ev.pointerId); } catch (_) {}
+  }
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('pointerleave', endDrag);
+
+  // Inicialización
+  function init() {
+    if (!baseImgEl) return;
+    const src = baseImgEl.getAttribute('src');
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      S.base = img;
+      fitCanvasToBase();
+      if (posXInput) posXInput.max = canvas.width;
+      if (posYInput) posYInput.max = canvas.height;
+      if (!S.x) S.x = canvas.width / 2;
+      if (!S.y) S.y = canvas.height / 2;
+      render();
+    };
+    img.src = src;
+  }
+
+  window.addEventListener('resize', () => {
+    if (S.base) {
+      fitCanvasToBase();
+      render();
+    }
+  });
+
+  init();
 })();
