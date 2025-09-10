@@ -1,132 +1,137 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <template id="customizer_page" name="SPW Customizer Page" page="True">
-    <t t-call="website.layout">
-      <t t-set="variant_id" t-value="int(request.params.get('product_id') or kwargs.get('product_id') or 0)"/>
-      <t t-set="product"
-         t-value="request.env['product.product'].sudo().browse(variant_id) if variant_id else request.env['product.product'].sudo()"/>
+  <data>
 
-      <div class="container my-4 spw-container" id="spw_container"
-           t-att-data-product-id="product.id">
+    <template id="customizer_page" name="SPW Customizer Page" page="True">
+      <t t-call="website.layout">
+        <!-- Producto (variante) -->
+        <t t-set="variant_id" t-value="int(request.params.get('product_id') or kwargs.get('product_id') or 0)"/>
+        <t t-set="product"
+           t-value="request.env['product.product'].sudo().browse(variant_id) if variant_id else request.env['product.product'].sudo()"/>
 
-        <!-- Título -->
-        <h1 class="mb-3">
-          <t t-if="product">
-            <t t-esc="product.display_name"/> — Personalización
-          </t>
-        </h1>
+        <div class="container my-4 spw-container" id="spw_container"
+             t-att-data-product-id="product.id">
 
-        <!-- Preview -->
-        <div class="spw-stage card p-3 mb-4">
-          <div class="spw-canvas" id="spw_stage">
-            <img id="spw_base"
-                 t-att-src="'/web/image/product.product/%s/image_1024' % product.id"
-                 alt="Producto"/>
-            <img id="spw_logo" alt="Logo"/>
-            <div id="spw_handle" class="spw-handle" title="Arrastra para mover"></div>
-          </div>
-          <p class="text-muted mt-2">
-            Arrastra el logo sobre la imagen para posicionarlo o usa los controles.
-          </p>
-        </div>
+          <!-- Título -->
+          <h1 class="mb-3">
+            <t t-if="product">
+              <t t-esc="product.display_name"/> — Personalización
+            </t>
+          </h1>
 
-        <!-- Tipo de personalización -->
-        <div class="card p-3 mb-3">
-          <label class="form-label fw-semibold mb-2">Tipo de personalización</label>
-          <div class="spw-types" id="spw_types">
-            <label class="spw-chip active">
-              <input type="radio" name="spw_type" value="none" checked="checked"/>
-              Sin vinilo
-            </label>
-            <label class="spw-chip">
-              <input type="radio" name="spw_type" value="vinyl"/>
-              Vinilo textil
-            </label>
-            <label class="spw-chip">
-              <input type="radio" name="spw_type" value="dtf"/>
-              DTF
-            </label>
-            <label class="spw-chip">
-              <input type="radio" name="spw_type" value="embroidery"/>
-              Bordado
-            </label>
-          </div>
-        </div>
-
-        <!-- Paleta NS300 -->
-        <div class="card p-3 mb-3">
-          <div class="d-flex align-items-center justify-content-between">
-            <label class="form-label fw-semibold mb-2 m-0">Color (NS300)</label>
-            <span id="spw_color_label" class="small text-muted"></span>
-          </div>
-          <div id="spw_palette" class="spw-palette" aria-label="Colores NS300"></div>
-          <input type="hidden" id="spw_color_hex" value="#000000"/>
-          <input type="hidden" id="spw_color_name" value="Black"/>
-        </div>
-
-        <!-- Presets de posición -->
-        <div class="card p-3 mb-3">
-          <label class="form-label fw-semibold mb-2">Posición rápida</label>
-          <div class="spw-types">
-            <label class="spw-chip">
-              <input type="radio" name="spw_preset" value="chest_left"/>
-              Pecho izq.
-            </label>
-            <label class="spw-chip">
-              <input type="radio" name="spw_preset" value="chest_right"/>
-              Pecho dcha.
-            </label>
-            <label class="spw-chip">
-              <input type="radio" name="spw_preset" value="back"/>
-              Espalda
-            </label>
-            <label class="spw-chip">
-              <input type="radio" name="spw_preset" value="none" checked="checked"/>
-              Libre
-            </label>
-          </div>
-        </div>
-
-        <!-- Controles + subir logo -->
-        <div class="card p-3 mb-4">
-          <h5 class="mb-3">Subir logo (PNG/JPG/SVG)</h5>
-
-          <div class="spw-file mb-3">
-            <label for="spw_file" class="btn btn-outline-secondary">Seleccionar archivo</label>
-            <input id="spw_file" type="file" accept=".png,.jpg,.jpeg,.svg"/>
-            <span id="spw_file_name" class="ms-2 text-muted small"></span>
-          </div>
-
-          <div class="row g-3">
-            <div class="col-12 col-md-6">
-              <label class="form-label">Tamaño</label>
-              <input type="range" id="spw_scale" min="10" max="200" value="100"/>
+          <!-- Zona de previsualización -->
+          <div class="spw-stage card p-3 mb-4">
+            <div class="spw-canvas" id="spw_stage">
+              <img id="spw_base"
+                   t-att-src="'/web/image/product.product/%s/image_1024' % product.id"
+                   alt="Producto"/>
+              <img id="spw_logo" alt="Logo"/>
+              <div id="spw_handle" class="spw-handle" title="Arrastra para mover"></div>
             </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">Rotación</label>
-              <input type="range" id="spw_rotate" min="-180" max="180" value="0"/>
-            </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">Posición X</label>
-              <input type="range" id="spw_pos_x" min="0" max="100" value="50"/>
-            </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">Posición Y</label>
-              <input type="range" id="spw_pos_y" min="0" max="100" value="50"/>
+            <p class="text-muted mt-2">
+              Arrastra el logo sobre la imagen para posicionarlo o usa los controles.
+            </p>
+          </div>
+
+          <!-- Tipo de personalización -->
+          <div class="card p-3 mb-3">
+            <label class="form-label fw-semibold mb-2">Tipo de personalización</label>
+            <div class="spw-types" id="spw_types">
+              <label class="spw-chip active">
+                <input type="radio" name="spw_type" value="none" checked="checked"/>
+                Sin vinilo
+              </label>
+              <label class="spw-chip">
+                <input type="radio" name="spw_type" value="vinyl"/>
+                Vinilo textil
+              </label>
+              <label class="spw-chip">
+                <input type="radio" name="spw_type" value="dtf"/>
+                DTF
+              </label>
+              <label class="spw-chip">
+                <input type="radio" name="spw_type" value="embroidery"/>
+                Bordado
+              </label>
             </div>
           </div>
 
-          <div class="d-grid d-md-flex gap-2 mt-4">
-            <a class="btn btn-light" t-att-href="'/shop/product/%s' % product.product_tmpl_id.id">
-              ← Volver al producto
-            </a>
-            <button id="spw_add_to_cart_custom" class="btn btn-primary flex-grow-1">
-              Añadir al carrito con esta personalización
-            </button>
+          <!-- Paleta NS300 -->
+          <div class="card p-3 mb-3">
+            <div class="d-flex align-items-center justify-content-between">
+              <label class="form-label fw-semibold mb-2 m-0">Color (NS300)</label>
+              <span id="spw_color_label" class="small text-muted"></span>
+            </div>
+            <div id="spw_palette" class="spw-palette" aria-label="Colores NS300"></div>
+            <input type="hidden" id="spw_color_hex" value="#000000"/>
+            <input type="hidden" id="spw_color_name" value="Black"/>
           </div>
-        </div>
 
-      </div>
-    </t>
-  </template>
+          <!-- Presets de posición -->
+          <div class="card p-3 mb-3">
+            <label class="form-label fw-semibold mb-2">Posición rápida</label>
+            <div class="spw-types">
+              <label class="spw-chip">
+                <input type="radio" name="spw_preset" value="chest_left"/>
+                Pecho izq.
+              </label>
+              <label class="spw-chip">
+                <input type="radio" name="spw_preset" value="chest_right"/>
+                Pecho dcha.
+              </label>
+              <label class="spw-chip">
+                <input type="radio" name="spw_preset" value="back"/>
+                Espalda
+              </label>
+              <label class="spw-chip">
+                <input type="radio" name="spw_preset" value="none" checked="checked"/>
+                Libre
+              </label>
+            </div>
+          </div>
+
+          <!-- Controles + subir logo -->
+          <div class="card p-3 mb-4">
+            <h5 class="mb-3">Subir logo (PNG/JPG/SVG)</h5>
+
+            <div class="spw-file mb-3">
+              <label for="spw_file" class="btn btn-outline-secondary">Seleccionar archivo</label>
+              <input id="spw_file" type="file" accept=".png,.jpg,.jpeg,.svg"/>
+              <span id="spw_file_name" class="ms-2 text-muted small"></span>
+            </div>
+
+            <div class="row g-3">
+              <div class="col-12 col-md-6">
+                <label class="form-label">Tamaño</label>
+                <input type="range" id="spw_scale" min="10" max="200" value="100"/>
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label">Rotación</label>
+                <input type="range" id="spw_rotate" min="-180" max="180" value="0"/>
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label">Posición X</label>
+                <input type="range" id="spw_pos_x" min="0" max="100" value="50"/>
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label">Posición Y</label>
+                <input type="range" id="spw_pos_y" min="0" max="100" value="50"/>
+              </div>
+            </div>
+
+            <div class="d-grid d-md-flex gap-2 mt-4">
+              <a class="btn btn-light" t-att-href="'/shop/product/%s' % product.product_tmpl_id.id">
+                ← Volver al producto
+              </a>
+              <button id="spw_add_to_cart_custom" class="btn btn-primary flex-grow-1">
+                Añadir al carrito con esta personalización
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </t>
+    </template>
+
+  </data>
 </odoo>
