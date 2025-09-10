@@ -1,13 +1,11 @@
 {
-    "name": "Serial Printer - Custom Wizard (Button)",
-    "version": "1.0.0",
+    "name": "Serial Printer – Custom Wizard",
+    "version": "17.0.1.0",          # formato válido
+    "author": "Serial Printer",
     "license": "LGPL-3",
-    "depends": ["website_sale"],
-    "data": [],
-    "assets": {
-        "website.assets_frontend": [
-            "serial_printer_custom_wizard/static/src/js/add_customize_button.js",
-        ],
-    },
-    "installable": True,
+    "depends": ["website", "website_sale"],
+    "data": [
+        "views/assets.xml",
+    ],
+    "application": False,
 }
