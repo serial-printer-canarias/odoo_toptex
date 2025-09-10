@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Serial Printer – Custom Wizard",
-    "summary": "Botón 'Personalizar' en la ficha de producto y enlace al personalizador.",
-    "version": "1.0.0",              # <- formato x.y.z que tu instancia acepta
+    "summary": "Añade el botón 'Personalizar' en la ficha de producto y enlaza al personalizador.",
+    "version": "1.0.0",
     "category": "Website/Website",
     "depends": ["website_sale"],
-    "data": [
-        "views/website_customize_button.xml",
-    ],
+    "data": [],  # <- sin XML para que no falle file_open
     "assets": {
         "web.assets_frontend": [
             "serial_printer_custom_wizard/static/src/js/add_customize_button.js",
