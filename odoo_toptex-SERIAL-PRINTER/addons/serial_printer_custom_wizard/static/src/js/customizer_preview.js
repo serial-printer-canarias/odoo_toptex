@@ -1,183 +1,188 @@
-/**
- * serial_printer_custom_wizard/static/src/js/customizer_preview.js
- * Vista de personalización – previsualización en <canvas>
- * Sin dependencias de Odoo. Carga y manipula un logo sobre la imagen base.
- */
-(function () {
-  const $ = (sel, root = document) => root.querySelector(sel);
+/** SPW – Customizer logic (Odoo 18, frontend) */
+document.addEventListener("DOMContentLoaded", () => {
+  const qs  = (sel, el=document) => el.querySelector(sel);
+  const qsa = (sel, el=document) => [...el.querySelectorAll(sel)];
 
-  const canvas   = $('#spw_canvas');
-  if (!canvas) return; // No estamos en la página de personalización
+  const stage   = qs("#spw_stage");
+  const baseImg = qs("#spw_base");
+  const logoImg = qs("#spw_logo");
+  const handle  = qs("#spw_handle");
 
-  const ctx      = canvas.getContext('2d');
-  const baseImgEl = $('#spw_base_img') || $('#spw_base_holder img') || $('.spw-base img');
+  const inFile  = qs("#spw_file");
+  const fileName= qs("#spw_file_name");
+  const rScale  = qs("#spw_scale");
+  const rRotate = qs("#spw_rotate");
+  const rPosX   = qs("#spw_pos_x");
+  const rPosY   = qs("#spw_pos_y");
 
-  // Controles (si faltan, el código sigue funcionando con valores por defecto)
-  const fileInput = $('#spw_file') || $('input[type="file"][name="spw_file"]');
-  const sizeInput = $('#spw_size') || $('input[type="range"][name="spw_size"]');
-  const rotInput  = $('#spw_rotate') || $('input[type="range"][name="spw_rotate"]');
-  const posXInput = $('#spw_pos_x') || $('input[type="range"][name="spw_pos_x"]');
-  const posYInput = $('#spw_pos_y') || $('input[type="range"][name="spw_pos_y"]');
+  const paletteBox = qs("#spw_palette");
+  const colorHex   = qs("#spw_color_hex");
+  const colorName  = qs("#spw_color_name");
+  const colorLabel = qs("#spw_color_label");
 
-  const S = {
-    base: null,     // Image()
-    logo: null,     // Image() del archivo subido
-    scale: sizeInput ? Number(sizeInput.value)/100 : 0.25,
-    rot:   rotInput ? Number(rotInput.value) * Math.PI/180 : 0,
-    x:     posXInput ? Number(posXInput.value) : 0,
-    y:     posYInput ? Number(posYInput.value) : 0,
-    dragging: false,
-    dragOffX: 0,
-    dragOffY: 0,
-  };
+  const addBtn  = qs("#spw_add_to_cart_custom");
+  const container = qs("#spw_container");
+  const productId = parseInt(container?.dataset.productId || "0", 10) || 0;
 
-  function fitCanvasToBase() {
-    if (!S.base) return;
-    const r = baseImgEl.getBoundingClientRect();
-    const w = Math.round(r.width  || S.base.naturalWidth);
-    const h = Math.round(r.height || S.base.naturalHeight);
-    canvas.width = w;
-    canvas.height = h;
-  }
+  /* —— 1) Paleta NS300 (aprox.) ———
+     Sustituye/ajusta los hex si tienes la carta oficial.
+  */
+  const NS300 = [
+    {name:"White",   hex:"#FFFFFF"},
+    {name:"Black",   hex:"#000000"},
+    {name:"Navy",    hex:"#13294B"},
+    {name:"Royal",   hex:"#0057B8"},
+    {name:"Red",     hex:"#D0021B"},
+    {name:"Burgundy",hex:"#75151E"},
+    {name:"Orange",  hex:"#FF6A00"},
+    {name:"Yellow",  hex:"#FFD100"},
+    {name:"Bottle",  hex:"#0B5741"},
+    {name:"Kelly",   hex:"#00A86B"},
+    {name:"Purple",  hex:"#5B2C83"},
+    {name:"Brown",   hex:"#5C4033"},
+    {name:"Grey",    hex:"#808080"},
+    {name:"Light Grey", hex:"#BDBDBD"},
+  ];
 
-  function render() {
-    if (!S.base) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(S.base, 0, 0, canvas.width, canvas.height);
-    if (S.logo) {
-      const w = S.logo.naturalWidth  * S.scale;
-      const h = S.logo.naturalHeight * S.scale;
-      ctx.save();
-      ctx.translate(S.x, S.y);
-      ctx.rotate(S.rot);
-      ctx.drawImage(S.logo, -w/2, -h/2, w, h);
-      ctx.restore();
-    }
-  }
-
-  function loadLogoFromFile(file) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        S.logo = img;
-        // Valores por defecto: centrado y tamaño relativo al lienzo
-        S.x = canvas.width / 2;
-        S.y = canvas.height / 2;
-        if (sizeInput && !sizeInput.dataset.userTouched) {
-          const rel = Math.min(0.5, (canvas.width * 0.25) / img.naturalWidth);
-          S.scale = rel;
-          sizeInput.value = Math.round(S.scale * 100);
-        }
-        render();
-      };
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
-  }
-
-  // Sliders
-  if (sizeInput) sizeInput.addEventListener('input', (e) => {
-    sizeInput.dataset.userTouched = '1';
-    S.scale = Math.max(0.05, (Number(e.target.value) || 0) / 100);
-    render();
-  });
-
-  if (rotInput) rotInput.addEventListener('input', (e) => {
-    S.rot = (Number(e.target.value) || 0) * Math.PI / 180;
-    render();
-  });
-
-  if (posXInput) posXInput.addEventListener('input', (e) => {
-    S.x = Number(e.target.value) || 0;
-    render();
-  });
-
-  if (posYInput) posYInput.addEventListener('input', (e) => {
-    S.y = Number(e.target.value) || 0;
-    render();
-  });
-
-  // Subida de archivo
-  if (fileInput) {
-    fileInput.addEventListener('change', (e) => {
-      const f = e.target.files && e.target.files[0];
-      loadLogoFromFile(f);
+  function buildPalette() {
+    paletteBox.innerHTML = "";
+    NS300.forEach((c, idx) => {
+      const b = document.createElement("button");
+      b.className = "spw-swatch";
+      b.title = c.name;
+      b.style.setProperty("--swatch", c.hex);
+      b.setAttribute("type","button");
+      b.setAttribute("data-hex", c.hex);
+      b.setAttribute("data-name", c.name);
+      if (idx === 1) b.classList.add("active"); // Black por defecto
+      b.addEventListener("click", () => selectColor(c.hex, c.name, b));
+      paletteBox.appendChild(b);
     });
+    // valor inicial
+    selectColor(NS300[1].hex, NS300[1].name, paletteBox.children[1]);
+  }
+  function selectColor(hex, name, btn) {
+    qsa(".spw-swatch", paletteBox).forEach(x => x.classList.remove("active"));
+    btn?.classList.add("active");
+    colorHex.value  = hex;
+    colorName.value = name;
+    colorLabel.textContent = `${name} (${hex})`;
+    // No re-coloreamos el PNG (lo guardamos para el pedido).
   }
 
-  // Arrastrar el logo encima del canvas (puntero / táctil)
-  function pointFromEvent(ev) {
-    const rect = canvas.getBoundingClientRect();
-    const t = ev.touches ? ev.touches[0] : ev;
-    return { x: t.clientX - rect.left, y: t.clientY - rect.top };
-  }
-
-  canvas.addEventListener('pointerdown', (ev) => {
-    if (!S.logo) return;
-    const p = pointFromEvent(ev);
-    const w = S.logo.naturalWidth  * S.scale;
-    const h = S.logo.naturalHeight * S.scale;
-
-    // Invertir rotación para testear colisión
-    const cos = Math.cos(-S.rot), sin = Math.sin(-S.rot);
-    const dx = p.x - S.x, dy = p.y - S.y;
-    const rx = dx * cos - dy * sin;
-    const ry = dx * sin + dy * cos;
-
-    if (rx >= -w/2 && rx <= w/2 && ry >= -h/2 && ry <= h/2) {
-      S.dragging = true;
-      S.dragOffX = rx;
-      S.dragOffY = ry;
-      canvas.setPointerCapture(ev.pointerId);
-    }
-  });
-
-  canvas.addEventListener('pointermove', (ev) => {
-    if (!S.dragging) return;
-    const p = pointFromEvent(ev);
-    const cos = Math.cos(S.rot), sin = Math.sin(S.rot);
-    S.x = p.x - (S.dragOffX * cos - S.dragOffY * sin);
-    S.y = p.y - (S.dragOffX * sin + S.dragOffY * cos);
-    if (posXInput) posXInput.value = Math.round(S.x);
-    if (posYInput) posYInput.value = Math.round(S.y);
-    render();
-  });
-
-  function endDrag(ev) {
-    if (!S.dragging) return;
-    S.dragging = false;
-    try { canvas.releasePointerCapture(ev.pointerId); } catch (_) {}
-  }
-  canvas.addEventListener('pointerup', endDrag);
-  canvas.addEventListener('pointercancel', endDrag);
-  canvas.addEventListener('pointerleave', endDrag);
-
-  // Inicialización
-  function init() {
-    if (!baseImgEl) return;
-    const src = baseImgEl.getAttribute('src');
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      S.base = img;
-      fitCanvasToBase();
-      if (posXInput) posXInput.max = canvas.width;
-      if (posYInput) posYInput.max = canvas.height;
-      if (!S.x) S.x = canvas.width / 2;
-      if (!S.y) S.y = canvas.height / 2;
-      render();
+  /* —— 2) Subida del logo ——— */
+  inFile?.addEventListener("change", (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    fileName.textContent = f.name;
+    const r = new FileReader();
+    r.onload = () => {
+      logoImg.src = r.result;
+      logoImg.classList.add("visible");
+      // Centrar y valores neutros
+      rScale.value = 100; rRotate.value = 0; rPosX.value = 50; rPosY.value = 50;
+      applyTransform();
     };
-    img.src = src;
-  }
-
-  window.addEventListener('resize', () => {
-    if (S.base) {
-      fitCanvasToBase();
-      render();
-    }
+    r.readAsDataURL(f);
   });
 
-  init();
-})();
+  /* —— 3) Presets de posición ——— */
+  const PRESETS = {
+    chest_left:  { x: 32, y: 42, s: 60, rot: 0 },
+    chest_right: { x: 68, y: 42, s: 60, rot: 0 },
+    back:        { x: 50, y: 28, s: 90, rot: 0 },
+  };
+  qsa("input[name='spw_preset']").forEach(r => {
+    r.addEventListener("change", () => {
+      if (r.value === "none") return;
+      const p = PRESETS[r.value];
+      if (!p) return;
+      rPosX.value = p.x; rPosY.value = p.y;
+      rScale.value = p.s; rRotate.value = p.rot;
+      applyTransform();
+    });
+  });
+
+  /* —— 4) Sliders —— */
+  [rScale, rRotate, rPosX, rPosY].forEach(inp => {
+    inp?.addEventListener("input", applyTransform);
+  });
+
+  function applyTransform() {
+    // Usamos % relativos al tamaño visible del stage
+    const xPct = Number(rPosX.value);
+    const yPct = Number(rPosY.value);
+    const scale = Number(rScale.value) / 100;
+    const rot = Number(rRotate.value);
+
+    logoImg.style.setProperty("--x", `${xPct}%`);
+    logoImg.style.setProperty("--y", `${yPct}%`);
+    logoImg.style.setProperty("--scale", scale);
+    logoImg.style.setProperty("--rot", `${rot}deg`);
+    // Mover handle al centro del logo
+    handle.style.left = `calc(${xPct}% - 12px)`;
+    handle.style.top  = `calc(${yPct}% - 12px)`;
+  }
+
+  /* —— 5) Drag (mouse/touch) —— */
+  let dragging = false;
+  function startDrag(ev) {
+    dragging = true;
+    ev.preventDefault();
+  }
+  function moveDrag(ev) {
+    if (!dragging) return;
+    const rect = stage.getBoundingClientRect();
+    const px = (("touches" in ev ? ev.touches[0].clientX : ev.clientX) - rect.left) / rect.width;
+    const py = (("touches" in ev ? ev.touches[0].clientY : ev.clientY) - rect.top ) / rect.height;
+    rPosX.value = Math.min(100, Math.max(0, Math.round(px*100)));
+    rPosY.value = Math.min(100, Math.max(0, Math.round(py*100)));
+    applyTransform();
+  }
+  function endDrag(){ dragging = false; }
+
+  [stage, handle].forEach(el => {
+    el.addEventListener("mousedown", startDrag);
+    window.addEventListener("mousemove", moveDrag);
+    window.addEventListener("mouseup", endDrag);
+
+    el.addEventListener("touchstart", startDrag, {passive:false});
+    window.addEventListener("touchmove", moveDrag, {passive:false});
+    window.addEventListener("touchend", endDrag);
+  });
+
+  /* —— 6) Añadir al carrito (guardamos parámetros en query para el paso siguiente)
+        Aquí mantenemos el flujo existente en tu botón.
+        Si más adelante quieres grabarlo en attachment/JSON, lo hacemos.
+  */
+  addBtn?.addEventListener("click", async (e) => {
+    e.preventDefault();
+
+    const params = new URLSearchParams({
+      product_id: String(productId || 0),
+      type: (qs("input[name='spw_type']:checked")?.value || "none"),
+      color_hex: colorHex.value,
+      color_name: colorName.value,
+      scale: rScale.value,
+      rotate: rRotate.value,
+      x: rPosX.value,
+      y: rPosY.value,
+    });
+
+    // Si hay imagen cargada, la subimos como dataURL en sessionStorage (temporal)
+    // y la recogeremos en el step de carrito/checkout con otro script.
+    if (logoImg.src?.startsWith("data:")) {
+      try {
+        sessionStorage.setItem("spw_logo_dataurl", logoImg.src);
+      } catch (_) {}
+    }
+
+    // Redirige al add-to-cart nativo con los parámetros de personalización
+    // (podrás leerlos en el carrito para render/guardar).
+    window.location.href = `/shop/cart/update?product_id=${productId}&add_qty=1&${params.toString()}`;
+  });
+
+  // init
+  buildPalette();
+  applyTransform();
+});
