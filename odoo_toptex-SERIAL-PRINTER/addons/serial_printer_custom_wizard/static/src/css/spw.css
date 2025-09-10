@@ -1,27 +1,100 @@
-/* Contenedor de previsualización */
-#spw_preview {
-  position: relative;
-  max-width: 850px;
-  margin: 0 auto 1rem;
+/* serial_printer_custom_wizard/static/src/css/spw.css */
+/* ================== LAYOUT PREVIEW ================== */
+
+.spw-preview {
+  max-width: 980px;
+  margin: 0 auto;
 }
-#spw_preview img {
+
+#spw_base_img {
+  /* La imagen base solo se usa para que JS lea el src; no se muestra */
+  display: none;
+}
+
+#spw_canvas.spw-canvas {
   display: block;
   width: 100%;
   height: auto;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  touch-action: none; /* para arrastrar con el dedo sin scroll */
 }
 
-/* Logo sobre la prenda */
-#spw_logo {
+/* ================== CONTROLES ================== */
+.spw-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 24px;
+  margin-top: 18px;
+}
+
+.spw-controls .spw-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.spw-controls label {
+  font-weight: 600;
+  font-size: .95rem;
+}
+
+.spw-controls input[type="range"] {
+  width: 100%;
+}
+
+/* ================== FILE INPUT “SIN BOTON NATIVO” ================== */
+/* Contenedor del file input con etiqueta personalizada */
+.spw-file {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  max-width: 480px;
+  margin-top: 8px;
+}
+.spw-file label {
+  display: block;
+  padding: 12px 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fff;
+  text-align: center;
+  cursor: pointer;
+}
+
+/* El input real ocupa todo el contenedor pero es invisible: el tap funciona en móvil */
+.spw-file input[type="file"] {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 22%;              /* tamaño inicial (en % del ancho de la imagen base) */
-  transform: translate(-50%, -50%) rotate(0deg);
-  opacity: 0.98;
-  pointer-events: none;     /* que no moleste al arrastrar la página */
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 2;
 }
-#spw_logo.hidden { display: none; }
 
-/* Espaciado de controles */
-.spw-controls .form-label { font-weight: 600; }
-.spw-controls .form-group { margin-bottom: 1rem; }
+/* Oculta botón nativo (WebKit / modernos) */
+.spw-file input[type="file"]::-webkit-file-upload-button { visibility: hidden; }
+.spw-file input[type="file"]::file-selector-button { display: none; }
+
+/* ================== ACCIONES ================== */
+.spw-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+}
+.spw-actions .btn {
+  min-width: 260px;
+}
+
+/* ================== RESPONSIVE ================== */
+@media (max-width: 640px) {
+  .spw-controls {
+    grid-template-columns: 1fr;
+  }
+  .spw-actions {
+    flex-direction: column;
+  }
+}
