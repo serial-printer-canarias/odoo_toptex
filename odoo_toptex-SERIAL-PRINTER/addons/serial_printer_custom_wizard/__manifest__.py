@@ -1,13 +1,10 @@
 {
     "name": "Serial Printer - Custom Wizard",
-    "version": "0.4.0",
+    "version": "0.4.2",
     "category": "Website/Website",
-    "summary": "Botón “Personalizar” + página simple",
+    "summary": "Botón “Personalizar” (JS) + página de prueba",
     "depends": ["website_sale"],
     "data": [
-        # seguridad si la tienes
-        "security/ir.model.access.csv",
-        # página de destino /spw/personalizar/<id>
         "views/personalizacion_wizard_website_views.xml"
     ],
     "assets": {
