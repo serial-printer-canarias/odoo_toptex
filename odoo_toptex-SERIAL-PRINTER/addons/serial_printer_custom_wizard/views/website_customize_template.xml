@@ -1,58 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <template id="customize_product_template" name="Página Personalización">
+  <template id="website_personalizar_page" name="SPW Personalizar">
     <t t-call="website.layout">
       <div class="container my-5">
-        <h1 class="mb-4">Personalización</h1>
-
-        <t t-if="product">
-          <p class="text-muted">Producto: <t t-esc="product.name"/></p>
-        </t>
-
-        <form t-att-action="'/personalizacion/submit/%s' % product.id"
-              method="post" enctype="multipart/form-data" class="o_website_form">
-          <div class="form-group mb-3">
-            <label for="logo">Sube tu logo</label>
-            <input type="file" name="logo" id="logo" class="form-control"/>
-          </div>
-
-          <div class="form-group mb-3">
-            <label for="tecnica">Técnica de impresión</label>
-            <select name="tecnica" id="tecnica" class="form-select">
-              <option value="serigrafia">Serigrafía</option>
-              <option value="bordado">Bordado</option>
-              <option value="vinilo">Vinilo</option>
-              <option value="dtf">DTF</option>
-            </select>
-          </div>
-
-          <div class="form-group mb-3">
-            <label for="posicion">Posición</label>
-            <select name="posicion" id="posicion" class="form-select">
-              <option value="pecho">Pecho</option>
-              <option value="espalda">Espalda</option>
-              <option value="manga">Manga</option>
-              <option value="otra">Otra</option>
-            </select>
-          </div>
-
-          <div class="form-group mb-3">
-            <label for="color">Color de impresión</label>
-            <input type="text" name="color" id="color" class="form-control" placeholder="Ej: blanco, Pantone…"/>
-          </div>
-
-          <div class="form-group mb-3">
-            <label for="tamano">Tamaño</label>
-            <input type="text" name="tamano" id="tamano" class="form-control" placeholder="Ej: 8 cm"/>
-          </div>
-
-          <div class="form-group mb-4">
-            <label for="observaciones">Observaciones</label>
-            <textarea name="observaciones" id="observaciones" rows="3" class="form-control"></textarea>
-          </div>
-
-          <button type="submit" class="btn btn-primary">Enviar personalización</button>
-        </form>
+        <h1 class="mb-3">
+          Personalizar: <t t-esc="product.display_name"/>
+        </h1>
+        <div class="alert alert-info">
+          Página de prueba del personalizador (ruta y contexto OK).
+        </div>
+        <a t-att-href="product.website_url" class="btn btn-secondary mt-3">
+          ← Volver al producto
+        </a>
       </div>
     </t>
   </template>
