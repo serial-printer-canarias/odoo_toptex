@@ -1,16 +1,43 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Añade un botón "Personalizar" en la página de producto del eCommerce.
-       Usamos //main como ancla universal para evitar fallos de xpath/t-jquery. -->
-  <template id="add_customize_button" inherit_id="website_sale.product">
-    <xpath expr="//main" position="inside">
-      <div class="container my-3">
-        <a class="btn btn-secondary"
-           t-if="product"
-           t-att-href="'/personalizacion/%s' % product.id">
+
+  <!-- ===== Opción 1: plantilla estándar (Odoo/temas que respetan website_sale.product) ===== -->
+  <template id="spw_product_button"
+            name="SPW - Button on product"
+            inherit_id="website_sale.product" priority="50">
+
+    <!-- Calcula el id de plantilla del producto que se está viendo -->
+    <xpath expr="//form[contains(@class,'o_wsale_product_form')]" position="inside">
+      <t t-if="not tmpl_id">
+        <t t-set="tmpl_id"
+           t-value="product.product_tmpl_id.id if product and getattr(product, '_name', '') == 'product.product' else (product.id if product else 0)"/>
+      </t>
+    </xpath>
+
+    <!-- Inserta el botón junto a 'Add to cart' -->
+    <xpath expr="//form[contains(@class,'o_wsale_product_form')]//div[contains(@class,'o_wsale_product_btn')]" position="inside">
+      <t t-if="tmpl_id">
+        <a class="btn btn-outline-primary ms-2 mt-2 spw-btn-personalizar"
+           t-att-href="'/personalizar/%s' % tmpl_id">
           Personalizar
         </a>
-      </div>
+      </t>
     </xpath>
   </template>
+
+  <!-- ===== Opción 2 (fallback): por si el tema cambia el contenedor de botones ===== -->
+  <template id="spw_product_button_alt"
+            name="SPW - Button on product (fallback)"
+            inherit_id="website_sale.product" priority="10">
+
+    <xpath expr="//form[contains(@class,'o_wsale_product_form')]//button[contains(@class,'o_add_to_cart') or contains(@name,'add')]" position="after">
+      <t t-if="tmpl_id">
+        <a class="btn btn-outline-primary ms-2 mt-2 spw-btn-personalizar"
+           t-att-href="'/personalizar/%s' % tmpl_id">
+          Personalizar
+        </a>
+      </t>
+    </xpath>
+  </template>
+
 </odoo>
