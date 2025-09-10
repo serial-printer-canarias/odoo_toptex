@@ -1,4 +1,3 @@
-/** SPW: añade botón "Personalizar" en la página de producto */
 odoo.define('serial_printer_custom_wizard.add_customize_button', function (require) {
     'use strict';
 
