@@ -1,81 +1,78 @@
 /** @odoo-module **/
 
-class SPWPreview {
-    constructor(root) {
-        this.root = root;
-        this.canvas = root.querySelector("#spwCanvas");
-        this.ctx = this.canvas.getContext("2d");
-        this.logoInput = root.querySelector("#spw_logo");
-        this.positionSelect = root.querySelector("#spw_position");
-        this.productImgUrl = root.dataset.productImage || "";
-        this.logoImg = new Image();
-        this.baseImg = new Image();
-        this._bind();
-        this._loadBase();
+// Previsualización sencilla del logo sobre la imagen del producto.
+(function () {
+    const $ = (sel) => document.querySelector(sel);
+
+    function updateTransforms() {
+        const logo = $("#spw_logo_preview");
+        if (!logo || logo.classList.contains("d-none")) return;
+
+        const scale = ($("#spw_scale")?.value || 100) / 100;
+        const rot = parseInt($("#spw_rotate")?.value || "0", 10);
+        const px = parseInt($("#spw_posx")?.value || "50", 10);
+        const py = parseInt($("#spw_posy")?.value || "50", 10);
+
+        logo.style.transform = `translate(-50%, -50%) translate(${px}%, ${py}%) rotate(${rot}deg) scale(${scale})`;
+        logo.style.transformOrigin = "center center";
     }
 
-    _bind() {
-        if (this.logoInput) {
-            this.logoInput.addEventListener("change", (ev) => this._onLogo(ev));
+    function wireControls() {
+        ["#spw_scale", "#spw_rotate", "#spw_posx", "#spw_posy"].forEach((id) => {
+            const el = $(id);
+            if (el) el.addEventListener("input", updateTransforms);
+        });
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+        const file = $("#spw_logo");
+        const logo = $("#spw_logo_preview");
+        if (!file || !logo) return;
+
+        wireControls();
+
+        file.addEventListener("change", (ev) => {
+            const f = ev.target.files?.[0];
+            if (!f) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                logo.src = reader.result;
+                logo.classList.remove("d-none");
+                updateTransforms();
+            };
+            reader.readAsDataURL(f);
+        });
+
+        // Permite arrastrar el logo (desktop)
+        let dragging = false;
+        let start = { x: 0, y: 0 };
+        const stage = document.querySelector(".spw-stage");
+        if (stage && logo) {
+            logo.addEventListener("mousedown", (e) => {
+                dragging = true;
+                start = { x: e.clientX, y: e.clientY };
+                e.preventDefault();
+            });
+            document.addEventListener("mouseup", () => (dragging = false));
+            document.addEventListener("mousemove", (e) => {
+                if (!dragging) return;
+                const rect = stage.getBoundingClientRect();
+                const x = ((e.clientX - rect.left) / rect.width) * 100;
+                const y = ((e.clientY - rect.top) / rect.height) * 100;
+                $("#spw_posx").value = Math.max(0, Math.min(100, Math.round(x)));
+                $("#spw_posy").value = Math.max(0, Math.min(100, Math.round(y)));
+                updateTransforms();
+            });
         }
-        if (this.positionSelect) {
-            this.positionSelect.addEventListener("change", () => this.render());
+
+        // (opcional) botón "Añadir al carrito" – aquí sólo haríamos POST a un endpoint
+        // con los parámetros de personalización. Lo dejamos a futuro si tu flujo lo requiere.
+        const addBtn = $("#spw_add_to_cart");
+        if (addBtn) {
+            addBtn.addEventListener("click", () => {
+                // TODO: enviar info al backend/linea de venta
+                alert("Personalización preparada (demo). Integraremos el POST al carrito en el siguiente paso.");
+            });
         }
-        window.addEventListener("resize", () => this.render());
-    }
-
-    _loadBase() {
-        if (!this.productImgUrl) return;
-        this.baseImg.crossOrigin = "anonymous";
-        this.baseImg.onload = () => this.render();
-        this.baseImg.src = this.productImgUrl;
-    }
-
-    _onLogo(ev) {
-        const file = ev.target.files?.[0];
-        if (!file) return;
-        const r = new FileReader();
-        r.onload = () => {
-            this.logoImg = new Image();
-            this.logoImg.onload = () => this.render();
-            this.logoImg.src = r.result;
-            const hidden = this.root.querySelector("#spw_logo_data");
-            if (hidden) hidden.value = r.result; // base64 para backend
-        };
-        r.readAsDataURL(file);
-    }
-
-    render() {
-        const maxW = Math.min(700, this.root.clientWidth || 700);
-        const ratio = this.baseImg.naturalWidth ? (this.baseImg.naturalHeight / this.baseImg.naturalWidth) : 1;
-        this.canvas.width = maxW;
-        this.canvas.height = Math.round(maxW * (ratio || 1));
-        const ctx = this.ctx;
-        ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-
-        if (this.baseImg && this.baseImg.src) {
-            ctx.drawImage(this.baseImg, 0, 0, this.canvas.width, this.canvas.height);
-        }
-
-        if (this.logoImg && this.logoImg.src) {
-            // tamaño y posición aproximados
-            const pos = (this.positionSelect && this.positionSelect.value) || "pecho";
-            const logoW = Math.round(this.canvas.width * 0.28);
-            const logoH = Math.round(logoW * ((this.logoImg.naturalHeight || 1) / (this.logoImg.naturalWidth || 1)));
-            let x = (this.canvas.width - logoW) / 2;
-            let y = Math.round(this.canvas.height * 0.25);
-            if (pos === "espalda") y = Math.round(this.canvas.height * 0.35);
-            if (pos === "lateral") x = Math.round(this.canvas.width * 0.7);
-            ctx.globalAlpha = 0.92;
-            ctx.drawImage(this.logoImg, x, y, logoW, logoH);
-            ctx.globalAlpha = 1;
-        }
-    }
-}
-
-document.addEventListener("DOMContentLoaded", () => {
-    const root = document.getElementById("spw_customizer");
-    if (root) new SPWPreview(root);
-});
-
-export default {};
+    });
+})();
