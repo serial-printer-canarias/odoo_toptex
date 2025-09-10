@@ -1,75 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <template id="spw_customizer_page" name="SPW Customizer Page" page="True">
+  <!-- Página del personalizador -->
+  <template id="customizer_page" name="SPW Customizer Page">
     <t t-call="website.layout">
-      <div class="container my-5" id="spw-customizer"
-           t-att-data-product-id="product.id">
-        <h1 class="mb-4">Personalizar: <t t-esc="product.display_name"/></h1>
-
+      <div class="container py-5" id="spw_customizer"
+           t-att-data-product-image="('/web/image/product.template/%s/image_1920' % product.id) if product and product.image_1920 else ''">
         <div class="row g-4">
-          <!-- Preview -->
-          <div class="col-12 col-lg-6">
-            <div class="spw-preview position-relative border rounded p-3">
-              <img id="spw-base" class="img-fluid"
-                   t-att-src="'/web/image/product.product/%s/image_1920' % product.id"/>
-              <img id="spw-logo" class="position-absolute d-none" alt="Logo"/>
-            </div>
+          <div class="col-12">
+            <h1 class="h3 mb-3">
+              Personalizar: <t t-esc="product.display_name or 'Producto'"/>
+            </h1>
           </div>
 
-          <!-- Controles -->
           <div class="col-12 col-lg-6">
-            <form id="spw-form" enctype="multipart/form-data">
+            <canvas id="spwCanvas"></canvas>
+          </div>
+
+          <div class="col-12 col-lg-6 spw-controls">
+            <!-- IMPORTANTE: el controlador debe existir y procesar estos campos -->
+            <form t-att-action="'/personalizar/%s/confirm' % product.id" method="post" enctype="multipart/form-data">
               <input type="hidden" name="product_id" t-att-value="product.id"/>
+              <input type="hidden" id="spw_logo_data" name="spw_logo_data"/>
 
               <div class="mb-3">
                 <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
-                <input type="file" class="form-control" id="spw-logo-input" name="logo"
-                       accept=".png,.jpg,.jpeg,.svg"/>
+                <input id="spw_logo" class="form-control" type="file" name="spw_logo" accept=".png,.jpg,.jpeg,.svg"/>
               </div>
 
               <div class="mb-3">
-                <label class="form-label">Técnica</label>
-                <select class="form-select" name="technique" id="spw-technique">
-                  <option value="DTF">DTF</option>
-                  <option value="Bordado">Bordado</option>
-                  <option value="Vinilo">Vinilo</option>
+                <label class="form-label">Técnica de personalización</label>
+                <select name="spw_technique" class="form-select">
+                  <option>DTF</option>
+                  <option>Vinilo</option>
+                  <option>Bordado</option>
                 </select>
               </div>
 
               <div class="mb-3">
                 <label class="form-label">Posición</label>
-                <select class="form-select" name="position" id="spw-position">
+                <select id="spw_position" name="spw_position" class="form-select">
                   <option value="pecho">Pecho</option>
                   <option value="espalda">Espalda</option>
-                  <option value="manga">Manga</option>
-                  <option value="frontal">Frontal</option>
+                  <option value="lateral">Lateral</option>
                 </select>
               </div>
 
-              <div class="row g-3 mb-3">
-                <div class="col-6">
-                  <label class="form-label">Tamaño (%)</label>
-                  <input type="range" class="form-range" id="spw-scale" min="10" max="200" value="100"/>
-                </div>
-                <div class="col-6">
-                  <label class="form-label">Cantidad</label>
-                  <input type="number" class="form-control" name="qty" value="1" min="1"/>
-                </div>
+              <div class="mb-3">
+                <label class="form-label">Color de impresión</label>
+                <input class="form-control" name="spw_color" placeholder="Ej. Blanco / Pantone 186C"/>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label">Cantidad</label>
+                <input class="form-control" name="spw_qty" type="number" min="1" step="1" value="1"/>
               </div>
 
               <div class="mb-3">
                 <label class="form-label">Observaciones</label>
-                <textarea class="form-control" name="notes" rows="3"
-                          placeholder="Notas para el taller..."></textarea>
+                <textarea class="form-control" rows="3" name="spw_notes" placeholder="Notas para el taller..."></textarea>
               </div>
 
-              <input type="hidden" name="overlay_json" id="spw-overlay-json"/>
-
               <div class="d-flex gap-2">
-                <button type="submit" class="btn btn-primary">
-                  Añadir al carrito con personalización
-                </button>
-                <a t-att-href="'/shop/product/%s' % product.product_tmpl_id.id"
-                   class="btn btn-secondary">← Volver al producto</a>
+                <button type="submit" class="btn btn-primary">Añadir al carrito con personalización</button>
+                <a href="/shop" class="btn btn-outline-secondary">← Volver</a>
               </div>
             </form>
           </div>
