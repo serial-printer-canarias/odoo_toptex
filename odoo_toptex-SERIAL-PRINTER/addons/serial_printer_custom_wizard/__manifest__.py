@@ -2,11 +2,11 @@
 {
     "name": "Serial Printer – Custom Wizard",
     "summary": "Botón 'Personalizar' en la ficha de producto y enlace al personalizador.",
-    "version": "17.0.1",  # <- formato x.y.z para evitar el error del log
+    "version": "1.0.0",              # <- formato x.y.z que tu instancia acepta
     "category": "Website/Website",
     "depends": ["website_sale"],
     "data": [
-        "views/website_customize_button.xml",  # plantilla “dummy” (no rompe nada)
+        "views/website_customize_button.xml",
     ],
     "assets": {
         "web.assets_frontend": [
