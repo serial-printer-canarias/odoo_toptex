@@ -1,0 +1,80 @@
+<odoo>
+  <template id="spw_customizer_page" name="SPW Customizer Page" page="True">
+    <t t-call="website.layout">
+      <div class="container my-5" id="spw-customizer"
+           t-att-data-product-id="product.id">
+        <h1 class="mb-4">Personalizar: <t t-esc="product.display_name"/></h1>
+
+        <div class="row g-4">
+          <!-- Preview -->
+          <div class="col-12 col-lg-6">
+            <div class="spw-preview position-relative border rounded p-3">
+              <img id="spw-base" class="img-fluid"
+                   t-att-src="'/web/image/product.product/%s/image_1920' % product.id"/>
+              <img id="spw-logo" class="position-absolute d-none" alt="Logo"/>
+            </div>
+          </div>
+
+          <!-- Controles -->
+          <div class="col-12 col-lg-6">
+            <form id="spw-form" enctype="multipart/form-data">
+              <input type="hidden" name="product_id" t-att-value="product.id"/>
+
+              <div class="mb-3">
+                <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
+                <input type="file" class="form-control" id="spw-logo-input" name="logo"
+                       accept=".png,.jpg,.jpeg,.svg"/>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label">Técnica</label>
+                <select class="form-select" name="technique" id="spw-technique">
+                  <option value="DTF">DTF</option>
+                  <option value="Bordado">Bordado</option>
+                  <option value="Vinilo">Vinilo</option>
+                </select>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label">Posición</label>
+                <select class="form-select" name="position" id="spw-position">
+                  <option value="pecho">Pecho</option>
+                  <option value="espalda">Espalda</option>
+                  <option value="manga">Manga</option>
+                  <option value="frontal">Frontal</option>
+                </select>
+              </div>
+
+              <div class="row g-3 mb-3">
+                <div class="col-6">
+                  <label class="form-label">Tamaño (%)</label>
+                  <input type="range" class="form-range" id="spw-scale" min="10" max="200" value="100"/>
+                </div>
+                <div class="col-6">
+                  <label class="form-label">Cantidad</label>
+                  <input type="number" class="form-control" name="qty" value="1" min="1"/>
+                </div>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label">Observaciones</label>
+                <textarea class="form-control" name="notes" rows="3"
+                          placeholder="Notas para el taller..."></textarea>
+              </div>
+
+              <input type="hidden" name="overlay_json" id="spw-overlay-json"/>
+
+              <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary">
+                  Añadir al carrito con personalización
+                </button>
+                <a t-att-href="'/shop/product/%s' % product.product_tmpl_id.id"
+                   class="btn btn-secondary">← Volver al producto</a>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </t>
+  </template>
+</odoo>
