@@ -1,49 +1,50 @@
-/** @odoo-module **/
+/** Simple injector – Odoo 17/18 compatible, no imports */
+(function () {
+  if (window.__spw_btn_loaded__) return;
+  window.__spw_btn_loaded__ = true;
 
-// Inserta el botón "Personalizar" junto al "Add to cart" en la ficha de producto.
-// Sin publicWidget ni QWeb: DOM directo + MutationObserver (robusto ante recargas ajax).
+  const BTN_ID = "spw_customize_btn";
 
-function findButtonsContainer() {
-    return (
-        document.querySelector(".o_wsale_product_buttons") ||
-        document.querySelector(".o_wsale_product_btns") ||
-        document.querySelector(".o_wsale_product_btn")
-    );
-}
+  function insertButton() {
+    // Evitar duplicados
+    if (document.getElementById(BTN_ID)) return;
 
-function currentProductId() {
-    const input = document.querySelector('input[name="product_id"]');
-    if (input && input.value) return input.value;
+    // Necesitamos el ID del producto
+    const pidInput = document.querySelector('input[name="product_id"]');
+    if (!pidInput || !pidInput.value) return;
+    const productId = pidInput.value;
 
-    // Fallback: intenta sacar el id de la URL /shop/product/<slug>-<id>
-    const m = location.pathname.match(/\/shop\/product\/.*-(\d+)/);
-    return m ? m[1] : null;
-}
-
-function insertCustomizeButton() {
-    const container = findButtonsContainer();
+    // Contenedor junto al "Add to cart" (varía por tema/versión)
+    const container =
+      document.querySelector(".o_wsale_product_buttons") ||
+      document.querySelector(".o_wsale_product_btns") ||
+      document.querySelector('form[action*="/shop/cart/update"]') ||
+      document.querySelector(".js_add_to_cart_form");
     if (!container) return;
 
-    if (document.getElementById("spw_customize_btn_qweb")) return;
-
-    const pid = currentProductId();
-    if (!pid) return;
-
+    // Crear el botón
     const a = document.createElement("a");
-    a.id = "spw_customize_btn_qweb";
+    a.id = BTN_ID;
+    a.href = `/personalizar/${productId}`;
     a.className = "btn btn-outline-primary ms-2";
-    a.href = `/personalizar/${pid}`;
     a.innerHTML = `<i class="fa fa-magic me-1"></i><span>Personalizar</span>`;
-    container.appendChild(a);
-}
 
-document.addEventListener("DOMContentLoaded", () => {
-    insertCustomizeButton();
+    // Colocarlo pegado al botón de carrito si existe
+    const addBtn =
+      container.querySelector('button[name="add_to_cart"]') ||
+      container.querySelector('.btn-primary[name="add_to_cart"]') ||
+      container.querySelector('a[name="add_to_cart"]');
 
-    // Reintenta si cambian variantes/DOM (Odoo repinta la zona)
-    const target =
-        document.querySelector(".o_wsale_product_information") ||
-        document.body;
-    const obs = new MutationObserver(() => insertCustomizeButton());
-    obs.observe(target, { childList: true, subtree: true });
-});
+    (addBtn && addBtn.parentElement ? addBtn.parentElement : container).appendChild(a);
+  }
+
+  // Primer intento cuando cargue el DOM
+  document.addEventListener("DOMContentLoaded", insertButton);
+  // Reintentos si el DOM cambia (cambio de variantes, lazy load, etc.)
+  if ("MutationObserver" in window) {
+    const mo = new MutationObserver(insertButton);
+    mo.observe(document.body, { childList: true, subtree: true });
+  }
+  // Navegación interna (paginación/ajax del website)
+  window.addEventListener("popstate", insertButton);
+})();
