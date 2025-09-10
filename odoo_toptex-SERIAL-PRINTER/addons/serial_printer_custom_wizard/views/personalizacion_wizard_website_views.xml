@@ -1,89 +1,14 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+  <!-- Página sencilla de destino: confirma contexto y enlace de vuelta -->
   <template id="website_personalizar_page" name="SPW Personalizar">
-    <!-- 0) Fuerza editor OFF solo para esta página -->
-    <t t-set="editable" t-value="False"/>
-
-    <!-- 1) Meta que el editor espera (backup) -->
-    <t t-set="website_meta">
-      <t t-set="main_object" t-value="product"/>
-      <t t-set="main_object_name" t-value="'product.template'"/>
-      <t t-set="main_object_id" t-value="product and product.id or False"/>
-    </t>
-
     <t t-call="website.layout">
-      <t t-set="title">Personalizar: <t t-esc="product.name"/></t>
-
-      <!-- 2) Marcador adicional por si el editor lo necesita -->
-      <div class="d-none"
-           data-oe-model="product.template"
-           t-att-data-oe-id="product.id"></div>
-
-      <div class="container my-5" id="spw_wrapper" t-att-data-product-id="product.id">
-        <h1 class="mb-4">Personalizar: <t t-esc="product.name"/></h1>
-
-        <div class="row g-4">
-          <div class="col-12 col-md-6">
-            <div class="spw-stage position-relative">
-              <img id="spw_product_img"
-                   class="img-fluid w-100"
-                   t-att-src="'/web/image/product.template/%s/image_1920' % product.id"
-                   t-att-alt="product.name"/>
-              <img id="spw_logo_preview"
-                   class="position-absolute d-none"
-                   style="top:35%; left:35%; width:30%; pointer-events:none;"/>
-            </div>
-          </div>
-
-          <div class="col-12 col-md-6">
-            <form id="spw_form" action="/personalizar/submit" method="post" enctype="multipart/form-data">
-              <input type="hidden" name="product_id" t-att-value="product.id"/>
-
-              <div class="mb-3">
-                <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
-                <input id="spw_logo" class="form-control" type="file" name="logo" accept=".png,.jpg,.jpeg,.svg"/>
-              </div>
-
-              <div class="mb-3">
-                <label class="form-label">Técnica de personalización</label>
-                <select name="tecnica" class="form-select" required="">
-                  <option value="DTF">DTF</option>
-                  <option value="Vinilo">Vinilo</option>
-                  <option value="Bordado">Bordado</option>
-                  <option value="Serigrafía">Serigrafía</option>
-                </select>
-              </div>
-
-              <div class="mb-3">
-                <label class="form-label">Posición</label>
-                <select name="posicion" class="form-select" required="">
-                  <option value="pecho">Pecho</option>
-                  <option value="espalda">Espalda</option>
-                  <option value="manga_izquierda">Manga izquierda</option>
-                  <option value="manga_derecha">Manga derecha</option>
-                </select>
-              </div>
-
-              <div class="mb-3">
-                <label class="form-label">Color de impresión</label>
-                <input type="text" name="color_impresion" class="form-control" placeholder="Ej. Blanco / Pantone 186C"/>
-              </div>
-
-              <div class="mb-3">
-                <label class="form-label">Cantidad</label>
-                <input type="number" name="cantidad" class="form-control" min="1" value="1" required=""/>
-              </div>
-
-              <div class="mb-4">
-                <label class="form-label">Observaciones</label>
-                <textarea name="observaciones" class="form-control" rows="3" placeholder="Notas para el taller..."></textarea>
-              </div>
-
-              <button type="submit" class="btn btn-primary">Añadir al carrito con personalización</button>
-              <a t-att-href="'/shop/product/%s' % product.id" class="btn btn-secondary ms-2">← Volver al producto</a>
-            </form>
-          </div>
+      <div class="container my-5">
+        <h1>Personalizar: <t t-esc="product.name"/></h1>
+        <div class="alert alert-info">
+          Página de prueba del personalizador (ruta y contexto OK).
         </div>
+        <a t-att-href="product.website_url"
+           class="btn btn-secondary mt-3">← Volver al producto</a>
       </div>
     </t>
   </template>
