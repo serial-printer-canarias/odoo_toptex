@@ -1,7 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <template id="assets_frontend" inherit_id="web.assets_frontend" name="SPW assets">
-    <xpath expr="." position="inside">
-      <script type="module" src="/serial_printer_custom_wizard/static/src/js/add_customize_button.js"/>
-    </xpath>
-  </template>
+  <data>
+    <!-- Carga del JS en frontend. ¡OJO! nombre técnico del módulo con guiones bajos -->
+    <template id="spw_assets" inherit_id="web.assets_frontend" name="SPW Assets">
+      <xpath expr="." position="inside">
+        <script type="module" src="/serial_printer_custom_wizard/static/src/js/add_customize_button.js"/>
+      </xpath>
+    </template>
+  </data>
 </odoo>
