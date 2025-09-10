@@ -1,27 +1,52 @@
-/** @odoo-module **/
-(function () {
-    "use strict";
-    function firstSelector(list){for(const s of list){const el=document.querySelector(s);if(el) return el}return null}
-    function getTemplateIdFromUrl(){const m=window.location.pathname.match(/\/shop\/product\/.*-(\d+)(?:$|\/)/);return m?m[1]:null}
-    function injectBadge(){
-        if(document.getElementById('spw_badge')) return;
-        const b=document.createElement('div');
-        b.id='spw_badge'; b.textContent='SPW JS OK';
-        b.style.cssText='position:fixed;right:12px;bottom:12px;z-index:2147483647;padding:6px 10px;border-radius:8px;background:#e6eefc;border:1px solid #9db7ff;color:#1d3a8a;font:600 12px/1 system-ui,sans-serif';
-        document.body.appendChild(b);
+odoo.define('serial_printer_custom_wizard.add_customize_button', function () {
+    'use strict';
+
+    function firstSelector(list) {
+        for (var i = 0; i < list.length; i++) {
+            var el = document.querySelector(list[i]);
+            if (el) { return el; }
+        }
+        return null;
     }
-    function addButton(){
-        if(document.getElementById('spw_customize_btn')) return;
-        const pid=getTemplateIdFromUrl(); if(!pid) return;
-        const container=firstSelector(['#product_details','.o_wsale_product_information','.o_wsale_product_page','.product_main','#wrap .container','#wrap']);
-        if(!container) return;
-        const btn=document.createElement('a');
-        btn.id='spw_customize_btn'; btn.className='btn btn-outline-secondary mt-3';
-        btn.textContent='Personalizar'; btn.href=`/spw/personalizar/${pid}`;
-        const addToCart=firstSelector(['#add_to_cart','form[action*="/shop/cart/update"] button[type="submit"]']);
-        if(addToCart && addToCart.parentElement) addToCart.parentElement.insertAdjacentElement('afterend', btn);
-        else container.appendChild(btn);
+
+    function getProductTemplateIdFromUrl() {
+        // URLs de producto suelen terminar en ...-<id>
+        var m = window.location.pathname.match(/-(\d+)(?:\/)?$/);
+        return m ? m[1] : null;
     }
-    function boot(){injectBadge();addButton();new MutationObserver(addButton).observe(document.body,{childList:true,subtree:true});window.addEventListener('hashchange',addButton);document.addEventListener('shop_product_configurator_ready',addButton)}
-    if(document.readyState!=='loading') boot(); else document.addEventListener('DOMContentLoaded', boot);
-})();
+
+    function addButton() {
+        var pid = getProductTemplateIdFromUrl();
+        if (!pid) { return; }
+
+        var container = firstSelector([
+            '.o_wsale_product_information',
+            '.o_wsale_product_page',
+            '.product_main',
+            '#wrap .container',
+            '#wrap'
+        ]);
+        if (!container) { return; }
+
+        if (document.getElementById('spw_customize_btn')) { return; }
+
+        var btn = document.createElement('a');
+        btn.id = 'spw_customize_btn';
+        btn.className = 'btn btn-outline-primary mt-3';
+        btn.textContent = 'Personalizar';
+        btn.href = '/spw/personalizar/' + pid;
+        container.appendChild(btn);
+
+        // Badge de verificación
+        var badge = document.createElement('div');
+        badge.textContent = 'SPW JS OK';
+        badge.style.cssText = 'position:fixed;right:10px;bottom:10px;z-index:9999;padding:.35rem .5rem;border-radius:.25rem;background:#e9eefc;border:1px solid #cfe2ff;color:#1a56db;font-size:12px';
+        document.body.appendChild(badge);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', addButton);
+    } else {
+        addButton();
+    }
+});
