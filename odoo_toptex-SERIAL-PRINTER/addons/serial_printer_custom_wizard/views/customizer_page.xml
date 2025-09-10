@@ -9,23 +9,20 @@
       <div class="container my-4 spw-container" id="spw_container"
            t-att-data-product-id="product.id">
 
-        <!-- Título con nombre + atributos de la variante -->
+        <!-- Título -->
         <h1 class="mb-3">
           <t t-if="product">
             <t t-esc="product.display_name"/> — Personalización
           </t>
         </h1>
 
-        <!-- Etapa de preview -->
+        <!-- Preview -->
         <div class="spw-stage card p-3 mb-4">
           <div class="spw-canvas" id="spw_stage">
-            <!-- Imagen base de la **VARIANTE** -->
             <img id="spw_base"
                  t-att-src="'/web/image/product.product/%s/image_1024' % product.id"
-                 alt="Producto" />
-            <!-- Capa del logo -->
-            <img id="spw_logo" alt="Logo" />
-            <!-- Marca de arrastre opcional -->
+                 alt="Producto"/>
+            <img id="spw_logo" alt="Logo"/>
             <div id="spw_handle" class="spw-handle" title="Arrastra para mover"></div>
           </div>
           <p class="text-muted mt-2">
@@ -38,21 +35,25 @@
           <label class="form-label fw-semibold mb-2">Tipo de personalización</label>
           <div class="spw-types" id="spw_types">
             <label class="spw-chip active">
-              <input type="radio" name="spw_type" value="none" checked/> Sin vinilo
+              <input type="radio" name="spw_type" value="none" checked="checked"/>
+              Sin vinilo
             </label>
             <label class="spw-chip">
-              <input type="radio" name="spw_type" value="vinyl"/> Vinilo textil
+              <input type="radio" name="spw_type" value="vinyl"/>
+              Vinilo textil
             </label>
             <label class="spw-chip">
-              <input type="radio" name="spw_type" value="dtf"/> DTF
+              <input type="radio" name="spw_type" value="dtf"/>
+              DTF
             </label>
             <label class="spw-chip">
-              <input type="radio" name="spw_type" value="embroidery"/> Bordado
+              <input type="radio" name="spw_type" value="embroidery"/>
+              Bordado
             </label>
           </div>
         </div>
 
-        <!-- Carta de colores NS300 -->
+        <!-- Paleta NS300 -->
         <div class="card p-3 mb-3">
           <div class="d-flex align-items-center justify-content-between">
             <label class="form-label fw-semibold mb-2 m-0">Color (NS300)</label>
@@ -68,29 +69,30 @@
           <label class="form-label fw-semibold mb-2">Posición rápida</label>
           <div class="spw-types">
             <label class="spw-chip">
-              <input type="radio" name="spw_preset" value="chest_left"/> Pecho izq.
+              <input type="radio" name="spw_preset" value="chest_left"/>
+              Pecho izq.
             </label>
             <label class="spw-chip">
-              <input type="radio" name="spw_preset" value="chest_right"/> Pecho dcha.
+              <input type="radio" name="spw_preset" value="chest_right"/>
+              Pecho dcha.
             </label>
             <label class="spw-chip">
-              <input type="radio" name="spw_preset" value="back"/> Espalda
+              <input type="radio" name="spw_preset" value="back"/>
+              Espalda
             </label>
             <label class="spw-chip">
-              <input type="radio" name="spw_preset" value="none" checked/> Libre
+              <input type="radio" name="spw_preset" value="none" checked="checked"/>
+              Libre
             </label>
           </div>
         </div>
 
-        <!-- Controles y subir logo -->
+        <!-- Controles + subir logo -->
         <div class="card p-3 mb-4">
           <h5 class="mb-3">Subir logo (PNG/JPG/SVG)</h5>
 
-          <!-- Wrapper accesible para el file input -->
           <div class="spw-file mb-3">
-            <label for="spw_file" class="btn btn-outline-secondary">
-              Seleccionar archivo
-            </label>
+            <label for="spw_file" class="btn btn-outline-secondary">Seleccionar archivo</label>
             <input id="spw_file" type="file" accept=".png,.jpg,.jpeg,.svg"/>
             <span id="spw_file_name" class="ms-2 text-muted small"></span>
           </div>
@@ -116,7 +118,7 @@
 
           <div class="d-grid d-md-flex gap-2 mt-4">
             <a class="btn btn-light" t-att-href="'/shop/product/%s' % product.product_tmpl_id.id">
-              &larr; Volver al producto
+              ← Volver al producto
             </a>
             <button id="spw_add_to_cart_custom" class="btn btn-primary flex-grow-1">
               Añadir al carrito con esta personalización
