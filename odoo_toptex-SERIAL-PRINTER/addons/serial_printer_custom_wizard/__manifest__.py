@@ -1,16 +1,17 @@
-# -*- coding: utf-8 -*-
+# addons/serial_printer_custom_wizard/__manifest__.py
 {
-    "name": "Serial Printer - Custom Wizard (Botón)",
-    "summary": "Añade el botón 'Personalizar' en la ficha de producto.",
-    # Si te volvió a salir "Invalid version", elimina esta línea por completo.
-    "version": "17.0.1.0",
-    "category": "Website",
-    "author": "Serial Printer",
+    "name": "Serial Printer - Custom Wizard (Button)",
+    "summary": "Añade el botón “Personalizar” en la ficha de producto.",
+    "version": "1.0.0",              # semver simple para que no dé error
     "license": "LGPL-3",
+    "author": "Serial Printer",
     "depends": ["website_sale"],
-    "data": [
-        "views/assets.xml",
-        "views/website_customize_button.xml",
-    ],
+    "data": [],
+    "assets": {
+        "web.assets_frontend": [
+            "serial_printer_custom_wizard/static/src/js/add_customize_button.js",
+        ],
+    },
+    "installable": True,
     "application": False,
 }
