@@ -1,4 +1,4 @@
-.spw-preview { min-height: 380px; overflow: hidden; }
-#spw-base { width: 100%; height: auto; display: block; }
-#spw-logo { top: 40%; left: 50%; transform: translate(-50%, -50%); max-width: 60%; }
-#spw-logo.dragging { cursor: move; }
+#spw_customizer { max-width: 980px; margin: 0 auto; }
+#spwCanvas { width: 100%; height: auto; display: block; border: 1px solid var(--o-gray-300); border-radius: .5rem; }
+.spw-controls .form-control, .spw-controls .form-select { margin-bottom: .75rem; }
+#spw_customize_btn { white-space: nowrap; }
