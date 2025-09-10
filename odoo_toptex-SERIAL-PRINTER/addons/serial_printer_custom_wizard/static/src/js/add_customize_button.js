@@ -1,91 +1,68 @@
-/** @odoo-module **/
 odoo.define('serial_printer_custom_wizard.add_customize_button', function (require) {
     'use strict';
 
-    const publicWidget = require('web.public.widget');
-
-    // Dev-badge para verificar que el JS se cargó
-    function showBadge() {
-        if (document.getElementById('spw-badge')) return;
-        const b = document.createElement('div');
-        b.id = 'spw-badge';
-        b.textContent = 'SPW JS OK';
-        b.style.cssText = 'position:fixed;right:12px;bottom:12px;padding:6px 10px;border-radius:6px;background:#e9eefc;color:#1b3a8f;font:600 12px/1.2 system-ui;z-index:9999;';
-        document.body.appendChild(b);
-    }
-
-    function first(selArr, root=document) {
-        for (const s of selArr) {
-            const el = root.querySelector(s);
+    function firstSelector(list) {
+        for (var i = 0; i < list.length; i++) {
+            var el = document.querySelector(list[i]);
             if (el) return el;
         }
         return null;
     }
 
-    function getTemplateId(root=document) {
-        // inputs ocultos habituales
-        let el = first(['input[name="product_id"]','input[name="product_template_id"]'], root);
-        if (el && el.value) return el.value;
-        // wrapper con data-oe-model
-        const holder = root.querySelector('[data-oe-model="product.template"]');
-        if (holder && holder.dataset.oeId) return holder.dataset.oeId;
-        // /shop/product/<id> o /product/<id>
-        const m = window.location.pathname.match(/(?:shop\/product|product)\/(\d+)/);
+    function getProductIdFromUrl() {
+        // /shop/product/slug-123  ó con / al final
+        var m = window.location.pathname.match(/\/shop\/product\/[^/]*-(\d+)(?:\/|$)/);
         return m ? m[1] : null;
     }
 
-    function insertButton(root=document) {
-        const buyBlock = first([
-            '.o_wsale_product_form .o_wsale_product_btn',
-            'form.o_wsale_product_form',
-            'form[action*="/shop/cart/update"]',
-            '#product_details',
+    function addButton() {
+        var pid = getProductIdFromUrl();
+        if (!pid) return;
+
+        var container = firstSelector([
+            '.o_wsale_product_information', // v17
+            '#product_details',             // v15/16
+            '.o_wsale_product_page',
             '.product_main',
-            '#wrap .container'
-        ], root);
-        if (!buyBlock) return false;
+            '#wrap .container',
+            '#wrap'
+        ]);
+        if (!container) return;
 
-        if (root.querySelector('.spw-btn-personalizar')) return true;
+        if (document.getElementById('spw_customize_btn')) return;
 
-        const tmplId = getTemplateId(root);
-        if (!tmplId) return false;
-
-        const href = `/personalizar/${tmplId}?enable_editor=0`;
-
-        const btn = document.createElement('a');
-        btn.className = 'btn btn-outline-primary spw-btn-personalizar ms-2 mt-2';
-        btn.href = href;
+        var btn = document.createElement('a');
+        btn.id = 'spw_customize_btn';
+        btn.className = 'btn btn-outline-secondary mt-3 w-100';
         btn.textContent = 'Personalizar';
+        btn.href = '/spw/personalizar/' + pid;
 
-        const addToCart = first([
-            'button[name="add_to_cart"]',
-            'a.js_add_cart_json',
-            '.o_wsale_product_btn .btn.btn-primary'
-        ], root);
-
-        if (addToCart && addToCart.parentElement) {
-            addToCart.parentElement.appendChild(btn);
+        // intentar ponerlo justo tras el wishlist o cerca del Add to cart
+        var wishlistRow = container.querySelector('a[href*="wishlist"]');
+        if (wishlistRow && wishlistRow.parentElement) {
+            wishlistRow.parentElement.parentElement.insertBefore(btn, wishlistRow.parentElement.nextSibling);
         } else {
-            buyBlock.appendChild(btn);
+            var addToCart = container.querySelector('form[action*="/shop/cart/update"] .btn-primary, .o_wsale_product_information .btn-primary');
+            if (addToCart && addToCart.parentElement) {
+                addToCart.parentElement.appendChild(btn);
+            } else {
+                container.appendChild(btn);
+            }
         }
-        return true;
+
+        // insignia de depuración para saber que el JS cargó
+        if (!document.getElementById('spw_js_ok')) {
+            var badge = document.createElement('div');
+            badge.id = 'spw_js_ok';
+            badge.textContent = 'SPW JS OK';
+            badge.style.cssText = 'position:fixed;right:8px;bottom:8px;padding:6px 10px;border-radius:8px;background:#e9eefc;border:1px solid #d0d7ff;font:12px/1.2 system-ui;z-index:9999';
+            document.body.appendChild(badge);
+        }
     }
 
-    publicWidget.registry.SPWAddCustomizeBtn = publicWidget.Widget.extend({
-        selector: 'body',
-        start() {
-            showBadge();
-            // Reintenta porque el DOM del tema se hidrata poco a poco
-            let tries = 0;
-            const t = setInterval(() => {
-                tries += 1;
-                if (insertButton(document) || tries > 24) clearInterval(t);
-            }, 250);
-
-            // Y observa cambios dinámicos (por si el tema re-renderiza)
-            const mo = new MutationObserver(() => insertButton(document));
-            mo.observe(document.documentElement, {childList: true, subtree: true});
-            return this._super(...arguments);
-        },
-    });
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', addButton);
+    } else {
+        addButton();
+    }
 });
