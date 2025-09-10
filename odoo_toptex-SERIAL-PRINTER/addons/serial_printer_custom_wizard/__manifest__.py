@@ -1,11 +1,16 @@
 {
-    "name": "Serial Printer – Custom Wizard",
-    "version": "17.0.1.0",          # formato válido
-    "author": "Serial Printer",
+    "name": "Serial Printer Custom Wizard",
+    "summary": "Botón 'Personalizar' en la ficha de producto y página básica de personalización.",
+    "version": "17.0.1.0.0",
     "license": "LGPL-3",
-    "depends": ["website", "website_sale"],
+    "author": "Serial Printer Canarias",
+    "website": "https://serial-printer-canarias-odoo-toptex.odoo.com",
+    "category": "Website/Website",
+    "depends": ["website_sale"],
     "data": [
-        "views/assets.xml",
+        "views/website_customize_button.xml"
     ],
-    "application": False,
+    "assets": {},
+    "installable": True,
+    "application": False
 }
