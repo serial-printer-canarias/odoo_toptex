@@ -2,7 +2,7 @@
 {
     "name": "Serial Printer - Custom Wizard (minimal)",
     "summary": "Botón Personalizar en la ficha y página de destino",
-    "version": "17.0.1.0.1",  # <— súbelo para forzar upgrade
+    "version": "17.0.1.0.1",            # <— súbelo para forzar upgrade
     "category": "Website/Website",
     "license": "LGPL-3",
     "author": "SPW",
