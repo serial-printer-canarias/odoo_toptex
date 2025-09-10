@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- Solo una píldora de verificación para saber que el JS está en la página -->
+    <template id="spw_debug_pill" inherit_id="website.layout">
+        <xpath expr="//body" position="inside">
+            <div id="spw-pill"
+                 style="position:fixed;right:10px;bottom:10px;z-index:99999;
+                        background:#e6eefc;border:1px solid #bcd;padding:6px 10px;
+                        border-radius:8px;font-size:12px;">
+                SPW JS OK
+            </div>
+        </xpath>
+    </template>
+</odoo>
