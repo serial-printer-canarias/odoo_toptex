@@ -12,7 +12,6 @@ odoo.define('serial_printer_custom_wizard.add_customize_button', function (requi
     }
 
     function isProductPage() {
-        // Odoo 17 ecommerce
         if (document.querySelector('[data-oe-model="product.template"]')) return true;
         return /\/shop\/.*product/.test(location.pathname);
     }
@@ -21,7 +20,6 @@ odoo.define('serial_printer_custom_wizard.add_customize_button', function (requi
         selector: 'body',
 
         start() {
-            // Garantizamos la píldora aunque se desactive la vista anterior
             if (!document.getElementById('spw-pill')) {
                 const p = document.createElement('div');
                 p.id = 'spw-pill';
@@ -31,7 +29,6 @@ odoo.define('serial_printer_custom_wizard.add_customize_button', function (requi
             }
             if (isProductPage()) {
                 this._placeButton();
-                // Recolocar si cambian variantes / recarga parcial
                 document.addEventListener('change', (ev) => {
                     if (ev.target.closest('form.js_product')) this._placeButton();
                 });
@@ -44,7 +41,7 @@ odoo.define('serial_printer_custom_wizard.add_customize_button', function (requi
 
             const container =
                 firstSelector([
-                    '.o_wsale_product_buy',           // contenedor de compra
+                    '.o_wsale_product_buy',
                     '.o_wsale_product_page .product_main',
                     '#product_details',
                     '.o_wsale_product_page',
@@ -57,7 +54,6 @@ odoo.define('serial_printer_custom_wizard.add_customize_button', function (requi
             btn.className = 'btn btn-outline-secondary mt-3';
             btn.textContent = 'Personalizar';
 
-            // Insertar lo más cerca posible del Add to cart
             const addToCart =
                 firstSelector(['.o_wsale_add_to_cart', '.o_wsale_product_buy', 'form.js_product']);
             (addToCart && addToCart.parentElement ? addToCart.parentElement : container)
@@ -65,7 +61,6 @@ odoo.define('serial_printer_custom_wizard.add_customize_button', function (requi
 
             const pid = this._currentProductId();
             btn.addEventListener('click', () => {
-                // Ruta simple de prueba; cámbiala luego por tu página real
                 const dest = pid ? `/spw/personalizar/${pid}` : `/spw/personalizar`;
                 window.location.href = dest;
             });
