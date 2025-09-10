@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "category": "Website/Website",
     "depends": ["website_sale"],
-    "data": [],  # <- sin XML para que no falle file_open
+    "data": [],                       # SIN XML
     "assets": {
         "web.assets_frontend": [
             "serial_printer_custom_wizard/static/src/js/add_customize_button.js",
