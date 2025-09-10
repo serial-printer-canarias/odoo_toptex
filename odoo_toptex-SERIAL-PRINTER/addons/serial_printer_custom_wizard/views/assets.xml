@@ -1,5 +1,6 @@
 <odoo>
-  <template id="spw_assets" inherit_id="web.assets_frontend" name="SPW Assets">
+  <!-- Odoo 18 (SaaS): usar website.assets_frontend -->
+  <template id="spw_assets" inherit_id="website.assets_frontend" name="SPW Assets">
     <xpath expr="." position="inside">
       <script type="module" src="/serial_printer_custom_wizard/static/src/js/add_customize_button.js"/>
       <script type="module" src="/serial_printer_custom_wizard/static/src/js/customizer_preview.js"/>
