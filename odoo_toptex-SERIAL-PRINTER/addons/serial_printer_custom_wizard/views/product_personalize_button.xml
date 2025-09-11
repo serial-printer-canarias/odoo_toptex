@@ -1,9 +1,6 @@
 <odoo>
-  <!-- Botón "Personalizar" insertado SIN depender de clases del tema -->
   <template id="spw_personalize_button" name="SPW: Botón Personalizar"
             inherit_id="website_sale.product_buy">
-
-    <!-- Selecciona el formulario del producto por el input product_id (siempre existe) -->
     <xpath expr="//form[.//input[@name='product_id']]" position="inside">
       <a id="spw_personalize_btn"
          href="#"
@@ -13,6 +10,5 @@
         <span>Personalizar</span>
       </a>
     </xpath>
-
   </template>
 </odoo>
