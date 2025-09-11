@@ -1,15 +1,16 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <!-- SPW: Botón "Personalizar" en la ficha de producto -->
-  <template id="spw_add_customize_button"
-            name="SPW: Add Personalizar Button"
+  <!-- Heredamos la vista principal del producto en eCommerce -->
+  <template id="spw_personalize_button" name="SPW: Botón Personalizar"
             inherit_id="website_sale.product">
-    <xpath expr="//div[contains(@class,'o_wsale_product_btns') or contains(@class,'o_wsale_product_btn')]"
+    <!-- Insertamos el botón dentro del form de compra, para poder moverlo junto al Add to Cart -->
+    <xpath expr="//form[contains(@class,'wsale') or contains(@class,'o_wsale') or @id='product_form'][1]"
            position="inside">
-      <a t-att-href="'/personalizar/%s' % (product.id,)"
-         class="btn btn-outline-primary ms-2"
-         id="spw_customize_btn_qweb">
-        <i class="fa fa-magic me-1"/><span>Personalizar</span>
+      <a id="spw_personalize_btn"
+         class="btn btn-outline-primary ms-2 mt-2"
+         t-att-href="'/personalizar/%s' % product.id">
+        <i class="fa fa-magic me-1"/>
+        <span>Personalizar</span>
       </a>
     </xpath>
   </template>
