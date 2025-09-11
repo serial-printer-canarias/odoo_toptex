@@ -1,188 +1,177 @@
-/** SPW – Customizer logic (Odoo 18, frontend) */
-document.addEventListener("DOMContentLoaded", () => {
-  const qs  = (sel, el=document) => el.querySelector(sel);
-  const qsa = (sel, el=document) => [...el.querySelectorAll(sel)];
+/** SPW – Previsualización en canvas + envío al carrito */
+odoo.define('serial_printer_custom_wizard.customizer_preview', function (require) {
+  'use strict';
+  const publicWidget = require('web.public.widget');
 
-  const stage   = qs("#spw_stage");
-  const baseImg = qs("#spw_base");
-  const logoImg = qs("#spw_logo");
-  const handle  = qs("#spw_handle");
+  publicWidget.registry.SPWCustomizer = publicWidget.Widget.extend({
+    selector: '#spw_canvas',
+    start() {
+      this.canvas = this.el;
+      this.ctx = this.canvas.getContext('2d');
+      this.baseImg = new Image();
+      this.logoImg = new Image();
+      this.state = { x: 0.5, y: 0.5, scale: 120, rot: 0 }; // x,y en %, escala px aprox
 
-  const inFile  = qs("#spw_file");
-  const fileName= qs("#spw_file_name");
-  const rScale  = qs("#spw_scale");
-  const rRotate = qs("#spw_rotate");
-  const rPosX   = qs("#spw_pos_x");
-  const rPosY   = qs("#spw_pos_y");
+      this._bindUI();
+      this._loadBase();
+      return this._super(...arguments);
+    },
 
-  const paletteBox = qs("#spw_palette");
-  const colorHex   = qs("#spw_color_hex");
-  const colorName  = qs("#spw_color_name");
-  const colorLabel = qs("#spw_color_label");
+    _bindUI() {
+      const q = (sel) => document.querySelector(sel);
+      this.inputFile  = q('#spw_file');
+      this.rScale     = q('#spw_scale');
+      this.rRotate    = q('#spw_rotate');
+      this.rX         = q('#spw_pos_x');
+      this.rY         = q('#spw_pos_y');
+      this.hPreview   = q('#spw_preview_png');
+      this.hParams    = q('#spw_params_json');
+      this.hAreas     = q('#spw_areas');
+      this.colorWrap  = q('#spw_colors');
+      this.submitBtn  = q('#spw_submit');
 
-  const addBtn  = qs("#spw_add_to_cart_custom");
-  const container = qs("#spw_container");
-  const productId = parseInt(container?.dataset.productId || "0", 10) || 0;
+      // File
+      this.inputFile?.addEventListener('change', (e) => {
+        const f = e.target.files[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          this.logoImg = new Image();
+          this.logoImg.onload = () => this._redraw();
+          this.logoImg.src = reader.result;
+        };
+        reader.readAsDataURL(f);
+      });
 
-  /* —— 1) Paleta NS300 (aprox.) ———
-     Sustituye/ajusta los hex si tienes la carta oficial.
-  */
-  const NS300 = [
-    {name:"White",   hex:"#FFFFFF"},
-    {name:"Black",   hex:"#000000"},
-    {name:"Navy",    hex:"#13294B"},
-    {name:"Royal",   hex:"#0057B8"},
-    {name:"Red",     hex:"#D0021B"},
-    {name:"Burgundy",hex:"#75151E"},
-    {name:"Orange",  hex:"#FF6A00"},
-    {name:"Yellow",  hex:"#FFD100"},
-    {name:"Bottle",  hex:"#0B5741"},
-    {name:"Kelly",   hex:"#00A86B"},
-    {name:"Purple",  hex:"#5B2C83"},
-    {name:"Brown",   hex:"#5C4033"},
-    {name:"Grey",    hex:"#808080"},
-    {name:"Light Grey", hex:"#BDBDBD"},
-  ];
+      // Sliders
+      [this.rScale, this.rRotate, this.rX, this.rY].forEach(inp => {
+        inp?.addEventListener('input', () => {
+          this.state.scale = parseInt(this.rScale.value, 10);
+          this.state.rot   = parseInt(this.rRotate.value, 10) * Math.PI / 180;
+          this.state.x     = parseInt(this.rX.value, 10) / 100;
+          this.state.y     = parseInt(this.rY.value, 10) / 100;
+          this._redraw();
+        });
+      });
 
-  function buildPalette() {
-    paletteBox.innerHTML = "";
-    NS300.forEach((c, idx) => {
-      const b = document.createElement("button");
-      b.className = "spw-swatch";
-      b.title = c.name;
-      b.style.setProperty("--swatch", c.hex);
-      b.setAttribute("type","button");
-      b.setAttribute("data-hex", c.hex);
-      b.setAttribute("data-name", c.name);
-      if (idx === 1) b.classList.add("active"); // Black por defecto
-      b.addEventListener("click", () => selectColor(c.hex, c.name, b));
-      paletteBox.appendChild(b);
-    });
-    // valor inicial
-    selectColor(NS300[1].hex, NS300[1].name, paletteBox.children[1]);
-  }
-  function selectColor(hex, name, btn) {
-    qsa(".spw-swatch", paletteBox).forEach(x => x.classList.remove("active"));
-    btn?.classList.add("active");
-    colorHex.value  = hex;
-    colorName.value = name;
-    colorLabel.textContent = `${name} (${hex})`;
-    // No re-coloreamos el PNG (lo guardamos para el pedido).
-  }
+      // Drag & drop sobre el canvas
+      let dragging = false;
+      this.canvas.addEventListener('mousedown', (ev) => { dragging = true; this._setXYFromEvent(ev); });
+      window.addEventListener('mouseup', () => dragging = false);
+      this.canvas.addEventListener('mousemove', (ev) => { if (dragging) this._setXYFromEvent(ev); });
+      // Touch
+      this.canvas.addEventListener('touchstart', (ev) => { dragging = true; this._setXYFromEvent(ev.touches[0]); });
+      this.canvas.addEventListener('touchmove',  (ev) => { if (dragging) this._setXYFromEvent(ev.touches[0]); });
 
-  /* —— 2) Subida del logo ——— */
-  inFile?.addEventListener("change", (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    fileName.textContent = f.name;
-    const r = new FileReader();
-    r.onload = () => {
-      logoImg.src = r.result;
-      logoImg.classList.add("visible");
-      // Centrar y valores neutros
-      rScale.value = 100; rRotate.value = 0; rPosX.value = 50; rPosY.value = 50;
-      applyTransform();
-    };
-    r.readAsDataURL(f);
-  });
+      // Posiciones rápidas (checkbox → CSV)
+      document.querySelector('#spw_positions')?.addEventListener('change', () => {
+        const values = [...document.querySelectorAll('#spw_positions input:checked')].map(i => i.value);
+        this.hAreas.value = values.join(',');
+        // Coloca rápido según la última marcada (si no es 'libre')
+        const last = values[values.length - 1];
+        if (last === 'pecho_izq')  { this._quick(0.32, 0.30); }
+        if (last === 'pecho_dcha') { this._quick(0.68, 0.30); }
+        if (last === 'espalda')    { this._quick(0.50, 0.22); }
+      });
 
-  /* —— 3) Presets de posición ——— */
-  const PRESETS = {
-    chest_left:  { x: 32, y: 42, s: 60, rot: 0 },
-    chest_right: { x: 68, y: 42, s: 60, rot: 0 },
-    back:        { x: 50, y: 28, s: 90, rot: 0 },
-  };
-  qsa("input[name='spw_preset']").forEach(r => {
-    r.addEventListener("change", () => {
-      if (r.value === "none") return;
-      const p = PRESETS[r.value];
-      if (!p) return;
-      rPosX.value = p.x; rPosY.value = p.y;
-      rScale.value = p.s; rRotate.value = p.rot;
-      applyTransform();
-    });
-  });
-
-  /* —— 4) Sliders —— */
-  [rScale, rRotate, rPosX, rPosY].forEach(inp => {
-    inp?.addEventListener("input", applyTransform);
-  });
-
-  function applyTransform() {
-    // Usamos % relativos al tamaño visible del stage
-    const xPct = Number(rPosX.value);
-    const yPct = Number(rPosY.value);
-    const scale = Number(rScale.value) / 100;
-    const rot = Number(rRotate.value);
-
-    logoImg.style.setProperty("--x", `${xPct}%`);
-    logoImg.style.setProperty("--y", `${yPct}%`);
-    logoImg.style.setProperty("--scale", scale);
-    logoImg.style.setProperty("--rot", `${rot}deg`);
-    // Mover handle al centro del logo
-    handle.style.left = `calc(${xPct}% - 12px)`;
-    handle.style.top  = `calc(${yPct}% - 12px)`;
-  }
-
-  /* —— 5) Drag (mouse/touch) —— */
-  let dragging = false;
-  function startDrag(ev) {
-    dragging = true;
-    ev.preventDefault();
-  }
-  function moveDrag(ev) {
-    if (!dragging) return;
-    const rect = stage.getBoundingClientRect();
-    const px = (("touches" in ev ? ev.touches[0].clientX : ev.clientX) - rect.left) / rect.width;
-    const py = (("touches" in ev ? ev.touches[0].clientY : ev.clientY) - rect.top ) / rect.height;
-    rPosX.value = Math.min(100, Math.max(0, Math.round(px*100)));
-    rPosY.value = Math.min(100, Math.max(0, Math.round(py*100)));
-    applyTransform();
-  }
-  function endDrag(){ dragging = false; }
-
-  [stage, handle].forEach(el => {
-    el.addEventListener("mousedown", startDrag);
-    window.addEventListener("mousemove", moveDrag);
-    window.addEventListener("mouseup", endDrag);
-
-    el.addEventListener("touchstart", startDrag, {passive:false});
-    window.addEventListener("touchmove", moveDrag, {passive:false});
-    window.addEventListener("touchend", endDrag);
-  });
-
-  /* —— 6) Añadir al carrito (guardamos parámetros en query para el paso siguiente)
-        Aquí mantenemos el flujo existente en tu botón.
-        Si más adelante quieres grabarlo en attachment/JSON, lo hacemos.
-  */
-  addBtn?.addEventListener("click", async (e) => {
-    e.preventDefault();
-
-    const params = new URLSearchParams({
-      product_id: String(productId || 0),
-      type: (qs("input[name='spw_type']:checked")?.value || "none"),
-      color_hex: colorHex.value,
-      color_name: colorName.value,
-      scale: rScale.value,
-      rotate: rRotate.value,
-      x: rPosX.value,
-      y: rPosY.value,
-    });
-
-    // Si hay imagen cargada, la subimos como dataURL en sessionStorage (temporal)
-    // y la recogeremos en el step de carrito/checkout con otro script.
-    if (logoImg.src?.startsWith("data:")) {
+      // Swatches de color (datos vienen en data-colors)
       try {
-        sessionStorage.setItem("spw_logo_dataurl", logoImg.src);
+        const colors = JSON.parse(this.colorWrap?.dataset.colors || '[]');
+        this._renderSwatches(colors);
       } catch (_) {}
-    }
 
-    // Redirige al add-to-cart nativo con los parámetros de personalización
-    // (podrás leerlos en el carrito para render/guardar).
-    window.location.href = `/shop/cart/update?product_id=${productId}&add_qty=1&${params.toString()}`;
+      // Envío: genera PNG y params
+      this.submitBtn?.addEventListener('click', () => {
+        this.hPreview.value = this.canvas.toDataURL('image/png');
+        this.hParams.value = JSON.stringify({
+          x: this.state.x, y: this.state.y,
+          scale: this.state.scale, rot_deg: (this.state.rot * 180 / Math.PI)
+        });
+      });
+    },
+
+    _renderSwatches(colors) {
+      const setSelected = (code, hex) => {
+        document.querySelectorAll('.spw-swatch').forEach(n => n.classList.remove('selected'));
+        const el = this.colorWrap.querySelector(`[data-code="${code}"]`);
+        if (el) el.classList.add('selected');
+        const codeInput = document.querySelector('#spw_color_code');
+        const hexInput  = document.querySelector('#spw_color_hex');
+        if (codeInput) codeInput.value = code;
+        if (hexInput)  hexInput.value  = hex;
+      };
+      colors.forEach(c => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'spw-swatch';
+        b.style.background = c.hex;
+        b.dataset.code = c.code;
+        b.title = `${c.name} (${c.code})`;
+        b.addEventListener('click', () => setSelected(c.code, c.hex));
+        this.colorWrap.appendChild(b);
+      });
+      // Selección por defecto:
+      if (colors[0]) setSelected(colors[0].code, colors[0].hex);
+    },
+
+    _quick(px, py) {
+      this.state.x = px; this.state.y = py;
+      this.rX.value = Math.round(px * 100);
+      this.rY.value = Math.round(py * 100);
+      this._redraw();
+    },
+
+    _setXYFromEvent(ev) {
+      const rect = this.canvas.getBoundingClientRect();
+      const x = (ev.clientX - rect.left) / rect.width;
+      const y = (ev.clientY - rect.top) / rect.height;
+      this.state.x = Math.min(1, Math.max(0, x));
+      this.state.y = Math.min(1, Math.max(0, y));
+      this.rX.value = Math.round(this.state.x * 100);
+      this.rY.value = Math.round(this.state.y * 100);
+      this._redraw();
+    },
+
+    _loadBase() {
+      // Tamaño canvas responsivo (relación del sitio)
+      const w = this.canvas.clientWidth || 900;
+      this.canvas.width  = w;
+      this.canvas.height = Math.round(w * 0.85);
+      this.baseImg.onload = () => this._redraw();
+      this.baseImg.src = window.SPW_BASE_URL || document.querySelector('#spw_base_url')?.value || '';
+    },
+
+    _redraw() {
+      const ctx = this.ctx;
+      ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+      // Base
+      if (this.baseImg.complete && this.baseImg.naturalWidth) {
+        ctx.drawImage(this.baseImg, 0, 0, this.canvas.width, this.canvas.height);
+      }
+
+      // Logo
+      if (this.logoImg.complete && this.logoImg.naturalWidth) {
+        const cx = this.canvas.width * this.state.x;
+        const cy = this.canvas.height * this.state.y;
+        const s  = this.state.scale;
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(this.state.rot);
+        ctx.drawImage(this.logoImg, -s/2, -s/2, s, s);
+        ctx.restore();
+      } else {
+        // Píxel guía
+        const cx = this.canvas.width * this.state.x;
+        const cy = this.canvas.height * this.state.y;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 12, 0, Math.PI*2);
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2;
+        ctx.fill(); ctx.stroke();
+      }
+    },
   });
-
-  // init
-  buildPalette();
-  applyTransform();
 });
