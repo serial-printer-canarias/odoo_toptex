@@ -10,14 +10,15 @@
         "views/customizer_page.xml",
         "views/personalizacion_form.xml",
         "views/personalizacion_wizard_views.xml",
-        "views/product_personalize_button.xml",  # <-- NUEVO: solo esto
+        "views/product_personalize_button.xml"
     ],
     "assets": {
         "web.assets_frontend": [
             "serial_printer_custom_wizard/static/src/css/spw.css",
-            "serial_printer_custom_wizard/static/src/js/personalize_btn.js",  # <-- NUEVO
-        ],
+            "serial_printer_custom_wizard/static/src/js/personalize_btn.js",
+            "serial_printer_custom_wizard/static/src/js/spw_customizer.js"
+        ]
     },
     "installable": True,
-    "application": False,
+    "application": False
 }
