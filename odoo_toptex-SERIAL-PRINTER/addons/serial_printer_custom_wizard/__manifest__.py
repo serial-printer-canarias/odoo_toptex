@@ -9,17 +9,16 @@
     "depends": ["website", "website_sale"],
     "data": [
         "views/customizer_page.xml",
-        # Si tienes más vistas activas, añádelas aquí.
-        # "views/personalizacion_form.xml",
-        # "views/personalizacion_wizard_views.xml",
-        # "views/personalizacion_wizard_website.xml",
+        "views/personalizacion_form.xml",
+        "views/personalizacion_wizard_views.xml",
+        "views/personalizacion_wizard_website.xml"
     ],
     "assets": {
         "web.assets_frontend": [
             "serial_printer_custom_wizard/static/src/css/spw.css",
-            "serial_printer_custom_wizard/static/src/js/spw.js",
-        ],
+            "serial_printer_custom_wizard/static/src/js/spw.js"
+        ]
     },
     "installable": True,
-    "application": False,
+    "application": False
 }
