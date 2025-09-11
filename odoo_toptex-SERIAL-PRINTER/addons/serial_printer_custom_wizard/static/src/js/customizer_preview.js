@@ -1,79 +1,109 @@
-/** Simple preview: posiciona/rota/escala el logo sobre la foto */
-odoo.define('serial_printer_custom_wizard.customizer_preview', function (require) {
-    'use strict';
-    const publicWidget = require('web.public.widget');
+/** Preview y controles del personalizador (mínimos y robustos) */
+(function () {
+  const $ = (s) => document.querySelector(s);
 
-    const Preview = publicWidget.Widget.extend({
-        selector: '.spw-wrap',
+  const base  = $('#spw_base_img');
+  const logo  = $('#spw_logo');
+  const file  = $('#spw_file');
+  const scale = $('#spw_scale');
+  const rot   = $('#spw_rotate');
+  const posX  = $('#spw_pos_x');
+  const posY  = $('#spw_pos_y');
 
-        start() {
-            this.base = this.el.querySelector('#spw_base_img');
-            this.logo = this.el.querySelector('#spw_logo_img');
-            this.file = this.el.querySelector('#spw_file');
-            this.size = this.el.querySelector('#spw_size');
-            this.rot  = this.el.querySelector('#spw_rot');
-            this.x    = this.el.querySelector('#spw_x');
-            this.y    = this.el.querySelector('#spw_y');
+  const colorHidden = $('#spw_color');
 
-            // Colores
-            this.palette = this.el.querySelector('#spw_palette');
-            this.colorName = this.el.querySelector('#spw_color_name');
-            this.colorHex  = this.el.querySelector('#spw_color_hex');
+  function applyTransform() {
+    const s = (parseInt(scale.value || '40', 10)) / 100; // % a factor
+    const r = parseInt(rot.value || '0', 10);
+    const x = parseInt(posX.value || '50', 10);
+    const y = parseInt(posY.value || '55', 10);
 
-            // Posición rápida
-            this.el.addEventListener('change', (ev) => {
-                if (ev.target.name === 'spw_posq') this._applyQuick(ev.target.value);
-            });
+    logo.style.left = x + '%';
+    logo.style.top  = y + '%';
+    logo.style.width = (s * 100) + '%';          // ancho relativo al lienzo
+    logo.style.transform = `translate(-50%, -50%) rotate(${r}deg)`;
+  }
 
-            // Eventos
-            this.file.addEventListener('change', () => this._loadFile());
-            [this.size,this.rot,this.x,this.y].forEach(i => i.addEventListener('input', () => this._updateLogo()));
-
-            this.palette.addEventListener('click', (ev) => {
-                const chip = ev.target.closest('.spw-chip'); if (!chip) return;
-                this.palette.querySelectorAll('.spw-chip').forEach(c => c.classList.remove('is-active'));
-                chip.classList.add('is-active');
-                this.colorName.value = chip.dataset.name || '';
-                this.colorHex.value = getComputedStyle(chip).getPropertyValue('--c').trim();
-            });
-
-            // Estado inicial
-            const firstChip = this.palette.querySelector('.spw-chip'); if (firstChip) firstChip.classList.add('is-active');
-            this._applyQuick('pecho_izq');
-            return this._super(...arguments);
-        },
-
-        _loadFile() {
-            const f = this.file.files && this.file.files[0];
-            if (!f) return;
-            const reader = new FileReader();
-            reader.onload = () => {
-                this.logo.src = reader.result;
-                this.logo.classList.remove('d-none');
-                this._updateLogo();
-            };
-            reader.readAsDataURL(f);
-        },
-
-        _applyQuick(where) {
-            // Valores base
-            let pos = {x: 35, y: 58}; // pecho izq
-            if (where === 'pecho_dcha') pos = {x: 65, y: 58};
-            if (where === 'espalda')    pos = {x: 50, y: 40};
-            if (where === 'libre')      pos = {x: 50, y: 50};
-            this.x.value = pos.x; this.y.value = pos.y;
-            this._updateLogo();
-        },
-
-        _updateLogo() {
-            const s = parseFloat(this.size.value || '0.6');
-            const r = parseFloat(this.rot.value || '0');
-            const x = parseFloat(this.x.value || '50');
-            const y = parseFloat(this.y.value || '50');
-            this.logo.style.transform = `translate(-50%,-50%) translate(${x}%, ${y}%) scale(${s}) rotate(${r}deg)`;
-        },
+  function selectColor(hex) {
+    if (!hex) return;
+    colorHidden.value = hex;
+    document.querySelectorAll('.spw-color').forEach(b => {
+      b.classList.toggle('selected', b.dataset.color === hex);
     });
+    // (no recoloreamos la imagen raster; guardamos la selección)
+  }
 
-    publicWidget.registry.spwCustomizerPreview = Preview;
-    return Preview;
-});
+  // Subida del logo
+  if (file) {
+    file.addEventListener('change', (ev) => {
+      const f = ev.target.files && ev.target.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        logo.src = e.target.result;
+        logo.classList.remove('d-none');
+        // Espera a que se cargue para aplicar transformaciones
+        logo.onload = () => applyTransform();
+      };
+      reader.readAsDataURL(f);
+    });
+  }
+
+  // Sliders
+  [scale, rot, posX, posY].forEach(ctrl => {
+    if (ctrl) ctrl.addEventListener('input', applyTransform);
+  });
+
+  // Posiciones rápidas
+  document.querySelectorAll('.spw-quick').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const pos = btn.dataset.pos;
+      if (pos === 'left_chest')   { posX.value = 32; posY.value = 58; scale.value = 32; }
+      else if (pos === 'right_chest') { posX.value = 68; posY.value = 58; scale.value = 32; }
+      else if (pos === 'back')    { posX.value = 50; posY.value = 35; scale.value = 50; }
+      else                        { posX.value = 50; posY.value = 55; }
+      applyTransform();
+    });
+  });
+
+  // Paleta de colores
+  document.querySelectorAll('.spw-color').forEach(btn => {
+    btn.style.background = btn.dataset.color;
+    btn.addEventListener('click', () => selectColor(btn.dataset.color));
+  });
+  // Selección inicial
+  const first = document.querySelector('.spw-color');
+  if (first) selectColor(first.dataset.color);
+
+  // Arrastrar el logo con el puntero
+  let dragging = false, sx = 0, sy = 0;
+  function onPointerDown(e) {
+    dragging = true;
+    logo.setPointerCapture(e.pointerId);
+    logo.classList.add('dragging');
+    sx = e.clientX; sy = e.clientY;
+  }
+  function onPointerUp() {
+    dragging = false;
+    logo.classList.remove('dragging');
+  }
+  function onPointerMove(e) {
+    if (!dragging) return;
+    const rect = base.getBoundingClientRect();
+    const dx = e.clientX - sx;
+    const dy = e.clientY - sy;
+    sx = e.clientX; sy = e.clientY;
+
+    const nx = Math.min(100, Math.max(0, parseInt(posX.value, 10) + (dx / rect.width) * 100));
+    const ny = Math.min(100, Math.max(0, parseInt(posY.value, 10) + (dy / rect.height) * 100));
+    posX.value = nx; posY.value = ny;
+    applyTransform();
+  }
+
+  if (logo) {
+    logo.addEventListener('pointerdown', onPointerDown);
+    logo.addEventListener('pointerup', onPointerUp);
+    logo.addEventListener('pointercancel', onPointerUp);
+    logo.addEventListener('pointermove', onPointerMove);
+  }
+})();
