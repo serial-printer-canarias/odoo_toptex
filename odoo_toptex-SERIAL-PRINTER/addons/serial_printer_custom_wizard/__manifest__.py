@@ -10,7 +10,7 @@
         "views/customizer_page.xml",
         "views/personalizacion_form.xml",
         "views/personalizacion_wizard_views.xml",
-        "views/product_personalize_button.xml",  # <-- NUEVO: solo esto
+        "views/website_customize_button.xml",  # <-- NUEVO: solo esto
     ],
     "assets": {
         "web.assets_frontend": [
