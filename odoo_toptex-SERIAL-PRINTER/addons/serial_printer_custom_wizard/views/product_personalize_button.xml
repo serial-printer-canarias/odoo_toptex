@@ -5,16 +5,16 @@
             name="SPW: Botón Personalizar (Product Page)"
             inherit_id="website_sale.product">
 
-    <!-- Usamos un contenedor que SIEMPRE existe: #product_details -->
+    <!-- Inserta dentro de un contenedor estable -->
     <xpath expr="//div[@id='product_details']" position="inside">
       <div id="spw_personalize_btn_wrapper" class="mt-3">
         <a id="spw_personalize_btn"
-           href="#"
            class="btn btn-outline-primary"
            role="button"
            data-spw="personalize"
            t-att-data-product_tmpl_id="product.id"
-           t-att-data-variant_id="product.product_variant_id and product.product_variant_id.id or 0">
+           t-att-data-variant_id="product.product_variant_id and product.product_variant_id.id or 0"
+           t-att-href="'/spw/customize/%s?variant_id=%s' % (product.id, (product.product_variant_id.id if product.product_variant_id else 0))">
           <i class="fa fa-magic me-1"/>
           <span>Personalizar</span>
         </a>
