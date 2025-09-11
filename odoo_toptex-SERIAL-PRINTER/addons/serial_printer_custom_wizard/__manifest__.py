@@ -1,6 +1,6 @@
 # addons/serial_printer_custom_wizard/__manifest__.py
 {
-    "name": "Serial Printer – Custom Wizard",
+    "name": "Serial Printer — Custom Wizard",
     "summary": "Personalización de productos en eCommerce",
     "version": "18.0.1.0.0",
     "category": "Website/Commerce",
@@ -11,17 +11,13 @@
         "views/customizer_page.xml",
         "views/personalizacion_form.xml",
         "views/personalizacion_wizard_views.xml",
-        "views/personalizacion_wizard_website_views.xml",
+        "views/personalizacion_wizard_website.xml",
     ],
     "assets": {
         "web.assets_frontend": [
-            "serial_printer_custom_wizard/static/src/js/add_customize_button.js",
-            "serial_printer_custom_wizard/static/src/js/customizer_preview.js",
+            # SOLO css/js/imagenes. Nada de XML con <odoo>.
             "serial_printer_custom_wizard/static/src/css/spw.css",
-            "serial_printer_custom_wizard/static/src/js/customizer_enhancements.js",
-            "serial_printer_custom_wizard/static/src/css/spw_colors.css",
-            # --- SOLO ESTA LÍNEA NUEVA ---
-            "serial_printer_custom_wizard/static/src/js/spw_force_customize_button.js",
+            "serial_printer_custom_wizard/static/src/js/spw.js",
         ],
     },
     "installable": True,
