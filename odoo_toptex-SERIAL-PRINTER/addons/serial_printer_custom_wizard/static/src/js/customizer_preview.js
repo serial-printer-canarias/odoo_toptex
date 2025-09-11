@@ -1,109 +1,119 @@
-/** Preview y controles del personalizador (mínimos y robustos) */
-(function () {
-  const $ = (s) => document.querySelector(s);
+/** serial_printer_custom_wizard/static/src/js/customizer_preview.js **/
+odoo.define('serial_printer_custom_wizard.customizer_preview', function (require) {
+    'use strict';
+    const publicWidget = require('web.public.widget');
 
-  const base  = $('#spw_base_img');
-  const logo  = $('#spw_logo');
-  const file  = $('#spw_file');
-  const scale = $('#spw_scale');
-  const rot   = $('#spw_rotate');
-  const posX  = $('#spw_pos_x');
-  const posY  = $('#spw_pos_y');
+    function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
 
-  const colorHidden = $('#spw_color');
+    publicWidget.registry.SPWCustomizer = publicWidget.Widget.extend({
+        selector: '.spw-container',
+        start() {
+            this.base = this.el.querySelector('#spw_base_img');
+            this.logo = this.el.querySelector('#spw_logo');
 
-  function applyTransform() {
-    const s = (parseInt(scale.value || '40', 10)) / 100; // % a factor
-    const r = parseInt(rot.value || '0', 10);
-    const x = parseInt(posX.value || '50', 10);
-    const y = parseInt(posY.value || '55', 10);
+            // Controles
+            this.scale = this.el.querySelector('#spw_scale');
+            this.rotate = this.el.querySelector('#spw_rotate');
+            this.posX = this.el.querySelector('#spw_pos_x');
+            this.posY = this.el.querySelector('#spw_pos_y');
+            this.file = this.el.querySelector('#spw_file');
+            this.colors = this.el.querySelector('#spw_colors');
 
-    logo.style.left = x + '%';
-    logo.style.top  = y + '%';
-    logo.style.width = (s * 100) + '%';          // ancho relativo al lienzo
-    logo.style.transform = `translate(-50%, -50%) rotate(${r}deg)`;
-  }
+            this._buildColors();
+            this._bind();
 
-  function selectColor(hex) {
-    if (!hex) return;
-    colorHidden.value = hex;
-    document.querySelectorAll('.spw-color').forEach(b => {
-      b.classList.toggle('selected', b.dataset.color === hex);
+            // Estado inicial
+            this._updateTransform();
+
+            return this._super(...arguments);
+        },
+
+        _bind() {
+            this.scale.addEventListener('input', () => this._updateTransform());
+            this.rotate.addEventListener('input', () => this._updateTransform());
+            this.posX.addEventListener('input', () => this._updateTransform());
+            this.posY.addEventListener('input', () => this._updateTransform());
+
+            // Drag del logo
+            const wrapper = this.el.querySelector('.spw-canvas-wrapper');
+            let dragging = false;
+            const onMove = (e) => {
+                if (!dragging) return;
+                const rect = wrapper.getBoundingClientRect();
+                const x = clamp(((e.clientX - rect.left) / rect.width) * 100, 0, 100);
+                const y = clamp(((e.clientY - rect.top) / rect.height) * 100, 0, 100);
+                this.posX.value = Math.round(x);
+                this.posY.value = Math.round(y);
+                this._updateTransform();
+            };
+            this.logo.addEventListener('pointerdown', (e) => { dragging = true; this.logo.setPointerCapture(e.pointerId); });
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', () => dragging = false);
+
+            // Quick positions
+            this.el.querySelectorAll('.spw-quick').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const pos = btn.dataset.pos;
+                    if (pos === 'left_chest') { this.posX.value = 30; this.posY.value = 35; }
+                    else if (pos === 'right_chest') { this.posX.value = 70; this.posY.value = 35; }
+                    else if (pos === 'back') { this.posX.value = 50; this.posY.value = 60; }
+                    else { this.posX.value = 50; this.posY.value = 50; }
+                    this._updateTransform();
+                });
+            });
+
+            // Subir logo
+            this.file.addEventListener('change', (ev) => {
+                const f = ev.target.files && ev.target.files[0];
+                if (!f) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                    this.logo.src = reader.result;
+                    this.logo.classList.remove('d-none');
+                    // tamaño por defecto 25% para empezar
+                    this.scale.value = 25; 
+                    this._updateTransform();
+                };
+                reader.readAsDataURL(f);
+            });
+        },
+
+        _updateTransform() {
+            const s = parseInt(this.scale.value || 100, 10);
+            const r = parseInt(this.rotate.value || 0, 10);
+            const x = parseInt(this.posX.value || 50, 10);
+            const y = parseInt(this.posY.value || 50, 10);
+            this.logo.style.width = s + '%';
+            this.logo.style.left = x + '%';
+            this.logo.style.top = y + '%';
+            this.logo.style.transform = `translate(-50%, -50%) rotate(${r}deg)`;
+        },
+
+        _buildColors() {
+            // Paleta compacta estilo NS300 (sin mencionarlo)
+            const HEX = [
+                '#000000','#2F2F2F','#595959','#808080','#B3B3B3','#FFFFFF',
+                '#7F0000','#C00000','#FF5A5A','#FF7F00','#FFC000',
+                '#006837','#009E49','#00B050','#2E74B5','#0070C0','#00B0F0',
+                '#7030A0','#A35BD1','#8B572A','#C69C6D','#3F3F0F'
+            ];
+            this.colors.innerHTML = '';
+            HEX.forEach(h => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'spw-color';
+                b.style.background = h;
+                b.setAttribute('data-hex', h);
+                b.addEventListener('click', () => {
+                    this.colors.querySelectorAll('.spw-color.active').forEach(x => x.classList.remove('active'));
+                    b.classList.add('active');
+                    // guardamos el color elegido (puedes enviarlo al carrito después)
+                    this.el.dataset.spwColor = h;
+                });
+                this.colors.appendChild(b);
+            });
+        },
     });
-    // (no recoloreamos la imagen raster; guardamos la selección)
-  }
 
-  // Subida del logo
-  if (file) {
-    file.addEventListener('change', (ev) => {
-      const f = ev.target.files && ev.target.files[0];
-      if (!f) return;
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        logo.src = e.target.result;
-        logo.classList.remove('d-none');
-        // Espera a que se cargue para aplicar transformaciones
-        logo.onload = () => applyTransform();
-      };
-      reader.readAsDataURL(f);
-    });
-  }
-
-  // Sliders
-  [scale, rot, posX, posY].forEach(ctrl => {
-    if (ctrl) ctrl.addEventListener('input', applyTransform);
-  });
-
-  // Posiciones rápidas
-  document.querySelectorAll('.spw-quick').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const pos = btn.dataset.pos;
-      if (pos === 'left_chest')   { posX.value = 32; posY.value = 58; scale.value = 32; }
-      else if (pos === 'right_chest') { posX.value = 68; posY.value = 58; scale.value = 32; }
-      else if (pos === 'back')    { posX.value = 50; posY.value = 35; scale.value = 50; }
-      else                        { posX.value = 50; posY.value = 55; }
-      applyTransform();
-    });
-  });
-
-  // Paleta de colores
-  document.querySelectorAll('.spw-color').forEach(btn => {
-    btn.style.background = btn.dataset.color;
-    btn.addEventListener('click', () => selectColor(btn.dataset.color));
-  });
-  // Selección inicial
-  const first = document.querySelector('.spw-color');
-  if (first) selectColor(first.dataset.color);
-
-  // Arrastrar el logo con el puntero
-  let dragging = false, sx = 0, sy = 0;
-  function onPointerDown(e) {
-    dragging = true;
-    logo.setPointerCapture(e.pointerId);
-    logo.classList.add('dragging');
-    sx = e.clientX; sy = e.clientY;
-  }
-  function onPointerUp() {
-    dragging = false;
-    logo.classList.remove('dragging');
-  }
-  function onPointerMove(e) {
-    if (!dragging) return;
-    const rect = base.getBoundingClientRect();
-    const dx = e.clientX - sx;
-    const dy = e.clientY - sy;
-    sx = e.clientX; sy = e.clientY;
-
-    const nx = Math.min(100, Math.max(0, parseInt(posX.value, 10) + (dx / rect.width) * 100));
-    const ny = Math.min(100, Math.max(0, parseInt(posY.value, 10) + (dy / rect.height) * 100));
-    posX.value = nx; posY.value = ny;
-    applyTransform();
-  }
-
-  if (logo) {
-    logo.addEventListener('pointerdown', onPointerDown);
-    logo.addEventListener('pointerup', onPointerUp);
-    logo.addEventListener('pointercancel', onPointerUp);
-    logo.addEventListener('pointermove', onPointerMove);
-  }
-})();
+    return publicWidget.registry.SPWCustomizer;
+});
