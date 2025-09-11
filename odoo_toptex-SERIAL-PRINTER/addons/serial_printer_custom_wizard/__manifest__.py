@@ -15,6 +15,8 @@
     "assets": {
         "web.assets_frontend": [
             "serial_printer_custom_wizard/static/src/css/spw.css",
+            "serial_printer_custom_wizard/static/src/js/move_personalize_btn.js",
+            "serial_printer_custom_wizard/static/src/js/customizer_preview.js",
             "serial_printer_custom_wizard/static/src/js/personalize_btn.js",
         ],
     },
