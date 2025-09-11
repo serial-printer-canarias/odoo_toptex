@@ -1,4 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <template id="personalizacion_wizard_website_views" name="SPW Wizard Website Views (stub)"/>
+  <data>
+    <record id="website_placeholder_view" model="ir.ui.view">
+      <field name="name">SPW Website Placeholder (QWeb)</field>
+      <field name="type">qweb</field>
+      <field name="key">serial_printer_custom_wizard.website_placeholder</field>
+      <field name="arch" type="xml">
+        <t t-name="serial_printer_custom_wizard.website_placeholder">
+          <!-- Placeholder sin efecto -->
+        </t>
+      </field>
+    </record>
+  </data>
 </odoo>
