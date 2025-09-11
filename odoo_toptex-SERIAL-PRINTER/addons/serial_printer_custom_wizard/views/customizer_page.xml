@@ -2,18 +2,14 @@
 <odoo>
   <template id="spw_customizer_page" name="SPW: Personalizador">
     <t t-call="website.layout">
-      <!-- Necesario para que Website no lance el TypeError -->
       <t t-set="main_object" t-value="product or website"/>
-
-      <!-- URL de vuelta al producto -->
       <t t-set="product_url" t-value="product and '/shop/product/%s' % slug(product) or '/shop'"/>
 
       <div class="container my-5 spw-customizer">
-        <!-- Zona de previsualización -->
+        <!-- Vista previa -->
         <div class="row mb-4">
           <div class="col-12">
             <div class="spw-canvas position-relative">
-              <!-- Imagen del producto/variante -->
               <t t-if="variant">
                 <img id="spw_product_img"
                      t-att-src="'/web/image/%s/%s/image_1024' % (variant._name, variant.id)"
@@ -24,19 +20,15 @@
                      t-att-src="'/web/image/%s/%s/image_1024' % (product._name, product.id)"
                      class="img-fluid rounded shadow"/>
               </t>
-
-              <!-- Preview del logo (lo muestra el JS al subir archivo) -->
               <img id="spw_logo_preview" src="" alt="Logo preview" class="d-none"/>
             </div>
-            <p class="mt-3 lead">
-              Arrastra el logo sobre la imagen para posicionarlo o usa los controles.
-            </p>
+            <p class="mt-3 lead">Arrastra el logo sobre la imagen para posicionarlo o usa los controles.</p>
           </div>
         </div>
 
         <!-- Controles -->
         <div class="row g-3">
-          <!-- Método de personalización -->
+          <!-- Técnicas -->
           <div class="col-12">
             <h5 class="mb-2">Tipo de personalización</h5>
             <div class="btn-group w-100" role="group" aria-label="Método">
@@ -58,7 +50,7 @@
             </div>
           </div>
 
-          <!-- Posición rápida -->
+          <!-- Posiciones rápidas -->
           <div class="col-12">
             <h5 class="mb-2">Posición rápida</h5>
             <div class="d-flex flex-wrap gap-2">
@@ -77,7 +69,7 @@
                       rows="3"></textarea>
           </div>
 
-          <!-- Subida de logo -->
+          <!-- Subir logo -->
           <div class="col-12">
             <h5 class="mb-2">Subir logo (PNG/JPG/SVG)</h5>
             <input id="spw_logo_file" class="form-control" type="file" accept=".png,.jpg,.jpeg,.svg"/>
@@ -107,7 +99,7 @@
           <!-- Acciones -->
           <div class="col-12">
             <div class="d-flex justify-content-between align-items-center mt-2">
-              <a t-att-href="product_url" class="btn btn-light">&larr; Volver al producto</a>
+              <a t-att-href="product_url" class="btn btn-light">&#8592; Volver al producto</a>
               <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                 Añadir al carrito con esta personalización
               </button>
