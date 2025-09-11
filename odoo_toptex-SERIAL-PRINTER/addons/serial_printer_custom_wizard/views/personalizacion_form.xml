@@ -1,4 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <template id="personalizacion_form" name="SPW Personalization Form (stub)"/>
+  <data>
+    <record id="personalizacion_form_view" model="ir.ui.view">
+      <field name="name">SPW Personalizacion Form (QWeb)</field>
+      <field name="type">qweb</field>
+      <field name="key">serial_printer_custom_wizard.personalizacion_form</field>
+      <field name="arch" type="xml">
+        <t t-name="serial_printer_custom_wizard.personalizacion_form">
+          <!-- Placeholder QWeb. Útil si en el futuro lo incluimos desde JS -->
+          <div class="spw-form-placeholder" role="region" aria-label="Personalización"></div>
+        </t>
+      </field>
+    </record>
+  </data>
 </odoo>
