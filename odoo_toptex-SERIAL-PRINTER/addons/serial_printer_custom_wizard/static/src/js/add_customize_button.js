@@ -1,104 +1,50 @@
-// Inserta SIEMPRE el botón "Personalizar" en la ficha de producto,
-// y lo re-calcula cuando cambias de variante / se actualiza el DOM.
-// No depende de QWeb. Funciona con cualquier tema de Odoo 17/18.
+/** Always show "Personalizar" and point to current variant id */
+odoo.define('serial_printer_custom_wizard.add_customize_button', function (require) {
+    'use strict';
+    const publicWidget = require('web.public.widget');
 
-(function () {
-  const BTN_ID = "spw_customize_btn";
+    const CustomizeButton = publicWidget.Widget.extend({
+        selector: 'body',
 
-  const BTN_HTML = (url) => `
-    <a id="${BTN_ID}" class="btn btn-outline-primary ms-2" href="${url}">
-      <i class="fa fa-magic me-1"></i><span>Personalizar</span>
-    </a>
-  `;
+        start() {
+            this._ensureButton();
+            // Reintenta cuando cambian variantes o el DOM
+            document.body.addEventListener('change', (ev) => {
+                if (ev.target && ev.target.name === 'product_id') this._ensureButton();
+            });
+            this._obs = new MutationObserver(() => this._ensureButton());
+            const root = document.querySelector('.o_wsale_product_page_main') || document.body;
+            this._obs.observe(root, { childList: true, subtree: true });
+            return this._super(...arguments);
+        },
 
-  function getVariantId(root = document) {
-    // Variante activa (Odoo la pone en un hidden)
-    const inp = root.querySelector('input[name="product_id"]');
-    if (inp && inp.value) return parseInt(inp.value, 10);
+        _getVariantId() {
+            const el = document.querySelector('input[name="product_id"]');
+            return el && el.value ? parseInt(el.value, 10) : null;
+        },
 
-    // Fall-back: algunos temas ponen data-product-id en el form
-    const form = root.querySelector('form[action="/shop/cart/update"]');
-    const pid = form?.dataset?.productId || form?.getAttribute("data-product-id");
-    if (pid) return parseInt(pid, 10);
+        _container() {
+            return document.querySelector('.o_wsale_product_btns,.o_wsale_product_btn') ||
+                   document.querySelector('form[action*="/shop/cart/update"]');
+        },
 
-    return null;
-  }
+        _ensureButton() {
+            const cont = this._container();
+            const vid = this._getVariantId();
+            if (!cont || !vid) return;
 
-  function getTemplateId(root = document) {
-    const inp = root.querySelector('input[name="product_template_id"]');
-    return inp && inp.value ? parseInt(inp.value, 10) : null;
-  }
+            let btn = document.getElementById('spw_customize_btn');
+            if (!btn) {
+                btn = document.createElement('a');
+                btn.id = 'spw_customize_btn';
+                btn.className = 'btn btn-outline-primary ms-2';
+                btn.innerHTML = '<i class="fa fa-magic me-1"></i><span>Personalizar</span>';
+                cont.appendChild(btn);
+            }
+            btn.href = `/personalizar/${vid}`;
+        },
+    });
 
-  function getButtonsContainer(root = document) {
-    // Contenedores habituales de los botones en website_sale + temas
-    let el = root.querySelector(
-      ".o_wsale_product_buttons, .o_wsale_product_btns, .o_wsale_product_btn"
-    );
-    if (el) return el;
-
-    // Si no existe, nos pegamos al botón de añadir al carrito
-    const add = root.querySelector('button[name="add_to_cart"]');
-    if (add) return add.parentElement || add.closest("div");
-
-    // Último recurso: el form de carrito
-    return root.querySelector('form[action="/shop/cart/update"]');
-  }
-
-  function onProductPage() {
-    // Estamos en la ficha de producto si existe el form de carrito
-    return !!document.querySelector('form[action="/shop/cart/update"]');
-  }
-
-  function insertOrUpdate() {
-    if (!onProductPage()) return;
-
-    const id = getVariantId() ?? getTemplateId();
-    const container = getButtonsContainer();
-    if (!id || !container) return;
-
-    const url = `/personalizar/${id}`;
-
-    let btn = document.getElementById(BTN_ID);
-    if (!btn) {
-      // Evita duplicados por si el contenedor se regenera
-      container.insertAdjacentHTML("beforeend", BTN_HTML(url));
-    } else {
-      btn.setAttribute("href", url);
-      if (!btn.parentElement) container.appendChild(btn);
-    }
-  }
-
-  // 1) Inserción inicial
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", insertOrUpdate);
-  } else {
-    insertOrUpdate();
-  }
-
-  // 2) Reintentos cortos por si el tema pinta tarde
-  let tries = 0;
-  const t = setInterval(() => {
-    insertOrUpdate();
-    if (++tries >= 10) clearInterval(t);
-  }, 300);
-
-  // 3) Reaccionar a cambios de variante o regeneraciones del DOM
-  document.addEventListener("change", (ev) => {
-    if (ev.target.closest('form[action="/shop/cart/update"]')) insertOrUpdate();
-  });
-
-  const mo = new MutationObserver((mutations) => {
-    for (const m of mutations) {
-      if (m.type === "childList" || m.type === "attributes") {
-        insertOrUpdate();
-        break;
-      }
-    }
-  });
-  mo.observe(document.body, {
-    subtree: true,
-    childList: true,
-    attributes: true,
-    attributeFilter: ["value", "class"],
-  });
-})();
+    publicWidget.registry.spwCustomizeButton = CustomizeButton;
+    return CustomizeButton;
+});
