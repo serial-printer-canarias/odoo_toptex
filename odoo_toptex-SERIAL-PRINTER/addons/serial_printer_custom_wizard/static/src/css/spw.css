@@ -1,103 +1,24 @@
-/* ===============================
-   Serial Printer — Custom Wizard
-   Frontend styles (spw.css)
-   =============================== */
-
-/* ------- Layout general ------- */
-.spw-customizer {
-  /* contenedor principal de la página del customizer */
-}
-
-#spw_product_img {
-  display: block;
-  width: 100%;
-  height: auto;
-  border-radius: .5rem;
-}
-
-/* Lienzo de previsualización */
-.spw-canvas {
-  position: relative;
-  overflow: hidden;
-  min-height: 420px;           /* asegura altura visible */
-  border-radius: .75rem;
-}
-
-/* Imagen del logo subida por el usuario */
-.spw-logo {
+/* Lienzo y overlay del logo */
+.spw-canvas { position: relative; overflow: hidden; }
+.spw-canvas img { display: block; width: 100%; height: auto; }
+.spw-logo-preview {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  max-width: 50%;
-  max-height: 50%;
-  transform: translate(-50%, -50%) rotate(0deg) scale(1);
-  pointer-events: auto;
-  cursor: move;
-  user-select: none;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%) scale(1);
+  max-width: 45%;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,.25));
 }
 
-/* ------- Selector de colores ------- */
-.spw-color-list {
-  display: flex;
-  gap: 12px;
-  align-items: center;
+/* Swatches de color */
+.spw-color-list { display: flex; gap: .75rem; align-items: center; }
+.spw-color {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--spw-color, #000);
+  border: 2px solid rgba(0,0,0,.1);
+  outline: none; cursor: pointer;
 }
+.spw-color:focus { box-shadow: 0 0 0 3px rgba(30,99,255,.25); }
 
-.spw-color-list .spw-color {
-  --c: #000; /* color por defecto si no se define inline */
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--c);
-  border: 1px solid rgba(0, 0, 0, .15);
-  padding: 0;
-  outline: none;
-  cursor: pointer;
-}
-
-/* Anillo de selección/estado focus */
-.spw-color-list .spw-color.ring,
-.spw-color-list .spw-color:focus-visible {
-  box-shadow: 0 0 0 3px rgba(31, 111, 235, .35);
-}
-
-/* ------- Posiciones rápidas ------- */
-.spw-pos {
-  min-width: 120px;
-}
-
-/* ------- Rango/controles ------- */
-.form-range {
-  --thumb-size: 18px;
-}
-.form-range::-webkit-slider-thumb {
-  width: var(--thumb-size);
-  height: var(--thumb-size);
-  border-radius: 50%;
-}
-.form-range::-moz-range-thumb {
-  width: var(--thumb-size);
-  height: var(--thumb-size);
-  border: 0;
-  border-radius: 50%;
-}
-
-/* ------- Botones de acciones ------- */
-#spw_add_to_cart {
-  white-space: normal;
-}
-
-/* ------- Utilidades ------- */
-.d-none { display: none !important; }
-
-/* ------- Responsive ------- */
-@media (max-width: 991.98px) {
-  .spw-canvas { min-height: 360px; }
-  .spw-logo   { max-width: 65%; max-height: 65%; }
-}
-
-@media (max-width: 575.98px) {
-  .spw-canvas { min-height: 300px; }
-  .spw-logo   { max-width: 75%; max-height: 75%; }
-  .spw-pos    { min-width: 46%; }
-}
+/* Botón de ficha */
+#spw_personalize_btn { white-space: nowrap; }
