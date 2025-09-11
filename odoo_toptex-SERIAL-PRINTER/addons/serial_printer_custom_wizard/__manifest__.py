@@ -11,7 +11,7 @@
         "views/customizer_page.xml",
         "views/personalizacion_form.xml",
         "views/personalizacion_wizard_views.xml",
-        "views/personalizacion_wizard_website.xml"
+        "views/personalizacion_wizard_website_views.xml"
     ],
     "assets": {
         "web.assets_frontend": [
