@@ -1,42 +1,63 @@
-/* serial_printer_custom_wizard/static/src/css/spw.css */
-
-/* Layout */
+/* Canvas */
 .spw-canvas-wrapper {
-    position: relative;
-    background: #fff;
-    border: 1px solid rgba(0,0,0,.06);
-    border-radius: .5rem;
-    overflow: hidden;
-    min-height: 420px;
+  position: relative;
+  width: 100%;
+  /* limita altura en desktop para no “comerse” la derecha */
+  max-height: 520px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #f8f9fa;
 }
-#spw_base_img { display: block; }
+#spw_base_img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  user-select: none;
+  pointer-events: none;
+}
 #spw_logo {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 25%;
-    transform: translate(-50%, -50%);
-    user-select: none;
-    touch-action: none;
-    cursor: move;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(0deg) scale(1);
+  max-width: 60%;
+  max-height: 60%;
+  pointer-events: auto;
+  cursor: move;
 }
 
-/* Panel derecho */
-.spw-controls { position: static; } /* nada fijo: que no se suba al header */
-
-/* Paleta colores */
-.spw-colors { gap: .5rem; }
-.spw-color {
-    width: 22px; height: 22px; border-radius: 50%;
-    border: 2px solid #fff;
-    box-shadow: 0 0 0 1px rgba(0,0,0,.25);
-    display: inline-block;
+/* Panel de controles siempre en su columna (nunca en la navbar) */
+.spw-controls {
+  position: static !important;
+  contain: content;
 }
-.spw-color.active { box-shadow: 0 0 0 2px #0d6efd; }
 
-/* File input accesible sin “botoncito fantasma” */
-.spw-file .form-control { position: relative; overflow: hidden; }
+/* Paleta de colores */
+.spw-colors {
+  display: grid;
+  grid-template-columns: repeat(10, 22px);
+  gap: 8px;
+}
+.spw-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid rgba(0,0,0,.1);
+  background: var(--c);
+  cursor: pointer;
+  padding: 0;
+}
+.spw-swatch.is-active {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Input file fiable con label encima */
+.spw-file { position: relative; display: inline-block; width: 100%; }
+.spw-file label { display: block; padding: .625rem .75rem; text-align: center; }
 .spw-file input[type="file"] {
-    position: absolute; inset: 0; width: 100%; height: 100%;
-    opacity: 0; cursor: pointer;
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; cursor: pointer; z-index: 2;
 }
+
+/* Sliders */
+.form-range { accent-color: #2563eb; }
