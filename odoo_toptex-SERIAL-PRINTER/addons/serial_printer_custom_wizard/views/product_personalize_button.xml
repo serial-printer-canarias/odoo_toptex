@@ -1,14 +1,10 @@
 <odoo>
-  <!-- Inserta el botón "Personalizar" justo después del botón/anchor de Add to cart en la página de producto -->
+  <!-- Botón "Personalizar" insertado SIN depender de clases del tema -->
   <template id="spw_personalize_button" name="SPW: Botón Personalizar"
-            inherit_id="website_sale.product">
+            inherit_id="website_sale.product_buy">
 
-    <!-- En Odoo 18 el CTA está dentro del <form class="o_wsale_product_form">.
-         Usamos * (cualquier etiqueta) + clase o_add_to_cart para que funcione
-         tanto si es <a> como <button>. -->
-    <xpath expr="//form[contains(@class,'o_wsale_product_form')]//*[contains(concat(' ', normalize-space(@class), ' '), ' o_add_to_cart ')]"
-           position="after">
-
+    <!-- Selecciona el formulario del producto por el input product_id (siempre existe) -->
+    <xpath expr="//form[.//input[@name='product_id']]" position="inside">
       <a id="spw_personalize_btn"
          href="#"
          class="btn btn-outline-primary ms-2 mt-2"
@@ -16,7 +12,7 @@
         <i class="fa fa-magic me-1"/>
         <span>Personalizar</span>
       </a>
-
     </xpath>
+
   </template>
 </odoo>
