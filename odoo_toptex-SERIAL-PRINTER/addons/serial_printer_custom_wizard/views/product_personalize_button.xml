@@ -1,14 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <template id="spw_personalize_button" name="SPW: Botón Personalizar"
-            inherit_id="website_sale.product_buy">
-    <xpath expr="//form[.//input[@name='product_id']]" position="inside">
-      <a id="spw_personalize_btn"
-         href="#"
-         class="btn btn-outline-primary ms-2 mt-2"
-         data-spw="personalize">
-        <i class="fa fa-magic me-1"/>
-        <span>Personalizar</span>
-      </a>
-    </xpath>
-  </template>
+    <template id="spw_personalize_button"
+              name="SPW: Botón Personalizar"
+              inherit_id="website_sale.product">
+        <!-- Insertar dentro del formulario de producto -->
+        <xpath expr="//form[contains(@class,'o_wsale_product_form')]" position="inside">
+            <a id="spw_personalize_btn"
+               t-attf-href="/personalizar/{{ product.id }}?variant_id={{ product.product_variant_id.id }}"
+               class="btn btn-outline-primary ms-2 mt-2"
+               data-spw="personalize">
+                <i class="fa fa-magic me-1"/>
+                <span>Personalizar</span>
+            </a>
+        </xpath>
+    </template>
 </odoo>
