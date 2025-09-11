@@ -1,16 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <template id="spw_personalize_button" inherit_id="website_sale.product_buy" name="SPW: Botón Personalizar">
-    <!-- Inserta el botón dentro del bloque de acciones de la ficha -->
-    <xpath expr="//div[contains(@class,'o_wsale_product_actions')]" position="inside">
+  <!-- Inserta el botón en la zona de acciones de la ficha de producto -->
+  <template id="spw_personalize_button"
+            name="SPW: Botón Personalizar (Product Page)"
+            inherit_id="website_sale.product">
+
+    <!-- Contenedor de acciones (Add to cart, wishlist, etc.) -->
+    <xpath expr="//div[contains(concat(' ', normalize-space(@class), ' '), ' o_wsale_product_actions ')]"
+           position="inside">
       <a id="spw_personalize_btn"
          href="#"
          class="btn btn-outline-primary ms-2"
          role="button"
-         data-spw="personalize">
+         data-spw="personalize"
+         t-att-data-product_tmpl_id="product.id"
+         t-att-data-variant_id="product.product_variant_id and product.product_variant_id.id or 0">
         <i class="fa fa-magic me-1"/>
         <span>Personalizar</span>
       </a>
     </xpath>
+
   </template>
 </odoo>
