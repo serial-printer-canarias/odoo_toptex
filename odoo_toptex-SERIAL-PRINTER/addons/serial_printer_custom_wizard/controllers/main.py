@@ -1,28 +1,45 @@
 # -*- coding: utf-8 -*-
+import json
 from odoo import http
 from odoo.http import request
-import json
 
-class SPWController(http.Controller):
 
-    @http.route(['/personalizar/<int:tmpl_id>'], type='http', auth='public', website=True, sitemap=False)
-    def customizer(self, tmpl_id, variant_id=None, **kw):
-        tmpl = request.env['product.template'].sudo().browse(tmpl_id)
+class SerialPrinterCustomizer(http.Controller):
+
+    @http.route(['/personalizar/<int:product_id>'], type='http', auth='public', website=True, sitemap=False)
+    def customizer(self, product_id, **kw):
+        """Página de personalización. Soporta query ?vid=<variant_id>."""
+        ProductTemplate = request.env['product.template'].sudo()
+        ProductProduct = request.env['product.product'].sudo()
+
+        tmpl = ProductTemplate.browse(product_id)
         if not tmpl.exists():
-            return request.not_found()
+            # Si nos pasan un product.product por error
+            variant_maybe = ProductProduct.browse(product_id)
+            if variant_maybe.exists():
+                tmpl = variant_maybe.product_tmpl_id
+            else:
+                return request.not_found()
 
+        # Variante preferida: por querystring o primera disponible
         variant = None
-        if variant_id:
-            variant = request.env['product.product'].sudo().browse(int(variant_id))
-            if not variant.exists() or variant.product_tmpl_id.id != tmpl.id:
+        if kw.get('vid'):
+            try:
+                variant = ProductProduct.browse(int(kw['vid']))
+                if not variant.exists():
+                    variant = None
+            except Exception:
                 variant = None
+        if not variant:
+            variant = tmpl.product_variant_ids[:1]
 
-        if variant and variant.image_1920:
-            base_image_url = f'/web/image/product.product/{variant.id}/image_1920'
+        # Imagen base: prioriza la de la variante
+        if variant:
+            base_image_url = f"/web/image/product.product/{variant.id}/image_1920"
         else:
-            base_image_url = f'/web/image/product.template/{tmpl.id}/image_1920'
+            base_image_url = f"/web/image/product.template/{tmpl.id}/image_1920"
 
-        # Paleta NS300 (ejemplo; amplía libremente)
+        # Paleta (visual) tipo NS300 (ejemplo; amplía si quieres)
         ns_colors = [
             {"code": "000", "name": "Black",   "hex": "#000000"},
             {"code": "001", "name": "White",   "hex": "#FFFFFF"},
@@ -33,50 +50,19 @@ class SPWController(http.Controller):
             {"code": "006", "name": "Grey",    "hex": "#8A8A8A"},
             {"code": "007", "name": "Yellow",  "hex": "#FFCC00"},
         ]
-        techniques = ["Sin vinilo", "Vinilo textil", "DTF", "Bordado", "Marcado en cuero"]
 
-        return request.render('serial_printer_custom_wizard.customizer_page', {
-            'tmpl': tmpl,
-            'variant': variant,
-            'base_image_url': base_image_url,
-            'ns_colors_json': json.dumps(ns_colors),
-            'techniques': techniques,
+        # >>>>>>>>> ÚNICO SITIO QUE PUEDES CAMBIAR (las técnicas) <<<<<<<<<
+        techniques = ["Serigrafia", "DTF", "Bordado", "Marcado en cuero"]
+        # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+        # Título legible
+        page_title = f"{tmpl.display_name} — Personalización"
+
+        return request.render("serial_printer_custom_wizard.customizer_page", {
+            "tmpl": tmpl,
+            "variant": variant,
+            "page_title": page_title,
+            "base_image_url": base_image_url,
+            "ns_colors_json": json.dumps(ns_colors),
+            "techniques": techniques,
         })
-
-    @http.route('/personalizar/add', type='http', auth='public', website=True, csrf=False)
-    def customizer_add(self, **post):
-        qty         = int(post.get('qty', 1))
-        variant_id  = int(post.get('variant_id'))
-        notes       = post.get('notes') or ''
-        technique   = post.get('technique') or ''
-        color_code  = post.get('color_code') or ''
-        color_hex   = post.get('color_hex') or ''
-        areas       = post.get('areas') or ''          # CSV: pecho_izq,espalda,...
-        params_json = post.get('params_json') or '{}'  # tamaño/rot/x/y
-        preview_png = post.get('preview_png')          # dataURL 'data:image/png;base64,...'
-
-        att_id = False
-        if preview_png and preview_png.startswith('data:image'):
-            b64 = preview_png.split(',', 1)[1]
-            att = request.env['ir.attachment'].sudo().create({
-                'name': f'custom_{variant_id}.png',
-                'datas': b64,
-                'mimetype': 'image/png',
-                'public': True,
-            })
-            att_id = att.id
-
-        order = request.website.sale_get_order(force_create=1)
-        res = order._cart_update(product_id=variant_id, add_qty=qty)
-        line = request.env['sale.order.line'].sudo().browse(res.get('line_id'))
-        if line:
-            line.write({
-                'x_spw_technique': technique,
-                'x_spw_color_code': color_code,
-                'x_spw_color_hex': color_hex,
-                'x_spw_positions': areas,
-                'x_spw_notes': notes,
-                'x_spw_logo_attachment_id': att_id or False,
-                'x_spw_params_json': params_json,
-            })
-        return request.redirect('/shop/cart')
