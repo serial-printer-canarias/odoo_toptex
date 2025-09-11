@@ -1,36 +1,89 @@
-/** SPW – Inserta botón PERSONALIZAR en la ficha y pasa la variante */
-odoo.define('serial_printer_custom_wizard.add_customize_button', function (require) {
-  'use strict';
-  const publicWidget = require('web.public.widget');
+/** @odoo-module **/
 
-  publicWidget.registry.SPWAddCustomizeButton = publicWidget.Widget.extend({
-    selector: ".oe_website_sale",
+import publicWidget from "@web/legacy/js/public/public_widget";
+
+publicWidget.registry.SpwCustomizeBtn = publicWidget.Widget.extend({
+    selector: "body",
+
     start() {
-      this._insert();
-      // Reinsertar si cambian los atributos/variante
-      const mo = new MutationObserver(() => this._insert());
-      mo.observe(this.el, { subtree: true, childList: true });
-      return this._super(...arguments);
+        this._injectOrUpdate();
+        this._watchDom();
+        return this._super(...arguments);
     },
-    _insert() {
-      if (this.el.querySelector('#spw_customize_btn')) return;
 
-      const variantInput = this.el.querySelector('input[name="product_id"]'); // product.product id
-      if (!variantInput) return;
+    // Observa cambios (cambio de variante, renders del DOM, etc.)
+    _watchDom() {
+        const target =
+            document.querySelector(".o_wsale_product_form")
+            || document.querySelector('form[action*="/shop/cart/update"]')
+            || document;
 
-      const tmplInput = this.el.querySelector('input[name="product_template_id"]');
-      const tmplId = tmplInput ? tmplInput.value : this.el.dataset.productTemplateId;
-      if (!tmplId) return;
+        this._mo = new MutationObserver(() => this._injectOrUpdate());
+        this._mo.observe(target, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ["value", "class"],
+        });
 
-      const btns = this.el.querySelector('.o_wsale_product_buttons, .o_wsale_product_btns');
-      if (!btns) return;
-
-      const a = document.createElement('a');
-      a.id = 'spw_customize_btn';
-      a.className = 'btn btn-outline-primary ms-2';
-      a.href = `/personalizar/${tmplId}?variant_id=${variantInput.value}`;
-      a.innerHTML = `<i class="fa fa-magic me-1"></i><span>Personalizar</span>`;
-      btns.appendChild(a);
+        // Por si el tema dispara eventos de variante propios
+        window.addEventListener("odoo:variant-changed", () => this._injectOrUpdate());
+        document.addEventListener("change", (e) => {
+            if (e.target && e.target.name === "product_id") {
+                this._injectOrUpdate();
+            }
+        });
     },
-  });
+
+    // Lee ids actuales de template y variante
+    _getIds() {
+        const tmplInput =
+            document.querySelector('input[name="product_template_id"]')
+            || document.querySelector('input[name="product_template"]');
+
+        const productInput = document.querySelector('input[name="product_id"]');
+
+        const tmplId =
+            (tmplInput && tmplInput.value)
+            || document.body.getAttribute("data-product-template-id")
+            || null;
+
+        const productId = (productInput && productInput.value) || null;
+
+        return { tmplId, productId };
+    },
+
+    // Inserta/actualiza el botón junto a "Add to cart"
+    _injectOrUpdate() {
+        const { tmplId, productId } = this._getIds();
+        if (!tmplId) return;
+
+        const addBtn = document.querySelector('button[name="add_to_cart"]');
+
+        // Contenedor de respaldo si cambia el markup del tema
+        const fallbackContainer =
+            (addBtn && addBtn.parentElement)
+            || document.querySelector(
+                ".o_wsale_product_buttons, .o_wsale_product_btns, .o_wsale_product_btn"
+            )
+            || document.querySelector(".o_wsale_product_form")
+            || document.querySelector('form[action*="/shop/cart/update"]');
+
+        if (!fallbackContainer) return;
+
+        let btn = document.querySelector("#spw_customize_btn_qweb");
+        const href = `/personalizar/${tmplId}${productId ? `?vid=${productId}` : ""}`;
+
+        if (!btn) {
+            btn = document.createElement("a");
+            btn.id = "spw_customize_btn_qweb";
+            btn.className = "btn btn-outline-primary ms-2";
+            btn.innerHTML = '<i class="fa fa-magic me-1"></i><span>Personalizar</span>';
+            fallbackContainer.appendChild(btn);
+        }
+
+        if (btn.getAttribute("href") !== href) {
+            btn.setAttribute("href", href);
+        }
+    },
 });
