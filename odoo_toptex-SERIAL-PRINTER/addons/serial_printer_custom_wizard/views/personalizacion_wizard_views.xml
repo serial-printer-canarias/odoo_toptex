@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <template id="personalizacion_wizard_views" name="SPW Wizard Views (stub)"/>
+  <data noupdate="1">
+    <!-- Reservado para vistas backend en caso de usarlas más adelante -->
+  </data>
 </odoo>
