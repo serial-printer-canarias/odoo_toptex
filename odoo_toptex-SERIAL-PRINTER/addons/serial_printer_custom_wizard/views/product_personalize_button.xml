@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+  <!-- Inserta el botón dentro del formulario de producto de la PDP -->
+  <template id="spw_personalize_button" name="SPW: Botón Personalizar" inherit_id="website_sale.product">
+    <xpath expr="//form[contains(@class,'o_wsale_product_form')]" position="inside">
+      <a id="spw_personalize_btn"
+         t-att-href="'/personalizar/%s' % (product.id)"
+         class="btn btn-outline-primary mt-3">
+        <i class="fa fa-magic me-1"/>
+        <t t-esc="_('Personalizar')"/>
+      </a>
+    </xpath>
+  </template>
+</odoo>
