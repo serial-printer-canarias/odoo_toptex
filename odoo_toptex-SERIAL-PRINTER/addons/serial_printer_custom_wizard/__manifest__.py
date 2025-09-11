@@ -18,9 +18,10 @@
             "serial_printer_custom_wizard/static/src/js/add_customize_button.js",
             "serial_printer_custom_wizard/static/src/js/customizer_preview.js",
             "serial_printer_custom_wizard/static/src/css/spw.css",
-            # --- NUEVO: controles extra y estilos de paleta ---
             "serial_printer_custom_wizard/static/src/js/customizer_enhancements.js",
             "serial_printer_custom_wizard/static/src/css/spw_colors.css",
+            # --- SOLO ESTA LÍNEA NUEVA ---
+            "serial_printer_custom_wizard/static/src/js/spw_force_customize_button.js",
         ],
     },
     "installable": True,
