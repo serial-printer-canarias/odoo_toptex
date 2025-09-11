@@ -1,17 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+  <data>
+
+    <!-- SPW: Botón Personalizar en la página de producto -->
     <template id="spw_personalize_button"
               name="SPW: Botón Personalizar"
-              inherit_id="website_sale.product">
-        <!-- Insertar dentro del formulario de producto -->
-        <xpath expr="//form[contains(@class,'o_wsale_product_form')]" position="inside">
-            <a id="spw_personalize_btn"
-               t-attf-href="/personalizar/{{ product.id }}?variant_id={{ product.product_variant_id.id }}"
-               class="btn btn-outline-primary ms-2 mt-2"
-               data-spw="personalize">
-                <i class="fa fa-magic me-1"/>
-                <span>Personalizar</span>
-            </a>
-        </xpath>
+              inherit_id="website_sale.product"
+              priority="21">
+      <!-- Insertar después del botón Añadir al carrito.
+           El selector apunta al botón por su atributo name (estable en v18). -->
+      <xpath expr="//button[@name='add_to_cart']" position="after">
+        <a id="spw_personalize_btn"
+           class="btn btn-outline-primary ms-2 mt-2"
+           t-attf-href="/personalizar/#{product.product_tmpl_id.id}?variant_id=#{product.product_variant_id.id}">
+          <i class="fa fa-magic me-1"/>
+          <span>Personalizar</span>
+        </a>
+      </xpath>
     </template>
+
+  </data>
 </odoo>
