@@ -1,27 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <!-- SPW: Botón "Personalizar" en la ficha de producto (robusto para Odoo 18) -->
-    <template id="spw_personalize_button"
-              name="SPW: Botón Personalizar"
-              inherit_id="website_sale.product">
-
-        <!-- Insertar dentro del formulario de compra del producto.
-             Cubrimos varios nombres/clases posibles del form en Odoo 18 y plantillas custom. -->
-        <xpath expr="(//form[contains(@class,'o_wsale')
-                          or contains(@class,'o_add_to_cart_form')
-                          or contains(@class,'wsale')
-                          or @id='product_form'])[1]"
-               position="inside">
-
-            <!-- Variante por defecto de la plantilla -->
-            <t t-set="v_id" t-value="product and product.product_variant_id.id or 0"/>
-
-            <a id="spw_personalize_btn"
-               class="btn btn-outline-primary ms-2 mt-2"
-               t-attf-href="/personalizar/{{ product.id }}?variant_id={{ v_id }}">
-                <i class="fa fa-magic me-1"/>
-                <span>Personalizar</span>
-            </a>
-        </xpath>
-    </template>
+  <!-- Botón Personalizar: inserción SEGURA (siempre existe #wrap) -->
+  <template id="spw_personalize_button"
+            name="SPW: Botón Personalizar"
+            inherit_id="website_sale.product">
+    <xpath expr="//div[@id='wrap']" position="inside">
+      <t t-if="product">
+        <div id="spw_personalize_ctn" class="my-3">
+          <t t-set="v_id" t-value="product.product_variant_id.id if product else 0"/>
+          <a id="spw_personalize_btn"
+             class="btn btn-outline-primary ms-2 mt-2"
+             t-attf-href="/personalizar/{{ product.id }}?variant_id={{ v_id }}">
+            <i class="fa fa-magic me-1"/>
+            <span>Personalizar</span>
+          </a>
+        </div>
+      </t>
+    </xpath>
+  </template>
 </odoo>
