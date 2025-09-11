@@ -1,79 +1,70 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Página de personalización -->
-  <template id="spw_customize_page" name="SPW — Personalización">
-    <t t-call="website.layout">
-      <div class="container spw-container my-4">
+    <!-- SPW: Página de personalización -->
+    <template id="spw_customize_page" name="SPW: Página de personalización">
+        <t t-call="website.layout">
+            <div class="container spw-container my-4">
 
-        <!-- Variante seleccionada (si viene por querystring) -->
-        <t t-set="variant" t-value="product and product.product_variant_id or False"/>
-        <t t-if="request.params.get('variant_id')">
-          <t t-set="variant"
-             t-value="request.env['product.product'].browse(int(request.params.get('variant_id')))"/>
+                <!-- Variante: por defecto la del producto; si llega ?variant_id usarla -->
+                <t t-set="variant" t-value="product and product.product_variant_id or False"/>
+                <t t-if="request.params.get('variant_id')">
+                    <t t-set="variant"
+                       t-value="request.env['product.product'].browse(int(request.params.get('variant_id')))"/>
+                </t>
+
+                <div class="row">
+                    <!-- Lienzo -->
+                    <div class="col-12 col-lg-7">
+                        <div class="spw-canvas-wrapper position-relative">
+                            <img id="spw_base_img" class="img-fluid w-100"
+                                 t-att-src="'/web/image/product.product/%s/image_1024' % (variant.id if variant else 0)"/>
+                            <img id="spw_logo" class="position-absolute d-none" alt="Logo"/>
+                        </div>
+                        <p class="mt-3">Arrastra el logo sobre la imagen para posicionarlo o usa los controles.</p>
+                    </div>
+
+                    <!-- Controles -->
+                    <div class="col-12 col-lg-5">
+                        <div class="o_we_form">
+
+                            <div class="mb-3">
+                                <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
+                                <input id="spw_file" type="file" accept=".png,.jpg,.jpeg,.svg" class="form-control"/>
+                            </div>
+
+                            <div class="row g-3">
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Tamaño</label>
+                                    <input id="spw_scale" type="range" min="0.2" max="2" step="0.01" value="1" class="form-range"/>
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Rotación</label>
+                                    <input id="spw_rotate" type="range" min="-180" max="180" step="1" value="0" class="form-range"/>
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Posición X</label>
+                                    <input id="spw_pos_x" type="range" min="0" max="100" step="1" value="50" class="form-range"/>
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Posición Y</label>
+                                    <input id="spw_pos_y" type="range" min="0" max="100" step="1" value="50" class="form-range"/>
+                                </div>
+                            </div>
+
+                            <!-- Acciones -->
+                            <div class="d-flex justify-content-between mt-3">
+                                <a t-att-href="product and product.website_url or '/shop'"
+                                   class="btn btn-light">← Volver al producto</a>
+                                <button id="spw_add_to_cart" class="btn btn-primary">
+                                    Añadir al carrito con esta personalización
+                                </button>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            </div>
         </t>
-
-        <div class="row">
-          <!-- Lienzo -->
-          <div class="col-12 col-lg-7">
-            <div class="spw-canvas-wrapper position-relative">
-              <img id="spw_base_img" class="img-fluid"
-                   t-att-src="(variant and (variant.website_image_1024 or variant.image_1920)) or (product and (product.website_image_1024 or product.image_1920))"/>
-              <img id="spw_logo" class="position-absolute" style="display:none; top:0; left:0;"/>
-            </div>
-            <p class="mt-3">Arrastra el logo sobre la imagen o usa los controles.</p>
-          </div>
-
-          <!-- Controles -->
-          <div class="col-12 col-lg-5">
-            <div class="o_we_form">
-
-              <!-- Técnicas -->
-              <div class="mb-4">
-                <label class="form-label d-block">Tipo de personalización</label>
-                <div class="btn-group" role="group">
-                  <button type="button" class="btn btn-outline-secondary">Serigrafía</button>
-                  <button type="button" class="btn btn-outline-secondary">DTF</button>
-                  <button type="button" class="btn btn-outline-secondary">Bordado</button>
-                  <button type="button" class="btn btn-outline-secondary">Marcado en cuero</button>
-                </div>
-              </div>
-
-              <!-- (tu paleta de colores aquí) -->
-
-              <div class="row g-3">
-                <div class="col-12 col-md-6">
-                  <label class="form-label">Tamaño</label>
-                  <input id="spw_scale" type="range" min="10" max="200" value="100"/>
-                </div>
-                <div class="col-12 col-md-6">
-                  <label class="form-label">Rotación</label>
-                  <input id="spw_rotate" type="range" min="0" max="360" value="0"/>
-                </div>
-                <div class="col-12 col-md-6">
-                  <label class="form-label">Posición X</label>
-                  <input id="spw_pos_x" type="range" min="0" max="100" value="50"/>
-                </div>
-                <div class="col-12 col-md-6">
-                  <label class="form-label">Posición Y</label>
-                  <input id="spw_pos_y" type="range" min="0" max="100" value="50"/>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        </div>
-
-        <!-- Acciones -->
-        <div class="d-flex justify-content-between align-items-center mt-4">
-          <!-- 🔧 Cambio clave: usar unicode ← en vez de &larr; -->
-          <a t-att-href="(product and product.website_url) or '/shop'"
-             class="btn btn-light">← Volver al producto</a>
-          <button id="spw_add_to_cart" class="btn btn-primary">
-            Añadir al carrito con esta personalización
-          </button>
-        </div>
-
-      </div>
-    </t>
-  </template>
+    </template>
 </odoo>
