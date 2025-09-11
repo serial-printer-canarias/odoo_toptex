@@ -1,14 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <!-- SPW: Botón "Personalizar" en la ficha de producto (Odoo 18) -->
+    <!-- SPW: Botón "Personalizar" en la ficha de producto (robusto para Odoo 18) -->
     <template id="spw_personalize_button"
               name="SPW: Botón Personalizar"
               inherit_id="website_sale.product">
 
-        <!-- Insertamos el botón dentro del formulario del producto -->
-        <xpath expr="//form[contains(@class, 'o_wsale_product_form')]"
+        <!-- Insertar dentro del formulario de compra del producto.
+             Cubrimos varios nombres/clases posibles del form en Odoo 18 y plantillas custom. -->
+        <xpath expr="(//form[contains(@class,'o_wsale')
+                          or contains(@class,'o_add_to_cart_form')
+                          or contains(@class,'wsale')
+                          or @id='product_form'])[1]"
                position="inside">
-            <!-- id de variante por defecto de la plantilla -->
+
+            <!-- Variante por defecto de la plantilla -->
             <t t-set="v_id" t-value="product and product.product_variant_id.id or 0"/>
 
             <a id="spw_personalize_btn"
