@@ -1,111 +1,104 @@
-/** SPW – Inject "Personalizar" button next to "Add to cart" (theme-agnostic) **/
+// Inserta SIEMPRE el botón "Personalizar" en la ficha de producto,
+// y lo re-calcula cuando cambias de variante / se actualiza el DOM.
+// No depende de QWeb. Funciona con cualquier tema de Odoo 17/18.
+
 (function () {
-    "use strict";
+  const BTN_ID = "spw_customize_btn";
 
-    const BTN_ID = "spw_customize_btn_qweb";
+  const BTN_HTML = (url) => `
+    <a id="${BTN_ID}" class="btn btn-outline-primary ms-2" href="${url}">
+      <i class="fa fa-magic me-1"></i><span>Personalizar</span>
+    </a>
+  `;
 
-    function getIds() {
-        const tmpl =
-            document.querySelector('input[name="product_template_id"]') ||
-            document.querySelector('input[name="product_template"]');
+  function getVariantId(root = document) {
+    // Variante activa (Odoo la pone en un hidden)
+    const inp = root.querySelector('input[name="product_id"]');
+    if (inp && inp.value) return parseInt(inp.value, 10);
 
-        const variant = document.querySelector('input[name="product_id"]');
+    // Fall-back: algunos temas ponen data-product-id en el form
+    const form = root.querySelector('form[action="/shop/cart/update"]');
+    const pid = form?.dataset?.productId || form?.getAttribute("data-product-id");
+    if (pid) return parseInt(pid, 10);
 
-        const tmplId = tmpl && tmpl.value ? tmpl.value : null;
-        const productId = variant && variant.value ? variant.value : null;
+    return null;
+  }
 
-        return { tmplId, productId };
+  function getTemplateId(root = document) {
+    const inp = root.querySelector('input[name="product_template_id"]');
+    return inp && inp.value ? parseInt(inp.value, 10) : null;
+  }
+
+  function getButtonsContainer(root = document) {
+    // Contenedores habituales de los botones en website_sale + temas
+    let el = root.querySelector(
+      ".o_wsale_product_buttons, .o_wsale_product_btns, .o_wsale_product_btn"
+    );
+    if (el) return el;
+
+    // Si no existe, nos pegamos al botón de añadir al carrito
+    const add = root.querySelector('button[name="add_to_cart"]');
+    if (add) return add.parentElement || add.closest("div");
+
+    // Último recurso: el form de carrito
+    return root.querySelector('form[action="/shop/cart/update"]');
+  }
+
+  function onProductPage() {
+    // Estamos en la ficha de producto si existe el form de carrito
+    return !!document.querySelector('form[action="/shop/cart/update"]');
+  }
+
+  function insertOrUpdate() {
+    if (!onProductPage()) return;
+
+    const id = getVariantId() ?? getTemplateId();
+    const container = getButtonsContainer();
+    if (!id || !container) return;
+
+    const url = `/personalizar/${id}`;
+
+    let btn = document.getElementById(BTN_ID);
+    if (!btn) {
+      // Evita duplicados por si el contenedor se regenera
+      container.insertAdjacentHTML("beforeend", BTN_HTML(url));
+    } else {
+      btn.setAttribute("href", url);
+      if (!btn.parentElement) container.appendChild(btn);
     }
+  }
 
-    function findAddToCartButton() {
-        // Intentos comunes en Odoo 16/17/18 y temas
-        return (
-            document.querySelector('button[name="add_to_cart"]') ||
-            document.querySelector(".o_add_to_cart_btn") ||
-            document.querySelector(".btn.o_wsale_add_to_cart")
-        );
+  // 1) Inserción inicial
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", insertOrUpdate);
+  } else {
+    insertOrUpdate();
+  }
+
+  // 2) Reintentos cortos por si el tema pinta tarde
+  let tries = 0;
+  const t = setInterval(() => {
+    insertOrUpdate();
+    if (++tries >= 10) clearInterval(t);
+  }, 300);
+
+  // 3) Reaccionar a cambios de variante o regeneraciones del DOM
+  document.addEventListener("change", (ev) => {
+    if (ev.target.closest('form[action="/shop/cart/update"]')) insertOrUpdate();
+  });
+
+  const mo = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      if (m.type === "childList" || m.type === "attributes") {
+        insertOrUpdate();
+        break;
+      }
     }
-
-    function findContainer(addBtn) {
-        // Contenedores habituales junto al botón
-        return (
-            (addBtn && addBtn.parentElement) ||
-            document.querySelector(".o_wsale_product_buttons") ||
-            document.querySelector(".o_wsale_product_btns") ||
-            document.querySelector(".o_wsale_product_btn") ||
-            document.querySelector(".o_wsale_product_form") ||
-            document.querySelector('form[action*="/shop/cart/update"]') ||
-            addBtn && addBtn.closest("form") ||
-            document.body
-        );
-    }
-
-    function currentHref(tmplId, productId) {
-        if (!tmplId) return null;
-        return `/personalizar/${tmplId}${productId ? `?vid=${productId}` : ""}`;
-    }
-
-    function injectOrUpdate() {
-        const addBtn = findAddToCartButton();
-        if (!addBtn) return; // aún no está en DOM
-
-        const { tmplId, productId } = getIds();
-        if (!tmplId) return; // aún no renderizó inputs hidden
-
-        const href = currentHref(tmplId, productId);
-        if (!href) return;
-
-        let btn = document.getElementById(BTN_ID);
-
-        if (!btn) {
-            btn = document.createElement("a");
-            btn.id = BTN_ID;
-            btn.className = "btn btn-outline-primary ms-2";
-            btn.innerHTML = '<i class="fa fa-magic me-1"></i><span>Personalizar</span>';
-
-            // Colócalo justo después del Add to cart si es posible,
-            // si no, al final del contenedor.
-            try {
-                addBtn.insertAdjacentElement("afterend", btn);
-            } catch (e) {
-                findContainer(addBtn).appendChild(btn);
-            }
-        }
-
-        if (btn.getAttribute("href") !== href) {
-            btn.setAttribute("href", href);
-        }
-    }
-
-    function startObservers() {
-        // Inyección inicial cuando el DOM esté listo
-        if (document.readyState === "loading") {
-            document.addEventListener("DOMContentLoaded", injectOrUpdate);
-        } else {
-            injectOrUpdate();
-        }
-
-        // Observa cambios de DOM (cambios de variante, renders)
-        const root = document.querySelector(".o_wsale_product_form") || document;
-        const mo = new MutationObserver(() => injectOrUpdate());
-        mo.observe(root, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ["value", "class", "href"],
-        });
-
-        // Por si el tema lanza eventos propios al cambiar variantes
-        window.addEventListener("odoo:variant-changed", injectOrUpdate, { passive: true });
-        document.addEventListener("change", (ev) => {
-            const t = ev.target;
-            if (!t) return;
-            if (t.name === "product_id" || t.name === "product_template_id") {
-                injectOrUpdate();
-            }
-        }, { passive: true });
-    }
-
-    // Arrancamos
-    startObservers();
+  });
+  mo.observe(document.body, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["value", "class"],
+  });
 })();
