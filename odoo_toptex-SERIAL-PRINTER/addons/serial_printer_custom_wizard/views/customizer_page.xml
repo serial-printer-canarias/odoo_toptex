@@ -2,7 +2,7 @@
 <odoo>
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
-      <!-- Requerido por Website -->
+      <!-- Requeridos por Website/QWeb -->
       <t t-set="pageName" t-value="'spw_customize_page'"/>
       <t t-set="tmpl_id" t-value="int(request.params.get('product_tmpl_id') or 0)"/>
       <t t-set="product" t-value="request.env['product.template'].sudo().browse([tmpl_id])[:1]"/>
@@ -24,7 +24,9 @@
               <!-- Overlay del logo -->
               <img id="spw_logo_preview" class="spw-logo-preview" alt="Logo" style="display:none;"/>
             </div>
-            <p class="text-muted mt-3">Arrastra el logo sobre la imagen para posicionarlo o usa los controles.</p>
+            <p class="text-muted mt-3">
+              Arrastra el logo sobre la imagen para posicionarlo o usa los controles.
+            </p>
           </div>
 
           <!-- Controles -->
@@ -55,13 +57,15 @@
                 <button type="button" class="btn btn-outline-secondary" data-spw-pos="left">Pecho izq.</button>
                 <button type="button" class="btn btn-outline-secondary" data-spw-pos="right">Pecho dcha.</button>
                 <button type="button" class="btn btn-outline-secondary" data-spw-pos="back">Espalda</button>
-                <button type="button" class="btn btn-secondary" disabled>Libre</button>
+                <!-- booleanos en XML deben llevar valor -->
+                <button type="button" class="btn btn-secondary" disabled="disabled">Libre</button>
               </div>
             </div>
 
             <div class="mb-3">
               <label class="form-label">Observaciones</label>
-              <textarea class="form-control" rows="3" placeholder="Tamaño, número de tintas y detalles (p.ej. pecho y espalda)"></textarea>
+              <textarea class="form-control" rows="3"
+                        placeholder="Tamaño, número de tintas y detalles (p.ej. pecho y espalda)"/>
             </div>
 
             <div class="mb-3">
@@ -91,7 +95,9 @@
 
             <div class="d-flex justify-content-between gap-2">
               <a t-att-href="'/shop/product/%s' % product.id" class="btn btn-light">Volver al producto</a>
-              <button id="spw_add_to_cart" class="btn btn-primary">Añadir al carrito con esta personalización</button>
+              <button id="spw_add_to_cart" class="btn btn-primary">
+                Añadir al carrito con esta personalización
+              </button>
             </div>
           </div>
         </div>
