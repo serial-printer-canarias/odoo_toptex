@@ -1,97 +1,123 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Página del personalizador -->
   <template id="spw_customizer_page" name="SPW: Personalizador">
     <t t-call="website.layout">
-      <div id="wrap" class="oe_structure">
-        <section class="container py-4">
+      <!-- Necesario para que Website no lance el TypeError -->
+      <t t-set="main_object" t-value="product or website"/>
 
-          <!-- Lienzo: imagen base + logo superpuesto -->
-          <div id="spw_canvas" class="spw-canvas mb-3">
-            <img id="spw_base_img"
-                 class="spw-base"
-                 alt="Producto"
-                 t-att-src="product and product._get_image_url('image_1024')"/>
-            <img id="spw_logo_img" class="spw-logo" alt="Logo" style="display:none;"/>
+      <!-- URL de vuelta al producto -->
+      <t t-set="product_url" t-value="product and '/shop/product/%s' % slug(product) or '/shop'"/>
+
+      <div class="container my-5 spw-customizer">
+        <!-- Zona de previsualización -->
+        <div class="row mb-4">
+          <div class="col-12">
+            <div class="spw-canvas position-relative">
+              <!-- Imagen del producto/variante -->
+              <t t-if="variant">
+                <img id="spw_product_img"
+                     t-att-src="'/web/image/%s/%s/image_1024' % (variant._name, variant.id)"
+                     class="img-fluid rounded shadow"/>
+              </t>
+              <t t-else="">
+                <img id="spw_product_img"
+                     t-att-src="'/web/image/%s/%s/image_1024' % (product._name, product.id)"
+                     class="img-fluid rounded shadow"/>
+              </t>
+
+              <!-- Preview del logo (lo muestra el JS al subir archivo) -->
+              <img id="spw_logo_preview" src="" alt="Logo preview" class="d-none"/>
+            </div>
+            <p class="mt-3 lead">
+              Arrastra el logo sobre la imagen para posicionarlo o usa los controles.
+            </p>
           </div>
+        </div>
 
-          <p class="lead mb-4">Arrastra el logo sobre la imagen para posicionarlo o usa los controles.</p>
-
-          <!-- Tipo de personalización -->
-          <div class="mb-3">
-            <label class="form-label d-block fw-semibold">Tipo de personalización</label>
-            <div class="btn-group w-100" role="group">
-              <button type="button" class="btn btn-outline-secondary active">Serigrafía</button>
-              <button type="button" class="btn btn-outline-secondary">DTF</button>
-              <button type="button" class="btn btn-outline-secondary">Bordado</button>
-              <button type="button" class="btn btn-outline-secondary">Marcado en cuero</button>
+        <!-- Controles -->
+        <div class="row g-3">
+          <!-- Método de personalización -->
+          <div class="col-12">
+            <h5 class="mb-2">Tipo de personalización</h5>
+            <div class="btn-group w-100" role="group" aria-label="Método">
+              <button type="button" class="btn btn-outline-secondary spw-method active" data-method="serigrafia">Serigrafía</button>
+              <button type="button" class="btn btn-outline-secondary spw-method" data-method="dtf">DTF</button>
+              <button type="button" class="btn btn-outline-secondary spw-method" data-method="bordado">Bordado</button>
+              <button type="button" class="btn btn-outline-secondary spw-method" data-method="marcado">Marcado en cuero</button>
             </div>
           </div>
 
-          <!-- Colores (demo) -->
-          <div class="mb-3">
-            <label class="form-label d-block fw-semibold">Color</label>
-            <div class="spw-color-row">
-              <button type="button" class="spw-color" style="--c:#000000;" aria-label="Negro"></button>
-              <button type="button" class="spw-color" style="--c:#ffffff;" aria-label="Blanco"></button>
-              <button type="button" class="spw-color" style="--c:#1f64ff;" aria-label="Azul"></button>
-              <button type="button" class="spw-color" style="--c:#d62c3a;" aria-label="Rojo"></button>
+          <!-- Colores -->
+          <div class="col-12">
+            <h5 class="mb-2">Color</h5>
+            <div id="spw-colors" class="d-flex flex-wrap gap-2">
+              <button type="button" class="spw-color" style="--spw-color:#000000" data-color="#000000" aria-label="Negro"></button>
+              <button type="button" class="spw-color" style="--spw-color:#FFFFFF" data-color="#FFFFFF" aria-label="Blanco"></button>
+              <button type="button" class="spw-color" style="--spw-color:#1E63FF" data-color="#1E63FF" aria-label="Azul"></button>
+              <button type="button" class="spw-color" style="--spw-color:#D32F2F" data-color="#D32F2F" aria-label="Rojo"></button>
             </div>
           </div>
 
-          <!-- Posición rápida (demo) -->
-          <div class="mb-3">
-            <label class="form-label d-block fw-semibold">Posición rápida</label>
-            <div class="d-flex gap-2 flex-wrap">
-              <button type="button" class="btn btn-outline-secondary">Pecho izq.</button>
-              <button type="button" class="btn btn-outline-secondary">Pecho dcha.</button>
-              <button type="button" class="btn btn-outline-secondary">Espalda</button>
-              <button type="button" class="btn btn-secondary">Libre</button>
+          <!-- Posición rápida -->
+          <div class="col-12">
+            <h5 class="mb-2">Posición rápida</h5>
+            <div class="d-flex flex-wrap gap-2">
+              <button type="button" class="btn btn-outline-secondary spw-quickpos" data-pos="left_chest">Pecho izq.</button>
+              <button type="button" class="btn btn-outline-secondary spw-quickpos" data-pos="right_chest">Pecho dcha.</button>
+              <button type="button" class="btn btn-outline-secondary spw-quickpos" data-pos="back">Espalda</button>
+              <button type="button" class="btn btn-secondary spw-quickpos" data-pos="free">Libre</button>
             </div>
           </div>
 
           <!-- Observaciones -->
-          <div class="mb-3">
-            <label for="spw_notes" class="form-label fw-semibold">Observaciones</label>
+          <div class="col-12">
+            <h5 class="mb-2">Observaciones</h5>
             <textarea id="spw_notes" class="form-control"
-                      placeholder="Tamaño, número de tintas y detalles (p.ej. pecho y espalda)"></textarea>
+                      placeholder="Tamaño, número de tintas y detalles (p.ej. pecho y espalda)"
+                      rows="3"></textarea>
           </div>
 
           <!-- Subida de logo -->
-          <div class="mb-4">
-            <label for="spw_logo" class="form-label fw-semibold">Subir logo (PNG/JPG/SVG)</label>
-            <input id="spw_logo" class="form-control" type="file" accept=".png,.jpg,.jpeg,.svg"/>
+          <div class="col-12">
+            <h5 class="mb-2">Subir logo (PNG/JPG/SVG)</h5>
+            <input id="spw_logo_file" class="form-control" type="file" accept=".png,.jpg,.jpeg,.svg"/>
           </div>
 
-          <!-- Controles -->
-          <div class="row g-4">
-            <div class="col-12 col-md-6">
-              <label class="form-label">Tamaño</label>
-              <input id="spw_scale" type="range" min="10" max="300" value="100" class="form-range"/>
-            </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">Rotación</label>
-              <input id="spw_rotate" type="range" min="-180" max="180" value="0" class="form-range"/>
-            </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">Posición X</label>
-              <input id="spw_pos_x" type="range" min="-400" max="400" value="0" class="form-range"/>
-            </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">Posición Y</label>
-              <input id="spw_pos_y" type="range" min="-400" max="400" value="0" class="form-range"/>
-            </div>
+          <!-- Sliders -->
+          <div class="col-12 col-md-6">
+            <label class="form-label">Tamaño</label>
+            <input id="spw_scale" type="range" class="form-range" min="0.2" max="2" step="0.01" value="1"/>
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label">Rotación</label>
+            <input id="spw_rotate" type="range" class="form-range" min="-180" max="180" step="1" value="0"/>
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label">Posición X</label>
+            <input id="spw_pos_x" type="range" class="form-range" min="0" max="100" step="1" value="50"/>
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label">Posición Y</label>
+            <input id="spw_pos_y" type="range" class="form-range" min="0" max="100" step="1" value="50"/>
           </div>
 
           <!-- Acciones -->
-          <div class="d-flex justify-content-between align-items-center mt-4">
-            <a t-att-href="product and product.website_url" class="btn btn-light">&#8592; Volver al producto</a>
-            <button id="spw_add_to_cart" class="btn btn-primary">
-              Añadir al carrito con esta personalización
-            </button>
+          <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mt-2">
+              <a t-att-href="product_url" class="btn btn-light">&larr; Volver al producto</a>
+              <button id="spw_add_to_cart" type="button" class="btn btn-primary">
+                Añadir al carrito con esta personalización
+              </button>
+            </div>
           </div>
+        </div>
 
-        </section>
+        <!-- Metadatos para el JS -->
+        <input type="hidden" id="spw_product_id" t-att-value="product and product.id"/>
+        <input type="hidden" id="spw_variant_id" t-att-value="variant and variant.id"/>
       </div>
     </t>
   </template>
