@@ -1,21 +1,16 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <!-- Botón Personalizar: inserción SEGURA (siempre existe #wrap) -->
-  <template id="spw_personalize_button"
-            name="SPW: Botón Personalizar"
-            inherit_id="website_sale.product">
-    <xpath expr="//div[@id='wrap']" position="inside">
-      <t t-if="product">
-        <div id="spw_personalize_ctn" class="my-3">
-          <t t-set="v_id" t-value="product.product_variant_id.id if product else 0"/>
-          <a id="spw_personalize_btn"
-             class="btn btn-outline-primary ms-2 mt-2"
-             t-attf-href="/personalizar/{{ product.id }}?variant_id={{ v_id }}">
-            <i class="fa fa-magic me-1"/>
-            <span>Personalizar</span>
-          </a>
-        </div>
-      </t>
+  <template id="spw_personalize_button" inherit_id="website_sale.product_buy" name="SPW: Botón Personalizar">
+    <!-- Inserta el botón dentro del bloque de acciones de la ficha -->
+    <xpath expr="//div[contains(@class,'o_wsale_product_actions')]" position="inside">
+      <a id="spw_personalize_btn"
+         href="#"
+         class="btn btn-outline-primary ms-2"
+         role="button"
+         data-spw="personalize">
+        <i class="fa fa-magic me-1"/>
+        <span>Personalizar</span>
+      </a>
     </xpath>
   </template>
 </odoo>
