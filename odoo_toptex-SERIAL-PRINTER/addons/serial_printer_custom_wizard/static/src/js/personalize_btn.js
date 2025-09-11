@@ -1,26 +1,21 @@
-/** serial_printer_custom_wizard/static/src/js/personalize_btn.js */
-odoo.define('serial_printer_custom_wizard.personalize_btn', function (require) {
-  "use strict";
-  const publicWidget = require('web.public.widget');
+/** Build personalize URL with selected variant_id */
+document.addEventListener("click", (ev) => {
+  const btn = ev.target.closest("#spw_personalize_btn");
+  if (!btn) return;
 
-  publicWidget.registry.SPWPlacePersonalize = publicWidget.Widget.extend({
-    selector: 'body',
-    start() {
-      const ctn = document.getElementById('spw_personalize_ctn');
-      if (!ctn) return Promise.resolve();
+  const form =
+    document.querySelector("form.o_wsale_product_form") ||
+    document.getElementById("product_form");
 
-      // Posibles contenedores de botones según tema/versión
-      const targets = [
-        '.o_wsale_product_form .o_wsale_product_btns',
-        '.o_wsale_product_form .o_wsale_product_btn',
-        '.o_wsale_product_form',
-        '#product_details',
-      ];
-      for (const sel of targets) {
-        const host = document.querySelector(sel);
-        if (host) { host.appendChild(ctn); break; }
-      }
-      return Promise.resolve();
-    },
-  });
+  if (!form) return;
+
+  // En Odoo web sale hay un input oculto con el product_id (variant)
+  const variantInput =
+    form.querySelector("input[name='product_id']") ||
+    form.querySelector("input[name='product_template_id']");
+
+  const variantId = variantInput ? variantInput.value : "";
+  const url = new URL(btn.getAttribute("href"), window.location.origin);
+  if (variantId) url.searchParams.set("variant_id", variantId);
+  btn.setAttribute("href", url.pathname + url.search);
 });
