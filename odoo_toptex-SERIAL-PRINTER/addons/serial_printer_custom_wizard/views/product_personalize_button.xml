@@ -1,20 +1,22 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- SPW: Botón Personalizar en la PDP (después de Add to cart) -->
-  <template id="spw_personalize_button"
-            name="SPW: Botón Personalizar"
-            inherit_id="website_sale.product"
-            priority="60">
+  <!-- Inserta el botón "Personalizar" justo después del botón/anchor de Add to cart en la página de producto -->
+  <template id="spw_personalize_button" name="SPW: Botón Personalizar"
+            inherit_id="website_sale.product">
 
-    <xpath expr="//button[contains(concat(' ', normalize-space(@class), ' '), ' o_add_to_cart ')]"
+    <!-- En Odoo 18 el CTA está dentro del <form class="o_wsale_product_form">.
+         Usamos * (cualquier etiqueta) + clase o_add_to_cart para que funcione
+         tanto si es <a> como <button>. -->
+    <xpath expr="//form[contains(@class,'o_wsale_product_form')]//*[contains(concat(' ', normalize-space(@class), ' '), ' o_add_to_cart ')]"
            position="after">
-      <a id="spw_personalize_btn"
-         t-att-href="'/personalizar/%s' % product.id"
-         class="btn btn-outline-primary ms-2 mt-2 mt-lg-0">
-        <i class="fa fa-magic me-1"/>
-        <t t-esc="_('Personalizar')"/>
-      </a>
-    </xpath>
 
+      <a id="spw_personalize_btn"
+         href="#"
+         class="btn btn-outline-primary ms-2 mt-2"
+         data-spw="personalize">
+        <i class="fa fa-magic me-1"/>
+        <span>Personalizar</span>
+      </a>
+
+    </xpath>
   </template>
 </odoo>
