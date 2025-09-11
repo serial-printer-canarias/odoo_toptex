@@ -1,20 +1,40 @@
-.spw-container { max-width: 1200px; }
-.spw-canvas-wrapper {
-  position: relative; background: #fff; border-radius: .5rem; overflow: hidden;
+/* ===== SPW styles ===== */
+
+.spw-canvas{
+  position:relative;
+  width:100%;
+  max-width:900px;
+  margin:0 auto 1rem;
+  border-radius:12px;
+  overflow:hidden;
+  background:#fff;
+  box-shadow:0 10px 30px rgba(0,0,0,.06);
 }
-#spw_base_img { width: 100%; height: auto; display: block; object-fit: contain; }
-#spw_logo {
-  position: absolute; left: 50%; top: 50%;
-  transform: translate(-50%, -50%);
-  max-width: 40%; opacity: .98; pointer-events: none;
+.spw-base{
+  display:block;
+  width:100%;
+  height:auto;
+}
+.spw-logo{
+  position:absolute;
+  top:0;
+  left:0;
+  display:none;              /* se muestra al cargar archivo */
+  max-width:50%;
+  pointer-events:auto;
+  cursor:move;
+  will-change:transform;
+  image-rendering:auto;
 }
 
-/* Controles pegados al viewport pero NUNCA en la barra */
-.spw-controls { position: sticky; top: 1rem; z-index: 1; }
-
-/* Paleta de colores */
-.spw-color {
-  width: 28px; height: 28px; border-radius: 50%;
-  border: 1px solid rgba(0,0,0,.15); background: var(--c); cursor: pointer;
+/* Paleta de colores (demo) */
+.spw-color-row{
+  display:flex; gap:.5rem; flex-wrap:wrap;
 }
-.spw-color:focus { outline: 2px solid rgba(0,0,0,.25); outline-offset: 1px; }
+.spw-color{
+  width:28px; height:28px; border-radius:999px; border:1px solid rgba(0,0,0,.15);
+  background:var(--c,#000);
+}
+
+/* Ajustes menores */
+.form-label{ font-weight:600; }
