@@ -4,12 +4,12 @@ from odoo.http import request
 
 
 class SPWCustomizer(http.Controller):
-    # Aceptamos dos rutas: la nueva sin conflicto y la vieja por compatibilidad
+
     @http.route(['/spw/customize', '/shop/customize'], type='http', auth='public', website=True, sitemap=False)
     def spw_customize(self, variant_id=None, tmpl_id=None, product_id=None, **kw):
         """
-        Renderiza la página del personalizador.
-        - Si llega variant_id -> usamos esa variante y su imagen.
+        Página del personalizador.
+        - Si llega variant_id: usamos esa variante y su imagen.
         - Si no, usamos el template indicado (tmpl_id o product_id).
         """
         Product = request.env['product.product'].sudo()
@@ -34,10 +34,9 @@ class SPWCustomizer(http.Controller):
         if not template and t_id:
             template = Template.browse(t_id).exists()
         if not template and not variant:
-            # Sin datos → volvemos a la tienda
             return request.redirect('/shop')
 
-        # URL de imagen base: variante si hay, si no template
+        # Imagen base: variante si hay, si no template
         if variant:
             base_img_url = f'/web/image/product.product/{variant.id}/image_1024'
         else:
