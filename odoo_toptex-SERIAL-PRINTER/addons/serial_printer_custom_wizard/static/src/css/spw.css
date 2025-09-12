@@ -4,42 +4,22 @@
   overflow: hidden;
   min-height: 320px;
 }
-.spw-stage .spw-base {
+#spw_product_img {
   display: block;
   width: 100%;
   height: auto;
 }
-.spw-overlay {
+.spw-logo-preview {
   position: absolute;
   left: 50%;
-  top: 50%;
-  width: 30%;
-  height: auto;
-  transform: translate(-50%, -50%);
+  top: 60%;
+  transform: translate(-50%, -50%) rotate(0deg) scale(0.7);
   transform-origin: center center;
-  pointer-events: auto; /* para arrastrar */
+  max-width: 70%;
+  max-height: 70%;
+  pointer-events: auto;
   user-select: none;
-  will-change: transform;
+  z-index: 5;
+  opacity: 1;
 }
-.spw-color-dot {
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  background: var(--spw-dot, #000);
-  display: inline-block;
-}
-.spw-canvas { position: relative; }
-
-.spw-logo-preview {
-  position: absolute; left: 50%; top: 60%;
-  transform: translate(-50%, -50%);
-  max-width: 70%; max-height: 70%;
-  pointer-events: none; z-index: 5; opacity: 1;
-}
-
 .d-none { display: none !important; }
-
-/* --- SPW overlay --- */
-#spw_canvas { position: relative; }
-#spw_canvas #spw_product_img { display: block; width: 100%; height: auto; }
-#spw_logo_preview { z-index: 999; opacity: 1; }
