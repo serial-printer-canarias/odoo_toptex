@@ -1,132 +1,98 @@
-/** SPW – Previsualización del logo subido (PNG/JPG/SVG)
- *  Mantiene los sliders actuales y no toca nada de variante/ficha.
- */
-(function () {
-  "use strict";
+odoo.define('serial_printer_custom_wizard.customizer_preview', function (require) {
+    'use strict';
 
-  function byId(id) { return document.getElementById(id); }
+    const publicWidget = require('web.public.widget');
 
-  function ready(fn) {
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", fn);
-    } else {
-      fn();
-    }
-  }
+    /**
+     * Vista previa del logo encima de la imagen del producto.
+     * - Soporta PNG/JPG/SVG
+     * - No depende de jQuery
+     * - No rompe otras páginas (se auto-activa solo en .spw-customizer)
+     */
+    publicWidget.registry.SpwLogoPreview = publicWidget.Widget.extend({
+        selector: '.spw-customizer',
 
-  ready(function () {
-    var inputFile   = byId("spw_logo_input");
-    var overlay     = byId("spw_logo_overlay");
-    var sizeR       = byId("spw_size");
-    var rotR        = byId("spw_rotation");
-    var posXR       = byId("spw_pos_x");
-    var posYR       = byId("spw_pos_y");
-    var canvas      = byId("spw_canvas");
+        start() {
+            // Canvas (contenedor de la imagen del producto)
+            this.canvas = this.el.querySelector('#spw_canvas');
 
-    if (!inputFile || !overlay || !canvas) {
-      // Si no está en esta página, salimos silenciosamente.
-      return;
-    }
+            // Crea el <img> de preview si no existe
+            this.logoImg = this.el.querySelector('#spw_logo_preview');
+            if (!this.logoImg) {
+                this.logoImg = document.createElement('img');
+                this.logoImg.id = 'spw_logo_preview';
+                this.logoImg.alt = 'Logo preview';
+                this.logoImg.className = 'spw-logo-preview d-none';
+                this.canvas && this.canvas.appendChild(this.logoImg);
+            }
 
-    // Estado actual de transformación
-    var state = {
-      scale: (sizeR ? parseInt(sizeR.value, 10) : 60) / 100,
-      rot:   (rotR  ? parseInt(rotR.value, 10)  : 0),
-      dx:    (posXR ? parseInt(posXR.value, 10) : 0),
-      dy:    (posYR ? parseInt(posYR.value, 10) : 0),
-    };
+            // Localiza los controles (ids alternativos por si varían)
+            const q = s => this.el.querySelector(s);
+            this.fileInput = this.el.querySelector(
+                '#spw_logo_file, #spw_logo_input, input[type="file"][name="spw_logo"], input[type="file"][name="logo"]'
+            );
+            this.size   = q('#spw_size, #spw_logo_size');
+            this.rotate = q('#spw_rotate, #spw_logo_rotate');
+            this.posX   = q('#spw_pos_x, #spw_logo_pos_x');
+            this.posY   = q('#spw_pos_y, #spw_logo_pos_y');
 
-    function applyTransform() {
-      // Posicionamos con left/top relativos al centro del canvas.
-      overlay.style.left = "calc(50% + " + state.dx + "px)";
-      overlay.style.top  = "calc(50% + " + state.dy + "px)";
-      overlay.style.transform =
-        "translate(-50%, -50%) scale(" + state.scale + ") rotate(" + state.rot + "deg)";
-    }
+            this._bind();
+            return this._super(...arguments);
+        },
 
-    function showOverlay(dataUrl) {
-      overlay.src = dataUrl;
-      overlay.style.display = "block";
-      applyTransform();
-    }
+        _bind() {
+            // Subida de archivo
+            if (this.fileInput) {
+                this.fileInput.addEventListener('change', ev => this._onFileChange(ev));
+            }
+            // Sliders
+            ['input', 'change'].forEach(evt => {
+                if (this.size)   this.size.addEventListener(evt, () => this._applyTransform());
+                if (this.rotate) this.rotate.addEventListener(evt, () => this._applyTransform());
+                if (this.posX)   this.posX.addEventListener(evt, () => this._applyTransform());
+                if (this.posY)   this.posY.addEventListener(evt, () => this._applyTransform());
+            });
+        },
 
-    // Carga de archivo (PNG/JPG/SVG)
-    inputFile.addEventListener("change", function (ev) {
-      var file = ev.target.files && ev.target.files[0];
-      if (!file) { return; }
+        _onFileChange(ev) {
+            const file = ev.target.files && ev.target.files[0];
+            if (!file) return;
 
-      // Lee como DataURL y muestra
-      var reader = new FileReader();
-      reader.onload = function (e) {
-        try {
-          showOverlay(e.target.result);
-        } catch (err) {
-          console.error("SPW overlay error:", err);
-        }
-      };
-      reader.readAsDataURL(file);
+            // Valida tipo rápidamente
+            const ok = /image\/(png|jpe?g|svg\+xml)/i.test(file.type) || /\.(png|jpe?g|svg)$/i.test(file.name);
+            if (!ok) {
+                console.warn('[SPW] Formato no soportado:', file.type || file.name);
+                return;
+            }
+
+            // Carga con ObjectURL (rápido y compatible)
+            const url = URL.createObjectURL(file);
+            this.logoImg.onload = () => {
+                URL.revokeObjectURL(url);
+                this.logoImg.classList.remove('d-none');
+                this._applyTransform();
+            };
+            this.logoImg.onerror = () => {
+                console.warn('[SPW] No se pudo previsualizar el archivo.');
+            };
+            this.logoImg.src = url;
+        },
+
+        _applyTransform() {
+            // Valores por defecto seguros
+            const v = (el, def) => (el ? Number(el.value) : def);
+            const scale = Math.max(0.05, v(this.size, 100) / 100); // 5% – 100%
+            const rot   = v(this.rotate, 0);
+            const x     = v(this.posX, 50);  // en %
+            const y     = v(this.posY, 60);  // en %
+
+            Object.assign(this.logoImg.style, {
+                left: x + '%',
+                top:  y + '%',
+                transform: `translate(-50%, -50%) rotate(${rot}deg) scale(${scale})`,
+            });
+        },
     });
 
-    // Sliders
-    if (sizeR) {
-      sizeR.addEventListener("input", function () {
-        state.scale = parseInt(sizeR.value, 10) / 100;
-        applyTransform();
-      });
-    }
-    if (rotR) {
-      rotR.addEventListener("input", function () {
-        state.rot = parseInt(rotR.value, 10) || 0;
-        applyTransform();
-      });
-    }
-    if (posXR) {
-      posXR.addEventListener("input", function () {
-        state.dx = parseInt(posXR.value, 10) || 0;
-        applyTransform();
-      });
-    }
-    if (posYR) {
-      posYR.addEventListener("input", function () {
-        state.dy = parseInt(posYR.value, 10) || 0;
-        applyTransform();
-      });
-    }
-
-    // Permite arrastrar el logo con el ratón/táctil (suave, sin romper sliders)
-    (function enableDrag() {
-      var dragging = false;
-      var start = { x: 0, y: 0, dx: 0, dy: 0 };
-
-      function onDown(e) {
-        if (overlay.style.display === "none") { return; }
-        dragging = true;
-        var p = (e.touches && e.touches[0]) ? e.touches[0] : e;
-        start.x = p.clientX;
-        start.y = p.clientY;
-        start.dx = state.dx;
-        start.dy = state.dy;
-        e.preventDefault();
-      }
-      function onMove(e) {
-        if (!dragging) { return; }
-        var p = (e.touches && e.touches[0]) ? e.touches[0] : e;
-        var deltaX = p.clientX - start.x;
-        var deltaY = p.clientY - start.y;
-        state.dx = start.dx + deltaX;
-        state.dy = start.dy + deltaY;
-        if (posXR) posXR.value = state.dx;
-        if (posYR) posYR.value = state.dy;
-        applyTransform();
-      }
-      function onUp() { dragging = false; }
-
-      canvas.addEventListener("mousedown", onDown);
-      canvas.addEventListener("touchstart", onDown, { passive: false });
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("touchmove", onMove, { passive: false });
-      window.addEventListener("mouseup", onUp);
-      window.addEventListener("touchend", onUp);
-    })();
-  });
-})();
+    return publicWidget.registry.SpwLogoPreview;
+});
