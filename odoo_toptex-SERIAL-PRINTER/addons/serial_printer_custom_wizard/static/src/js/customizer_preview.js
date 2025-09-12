@@ -1,79 +1,132 @@
+/** SPW – Previsualización del logo subido (PNG/JPG/SVG)
+ *  Mantiene los sliders actuales y no toca nada de variante/ficha.
+ */
 (function () {
-  'use strict';
+  "use strict";
 
-  const s = {
-    canvas: null,
-    productImg: null,
-    logo: null,
-    input: null,
-    size: null,
-    rotate: null,
-    posX: null,
-    posY: null,
-  };
+  function byId(id) { return document.getElementById(id); }
 
-  function setTransform() {
-    if (!s.logo) return;
-    const scale = (s.size ? Number(s.size.value) : 100) / 100;
-    const rot = s.rotate ? Number(s.rotate.value) : 0;
-    const x = s.posX ? Number(s.posX.value) : 0;
-    const y = s.posY ? Number(s.posY.value) : 0;
-
-    s.logo.style.transform =
-      `translate(calc(-50% + ${x}% ), calc(-50% + ${y}% )) rotate(${rot}deg) scale(${scale})`;
-  }
-
-  function onFileChange(e) {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    s.logo.src = url;
-    s.logo.classList.remove('d-none');
-    setTransform();
-  }
-
-  function quickPosition(e) {
-    e.preventDefault();
-    const pos = e.currentTarget.getAttribute('data-pos');
-    switch (pos) {
-      case 'left_chest': s.posX.value = -20; s.posY.value = -5; s.size.value = 90; break;
-      case 'right_chest': s.posX.value = 20; s.posY.value = -5; s.size.value = 90; break;
-      case 'back': s.posX.value = 0; s.posY.value = 10; s.size.value = 140; break;
-      default: s.posX.value = 0; s.posY.value = 0; s.size.value = 100;
+  function ready(fn) {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", fn);
+    } else {
+      fn();
     }
-    setTransform();
   }
 
-  function init() {
-    s.canvas = document.querySelector('.spw-canvas-wrapper');
-    s.productImg = document.getElementById('spw_product_img');
-    s.logo = document.getElementById('spw_logo_preview');
-    s.input = document.getElementById('spw_logo_input');
-    s.size = document.getElementById('spw_size');
-    s.rotate = document.getElementById('spw_rotate');
-    s.posX = document.getElementById('spw_pos_x');
-    s.posY = document.getElementById('spw_pos_y');
+  ready(function () {
+    var inputFile   = byId("spw_logo_input");
+    var overlay     = byId("spw_logo_overlay");
+    var sizeR       = byId("spw_size");
+    var rotR        = byId("spw_rotation");
+    var posXR       = byId("spw_pos_x");
+    var posYR       = byId("spw_pos_y");
+    var canvas      = byId("spw_canvas");
 
-    if (!s.canvas || !s.logo) return;
+    if (!inputFile || !overlay || !canvas) {
+      // Si no está en esta página, salimos silenciosamente.
+      return;
+    }
 
-    s.input && s.input.addEventListener('change', onFileChange);
-    [s.size, s.rotate, s.posX, s.posY].forEach(el => el && el.addEventListener('input', setTransform));
-    document.querySelectorAll('.spw-quick').forEach(b => b.addEventListener('click', quickPosition));
+    // Estado actual de transformación
+    var state = {
+      scale: (sizeR ? parseInt(sizeR.value, 10) : 60) / 100,
+      rot:   (rotR  ? parseInt(rotR.value, 10)  : 0),
+      dx:    (posXR ? parseInt(posXR.value, 10) : 0),
+      dy:    (posYR ? parseInt(posYR.value, 10) : 0),
+    };
 
-    // arrastre básico
-    let dragging = false;
-    s.logo.addEventListener('mousedown', () => (dragging = true));
-    document.addEventListener('mouseup', () => (dragging = false));
-    s.canvas.addEventListener('mousemove', (ev) => {
-      if (!dragging) return;
-      const rect = s.canvas.getBoundingClientRect();
-      const xPct = ((ev.clientX - rect.left) / rect.width) * 100 - 50;
-      const yPct = ((ev.clientY - rect.top) / rect.height) * 100 - 50;
-      s.posX.value = Math.max(-50, Math.min(50, xPct));
-      s.posY.value = Math.max(-50, Math.min(50, yPct));
-      setTransform();
+    function applyTransform() {
+      // Posicionamos con left/top relativos al centro del canvas.
+      overlay.style.left = "calc(50% + " + state.dx + "px)";
+      overlay.style.top  = "calc(50% + " + state.dy + "px)";
+      overlay.style.transform =
+        "translate(-50%, -50%) scale(" + state.scale + ") rotate(" + state.rot + "deg)";
+    }
+
+    function showOverlay(dataUrl) {
+      overlay.src = dataUrl;
+      overlay.style.display = "block";
+      applyTransform();
+    }
+
+    // Carga de archivo (PNG/JPG/SVG)
+    inputFile.addEventListener("change", function (ev) {
+      var file = ev.target.files && ev.target.files[0];
+      if (!file) { return; }
+
+      // Lee como DataURL y muestra
+      var reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          showOverlay(e.target.result);
+        } catch (err) {
+          console.error("SPW overlay error:", err);
+        }
+      };
+      reader.readAsDataURL(file);
     });
-  }
 
-  document.addEventListener('DOMContentLoaded', init);
+    // Sliders
+    if (sizeR) {
+      sizeR.addEventListener("input", function () {
+        state.scale = parseInt(sizeR.value, 10) / 100;
+        applyTransform();
+      });
+    }
+    if (rotR) {
+      rotR.addEventListener("input", function () {
+        state.rot = parseInt(rotR.value, 10) || 0;
+        applyTransform();
+      });
+    }
+    if (posXR) {
+      posXR.addEventListener("input", function () {
+        state.dx = parseInt(posXR.value, 10) || 0;
+        applyTransform();
+      });
+    }
+    if (posYR) {
+      posYR.addEventListener("input", function () {
+        state.dy = parseInt(posYR.value, 10) || 0;
+        applyTransform();
+      });
+    }
+
+    // Permite arrastrar el logo con el ratón/táctil (suave, sin romper sliders)
+    (function enableDrag() {
+      var dragging = false;
+      var start = { x: 0, y: 0, dx: 0, dy: 0 };
+
+      function onDown(e) {
+        if (overlay.style.display === "none") { return; }
+        dragging = true;
+        var p = (e.touches && e.touches[0]) ? e.touches[0] : e;
+        start.x = p.clientX;
+        start.y = p.clientY;
+        start.dx = state.dx;
+        start.dy = state.dy;
+        e.preventDefault();
+      }
+      function onMove(e) {
+        if (!dragging) { return; }
+        var p = (e.touches && e.touches[0]) ? e.touches[0] : e;
+        var deltaX = p.clientX - start.x;
+        var deltaY = p.clientY - start.y;
+        state.dx = start.dx + deltaX;
+        state.dy = start.dy + deltaY;
+        if (posXR) posXR.value = state.dx;
+        if (posYR) posYR.value = state.dy;
+        applyTransform();
+      }
+      function onUp() { dragging = false; }
+
+      canvas.addEventListener("mousedown", onDown);
+      canvas.addEventListener("touchstart", onDown, { passive: false });
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("touchmove", onMove, { passive: false });
+      window.addEventListener("mouseup", onUp);
+      window.addEventListener("touchend", onUp);
+    })();
+  });
 })();
