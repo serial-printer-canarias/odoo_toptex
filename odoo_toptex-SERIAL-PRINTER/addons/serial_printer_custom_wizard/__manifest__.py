@@ -2,7 +2,7 @@
 {
     "name": "Serial Printer — Custom Wizard",
     "summary": "Personalización de productos en eCommerce",
-    "version": "18.0.1.0.1",  # <-- SUBIDA DE VERSIÓN PARA RECARGAR PYTHON
+    "version": "18.0.1.0.2",  # ← subir versión
     "category": "Website/Commerce",
     "author": "Serial Printer",
     "license": "LGPL-3",
