@@ -32,4 +32,4 @@
 /* --- SPW overlay --- */
 #spw_canvas { position: relative; }
 #spw_canvas #spw_product_img { display: block; width: 100%; height: auto; }
-#spw_logo_preview { z-index: 5; opacity: 1; }
+#spw_logo_preview { z-index: 999; opacity: 1; }
