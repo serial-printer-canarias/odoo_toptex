@@ -1,34 +1,23 @@
 /* Lienzo */
-.spw-stage {
-  position: relative;
-  overflow: hidden;
-  min-height: 320px;
-}
-.spw-stage .spw-base {
-  display: block;
-  width: 100%;
-  height: auto;
-}
+.spw-canvas { position: relative; }
+#spw_product_img { display: block; width: 100%; height: auto; }
+
+/* Overlay del logo */
 .spw-logo-preview {
   position: absolute;
   left: 50%;
   top: 60%;
-  transform: translate(-50%, -50%) scale(0.7) rotate(0deg);
-  transform-origin: center center;
+  transform: translate(-50%, -50%);
   max-width: 70%;
   max-height: 70%;
   pointer-events: none;
   z-index: 5;
   opacity: 1;
 }
+
 .d-none { display: none !important; }
 
-/* Color dots */
-.spw-color-dot {
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  background: var(--spw-dot, #000);
-  display: inline-block;
-  border: 1px solid rgba(0,0,0,.15);
+/* Botones de color */
+.spw-color-btn.active {
+  border-width: 2px;
 }
