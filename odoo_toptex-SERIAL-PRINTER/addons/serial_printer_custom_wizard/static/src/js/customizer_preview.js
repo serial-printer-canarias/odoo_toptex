@@ -1,49 +1,79 @@
-/** @odoo-module **/
 (function () {
-  const ready = (fn) => {
-    if (document.readyState !== 'loading') fn();
-    else document.addEventListener('DOMContentLoaded', fn);
+  'use strict';
+
+  const s = {
+    canvas: null,
+    productImg: null,
+    logo: null,
+    input: null,
+    size: null,
+    rotate: null,
+    posX: null,
+    posY: null,
   };
 
-  ready(() => {
-    // Solo actúa en la página del personalizador
-    const page = document.querySelector('.spw-customizer');
-    if (!page) return;
+  function setTransform() {
+    if (!s.logo) return;
+    const scale = (s.size ? Number(s.size.value) : 100) / 100;
+    const rot = s.rotate ? Number(s.rotate.value) : 0;
+    const x = s.posX ? Number(s.posX.value) : 0;
+    const y = s.posY ? Number(s.posY.value) : 0;
 
-    const logo = document.getElementById('spw_logo_preview');
-    const fileInput = document.getElementById('spw_logo_input');
-    const rangeScale = document.getElementById('spw_scale');
-    const rangeRotate = document.getElementById('spw_rotate');
-    const rangeX = document.getElementById('spw_pos_x');
-    const rangeY = document.getElementById('spw_pos_y');
+    s.logo.style.transform =
+      `translate(calc(-50% + ${x}% ), calc(-50% + ${y}% )) rotate(${rot}deg) scale(${scale})`;
+  }
 
-    const apply = () => {
-      if (!logo || logo.classList.contains('d-none')) return;
-      const scale = (parseInt(rangeScale?.value || '100', 10) / 100);
-      const rot = parseInt(rangeRotate?.value || '0', 10);
-      const posX = parseInt(rangeX?.value || '50', 10);
-      const posY = parseInt(rangeY?.value || '50', 10);
+  function onFileChange(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    s.logo.src = url;
+    s.logo.classList.remove('d-none');
+    setTransform();
+  }
 
-      logo.style.left = posX + '%';
-      logo.style.top = posY + '%';
-      logo.style.transform = `translate(-50%, -50%) scale(${scale}) rotate(${rot}deg)`;
-    };
+  function quickPosition(e) {
+    e.preventDefault();
+    const pos = e.currentTarget.getAttribute('data-pos');
+    switch (pos) {
+      case 'left_chest': s.posX.value = -20; s.posY.value = -5; s.size.value = 90; break;
+      case 'right_chest': s.posX.value = 20; s.posY.value = -5; s.size.value = 90; break;
+      case 'back': s.posX.value = 0; s.posY.value = 10; s.size.value = 140; break;
+      default: s.posX.value = 0; s.posY.value = 0; s.size.value = 100;
+    }
+    setTransform();
+  }
 
-    // Carga del archivo y muestra del preview
-    fileInput?.addEventListener('change', (ev) => {
-      const file = ev.target.files && ev.target.files[0];
-      if (!file) return;
+  function init() {
+    s.canvas = document.querySelector('.spw-canvas-wrapper');
+    s.productImg = document.getElementById('spw_product_img');
+    s.logo = document.getElementById('spw_logo_preview');
+    s.input = document.getElementById('spw_logo_input');
+    s.size = document.getElementById('spw_size');
+    s.rotate = document.getElementById('spw_rotate');
+    s.posX = document.getElementById('spw_pos_x');
+    s.posY = document.getElementById('spw_pos_y');
 
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        logo.src = e.target.result;
-        logo.classList.remove('d-none'); // se muestra cuando hay logo
-        apply();                          // aplica tamaño/pos/rotación iniciales
-      };
-      reader.readAsDataURL(file);
+    if (!s.canvas || !s.logo) return;
+
+    s.input && s.input.addEventListener('change', onFileChange);
+    [s.size, s.rotate, s.posX, s.posY].forEach(el => el && el.addEventListener('input', setTransform));
+    document.querySelectorAll('.spw-quick').forEach(b => b.addEventListener('click', quickPosition));
+
+    // arrastre básico
+    let dragging = false;
+    s.logo.addEventListener('mousedown', () => (dragging = true));
+    document.addEventListener('mouseup', () => (dragging = false));
+    s.canvas.addEventListener('mousemove', (ev) => {
+      if (!dragging) return;
+      const rect = s.canvas.getBoundingClientRect();
+      const xPct = ((ev.clientX - rect.left) / rect.width) * 100 - 50;
+      const yPct = ((ev.clientY - rect.top) / rect.height) * 100 - 50;
+      s.posX.value = Math.max(-50, Math.min(50, xPct));
+      s.posY.value = Math.max(-50, Math.min(50, yPct));
+      setTransform();
     });
+  }
 
-    [rangeScale, rangeRotate, rangeX, rangeY]
-      .forEach(el => el && el.addEventListener('input', apply));
-  });
+  document.addEventListener('DOMContentLoaded', init);
 })();
