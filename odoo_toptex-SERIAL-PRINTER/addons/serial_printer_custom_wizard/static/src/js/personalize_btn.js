@@ -1,26 +1,18 @@
-// serial_printer_custom_wizard/static/src/js/personalize_btn.js
-// Vanilla JS seguro: no usa el cargador de módulos de Odoo
+// Vanilla JS. Sin odoo.define, sin dependencias.
+// Navega a la página de personalización con plantilla y variante.
 (function () {
   document.addEventListener('click', function (ev) {
-    var a = ev.target.closest('#spw_personalize_btn');
-    if (!a) return;
+    const btn = ev.target.closest('#spw_personalize_btn');
+    if (!btn) return;
 
     ev.preventDefault();
-    try {
-      var form = a.closest('form') ||
-                 document.querySelector('form[action="/shop/cart/update"]') ||
-                 document.querySelector('form.js_add_cart_json');
 
-      var pidInput = form ? form.querySelector('input[name="product_id"]') : null;
-      var variantId = pidInput ? pidInput.value : '';
-      var tmplId = a.getAttribute('data-tmpl-id') || '';
+    const tmplId = btn.dataset.productTemplateId;
+    const variantInput = document.querySelector('input[name="product_id"]');
+    const variantId = variantInput ? variantInput.value : '';
 
-      if (!tmplId) return;
-
-      var url = '/spw/customize/' + tmplId + (variantId ? ('?variant_id=' + encodeURIComponent(variantId)) : '');
-      window.location.href = url;
-    } catch (e) {
-      console.error('SPW personalize button error:', e);
-    }
-  }, false);
+    if (!tmplId) return;
+    const url = '/spw/customize/' + tmplId + (variantId ? ('?variant_id=' + variantId) : '');
+    window.location.href = url;
+  }, { passive: false });
 })();
