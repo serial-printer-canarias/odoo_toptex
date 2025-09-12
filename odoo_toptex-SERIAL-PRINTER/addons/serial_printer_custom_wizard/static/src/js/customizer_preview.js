@@ -1,17 +1,15 @@
-/** preview local del logo **/
+// static/src/js/customizer_preview.js
 document.addEventListener('DOMContentLoaded', () => {
-  const file = document.getElementById('spw_logo_input');
-  const preview = document.getElementById('spw_logo_preview');
-  if (!file || !preview) return;
+  const fileInput = document.querySelector('#spw_logo_input, input[name="spw_logo"]');
+  const img = document.getElementById('spw_logo_preview');
+  if (!fileInput || !img) return;
 
-  file.addEventListener('change', e => {
-    const f = e.target.files && e.target.files[0];
-    if (!f) { preview.removeAttribute('src'); preview.classList.add('d-none'); return; }
-    const reader = new FileReader();
-    reader.onload = evt => {
-      preview.src = evt.target.result;
-      preview.classList.remove('d-none');
-    };
-    reader.readAsDataURL(f);
+  fileInput.addEventListener('change', (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    img.src = url;
+    img.classList.remove('d-none');
+    img.onload = () => URL.revokeObjectURL(url);
   });
 });
