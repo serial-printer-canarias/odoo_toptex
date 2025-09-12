@@ -4,7 +4,7 @@
     <t t-call="website.layout">
       <div id="wrap" class="container py-4 spw-customizer">
         <div class="row">
-          <!-- Lienzo -->
+          <!-- Lienzo / previsualización -->
           <div class="col-12 col-lg-8 mb-4">
             <div id="spw_canvas" class="spw-stage">
               <t t-if="variant">
@@ -17,32 +17,76 @@
                      class="spw-base"
                      t-att-src="'/web/image/product.template/%s/image_1920' % product_template.id"/>
               </t>
+              <!-- Capa flotante del logo -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="logo preview"/>
             </div>
           </div>
 
-          <!-- Controles -->
+          <!-- Panel de controles -->
           <div class="col-12 col-lg-4">
-            <form id="spw_form" class="card" method="post" action="/spw/add_to_cart" enctype="multipart/form-data">
+            <div class="card">
               <div class="card-body">
-                <!-- ids ocultos -->
-                <input type="hidden" name="tmpl_id" t-att-value="product_template.id"/>
-                <input type="hidden" name="variant_id" t-att-value="variant and variant.id or ''"/>
-                <input type="hidden" id="spw_size_hidden"     name="spw_size"/>
-                <input type="hidden" id="spw_rotation_hidden" name="spw_rotation"/>
-                <input type="hidden" id="spw_posx_hidden"     name="spw_pos_x"/>
-                <input type="hidden" id="spw_posy_hidden"     name="spw_pos_y"/>
-                <input type="hidden" id="spw_color_hidden"    name="spw_color"/>
-                <input type="hidden" id="spw_ptype_hidden"    name="spw_ptype"/>
+                <!-- (dejamos tipos de personalización básicos para futuro; no afectan al preview) -->
+                <h6 class="text-muted mb-2">Tipo de personalización</h6>
+                <div class="btn-group w-100 mb-3" role="group" aria-label="tipo">
+                  <input type="radio" class="btn-check" name="spw_mode" id="spw_mode_seri" autocomplete="off" checked>
+                  <label class="btn btn-outline-secondary" for="spw_mode_seri">Serigrafía</label>
+                  <input type="radio" class="btn-check" name="spw_mode" id="spw_mode_dtf" autocomplete="off">
+                  <label class="btn btn-outline-secondary" for="spw_mode_dtf">DTF</label>
+                  <input type="radio" class="btn-check" name="spw_mode" id="spw_mode_bord" autocomplete="off">
+                  <label class="btn btn-outline-secondary" for="spw_mode_bord">Bordado</label>
+                  <input type="radio" class="btn-check" name="spw_mode" id="spw_mode_cuero" autocomplete="off">
+                  <label class="btn btn-outline-secondary" for="spw_mode_cuero">Cuero</label>
+                </div>
 
-                <!-- Tipo de personalización (simple, como lo tenías) -->
-                <div class="mb-3">
-                  <label class="form-label d-block">Tipo de personalización</label>
-                  <div class="btn-group" role="group">
-                    <input type="radio" class="btn-check" name="spw_ptype_local" id="ptype_s" value="Serigrafía" checked="checked"/>
-                    <label class="btn btn-outline-secondary" for="ptype_s">Serigrafía</label>
+                <h6 class="text-muted mb-2">Color</h6>
+                <div class="d-flex gap-2 mb-3 align-items-center">
+                  <input type="radio" class="btn-check" name="spw_color" id="spw_col_black" checked>
+                  <label class="spw-color-dot border" style="--spw-dot:#000" for="spw_col_black"></label>
 
-                    <input type="radio" class="btn-check" name="spw_ptype_local" id="ptype_h" value="HTV"/>
-                    <label class="btn btn-outline-secondary" for="ptype_h">HTV</label>
+                  <input type="radio" class="btn-check" name="spw_color" id="spw_col_white">
+                  <label class="spw-color-dot border" style="--spw-dot:#fff" for="spw_col_white"></label>
 
-                    <input type="radio" class="btn-check" name="spw_ptype_local" id="ptype_b" value="Bord
+                  <input type="radio" class="btn-check" name="spw_color" id="spw_col_blue">
+                  <label class="spw-color-dot border" style="--spw-dot:#1f57ff" for="spw_col_blue"></label>
+
+                  <input type="radio" class="btn-check" name="spw_color" id="spw_col_red">
+                  <label class="spw-color-dot border" style="--spw-dot:#ff2d2d" for="spw_col_red"></label>
+                </div>
+
+                <h6 class="text-muted mb-2">Subir logo (PNG/JPG/SVG)</h6>
+                <input id="spw_logo_file" type="file" accept=".png,.jpg,.jpeg,.svg" class="form-control mb-3"/>
+
+                <label class="form-label">Tamaño</label>
+                <input id="spw_size" class="form-range mb-3" type="range" min="0.2" max="2" step="0.01" value="0.7"/>
+
+                <label class="form-label">Rotación</label>
+                <input id="spw_rotate" class="form-range mb-3" type="range" min="-180" max="180" step="1" value="0"/>
+
+                <label class="form-label">Posición X</label>
+                <input id="spw_pos_x" class="form-range mb-3" type="range" min="10" max="90" step="0.5" value="50"/>
+
+                <label class="form-label">Posición Y</label>
+                <input id="spw_pos_y" class="form-range mb-4" type="range" min="20" max="85" step="0.5" value="60"/>
+
+                <div class="d-flex gap-2">
+                  <a id="spw_back" href="#" class="btn btn-outline-secondary flex-fill">← Volver</a>
+                  <a id="spw_add_to_cart"
+                     t-att-data-variant-id="(variant and variant.id) or ''"
+                     t-att-data-fallback-variant-id="product_template.product_variant_id.id"
+                     class="btn btn-primary flex-fill">
+                    Añadir al carrito con esta personalización
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- IDs ocultos de contexto -->
+        <input type="hidden" id="spw_tmpl_id" t-att-value="product_template.id"/>
+        <input type="hidden" id="spw_variant_id" t-att-value="(variant and variant.id) or ''"/>
+      </div>
+    </t>
+  </template>
+</odoo>
