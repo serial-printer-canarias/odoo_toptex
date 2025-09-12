@@ -1,85 +1,94 @@
 /** @odoo-module **/
 (function () {
-  // Ejecutar solo en la página del customizer
   const root = document.querySelector(".spw-customizer");
   if (!root) return;
 
   const canvas = root.querySelector("#spw_canvas");
-  const baseImg = root.querySelector("#spw_product_img");
-  if (!canvas || !baseImg) return;
+  const base = root.querySelector("#spw_product_img");
+  if (!canvas || !base) return;
 
-  // Aseguramos contexto para posicionar
+  // El canvas debe posicionar a los hijos
   canvas.style.position = "relative";
 
-  // Crear (o reutilizar) overlay del logo
+  // Overlay del logo (si no existe, lo creamos)
   let overlay = root.querySelector("#spw_logo_preview");
   if (!overlay) {
     overlay = document.createElement("img");
     overlay.id = "spw_logo_preview";
     overlay.alt = "Logo preview";
-    overlay.style.position = "absolute";
-    overlay.style.top = "0";
-    overlay.style.left = "0";
-    overlay.style.zIndex = "5";              // SIEMPRE por encima
-    overlay.style.pointerEvents = "none";
-    overlay.style.display = "none";          // se muestra al cargar imagen
-    overlay.style.transformOrigin = "top left";
+    Object.assign(overlay.style, {
+      position: "absolute",
+      top: "0",
+      left: "0",
+      zIndex: "999",                // siempre por encima
+      display: "none",              // se muestra al cargar imagen
+      pointerEvents: "none",
+      transformOrigin: "top left",
+      opacity: "1",
+    });
     canvas.appendChild(overlay);
   }
 
-  // Inputs (tolerantes: coge el que exista)
-  const fileInput = root.querySelector(
-    '#spw_logo_input, input[type="file"][data-spw="logo"], input[name="spw_logo"], input[type="file"]'
-  );
-  const size = root.querySelector("#spw_size, [data-spw='size'], input[data-spw-size], input[type='range'][name*='size']");
-  const rot  = root.querySelector("#spw_rotate, [data-spw='rotate'], input[data-spw-rotate], input[type='range'][name*='rot']");
-  const posX = root.querySelector("#spw_pos_x, [data-spw='posx'], input[data-spw-posx], input[type='range'][name*='pos_x']");
-  const posY = root.querySelector("#spw_pos_y, [data-spw='posy'], input[data-spw-posy], input[type='range'][name*='pos_y']");
+  // Sliders (cogemos el que exista)
+  const sliders = {
+    size: root.querySelector("#spw_size, [data-spw='size'], input[data-spw-size], input[type='range'][name*='size']"),
+    rot:  root.querySelector("#spw_rotate, [data-spw='rotate'], input[data-spw-rotate], input[type='range'][name*='rot']"),
+    x:    root.querySelector("#spw_pos_x, [data-spw='posx'], input[data-spw-posx], input[type='range'][name*='pos_x']"),
+    y:    root.querySelector("#spw_pos_y, [data-spw='posy'], input[data-spw-posy], input[type='range'][name*='pos_y']"),
+  };
 
-  // Calcula ancho base visible (en px) para dar tamaño inicial al logo (25%)
-  function baseWidthPx() {
-    const r = baseImg.getBoundingClientRect();
-    return Math.max(1, Math.round(r.width || baseImg.width || 400));
+  function clamp(n, min, max) { return Math.min(max, Math.max(min, Number(n) || 0)); }
+  function baseWidth() {
+    const r = base.getBoundingClientRect();
+    return r.width || base.width || 400;
   }
 
-  // Aplica transformaciones del panel
-  function applyTransforms() {
-    const s = size ? Number(size.value || 100) / 100 : 1; // 1 = 100%
-    const r = rot  ? Number(rot.value  || 0)   : 0;
-    const x = posX ? Number(posX.value || 0)   : 0;
-    const y = posY ? Number(posY.value || 0)   : 0;
+  function apply() {
+    // si el tamaño está en 0, forzamos mínimo 10% para que nunca desaparezca
+    const sRaw = sliders.size ? sliders.size.value : 100;
+    const s = clamp(sRaw, 10, 300) / 100;   // 10%–300%
+    const r = sliders.rot ? Number(sliders.rot.value || 0) : 0;
+    const x = sliders.x ? Number(sliders.x.value || 0) : 0;
+    const y = sliders.y ? Number(sliders.y.value || 0) : 0;
     overlay.style.transform = `translate(${x}px, ${y}px) rotate(${r}deg) scale(${s})`;
   }
 
-  // Cuando cambie el archivo, mostramos el overlay con tamaño visible
-  if (fileInput) {
-    fileInput.addEventListener("change", (e) => {
-      const f = e.target.files && e.target.files[0];
-      if (!f) return;
+  function showOverlayInitial() {
+    // Ancho inicial visible = 35% del ancho del producto
+    const w = Math.round(baseWidth() * 0.35);
+    overlay.style.width = w + "px";
+    overlay.style.height = "auto";
+    overlay.style.display = "block";
 
-      const url = URL.createObjectURL(f); // más rápido que FileReader
-      overlay.onload = () => {
-        // ancho inicial = 25% del ancho de la imagen base
-        const targetW = Math.round(baseWidthPx() * 0.25);
-        overlay.style.width = `${targetW}px`;
-        overlay.style.height = "auto";
-        overlay.style.display = "block";
-        applyTransforms();
-      };
-      overlay.src = url;
-    });
+    // Si el slider está en 0, lo llevamos a 100 (100%)
+    if (sliders.size && (!sliders.size.value || Number(sliders.size.value) === 0)) {
+      sliders.size.value = 100;
+    }
+    apply();
   }
 
-  // Reaplicar al mover sliders
-  [size, rot, posX, posY].forEach((el) => el && el.addEventListener("input", applyTransforms));
-
-  // Si la imagen base cambia de tamaño (responsive), reajustamos ancho del logo
-  const ro = new ResizeObserver(() => {
-    if (overlay.style.display !== "none" && overlay.naturalWidth) {
-      const targetW = Math.round(baseWidthPx() * 0.25);
-      overlay.style.width = `${targetW}px`;
-      applyTransforms();
-    }
+  // Escuchamos TODOS los file inputs del panel por si cambia el id/name
+  const fileInputs = root.querySelectorAll(
+    '#spw_logo_input, input[type="file"][data-spw="logo"], input[name="spw_logo"], input[type="file"]'
+  );
+  fileInputs.forEach((inp) => {
+    inp.addEventListener("change", (ev) => {
+      const f = ev.target.files && ev.target.files[0];
+      if (!f) return;
+      const url = URL.createObjectURL(f);
+      overlay.onload = () => { showOverlayInitial(); };
+      overlay.src = url;
+    });
   });
-  ro.observe(baseImg);
+
+  // Reaplicar al mover sliders
+  Object.values(sliders).forEach((el) => { if (el) el.addEventListener("input", apply); });
+
+  // Si cambia el tamaño del producto (responsive), mantén el logo proporcionado
+  new ResizeObserver(() => {
+    if (overlay.style.display !== "none") {
+      overlay.style.width = Math.round(baseWidth() * 0.35) + "px";
+      apply();
+    }
+  }).observe(base);
 })();
