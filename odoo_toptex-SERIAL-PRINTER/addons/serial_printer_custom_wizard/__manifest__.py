@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 {
     "name": "Serial Printer — Custom Wizard",
     "summary": "Personalización de productos en eCommerce",
@@ -11,10 +12,10 @@
         "views/customizer_page.xml",
     ],
     "assets": {
-        "website.assets_frontend": [
+        "web.assets_frontend": [
             "serial_printer_custom_wizard/static/src/css/spw.css",
             "serial_printer_custom_wizard/static/src/js/personalize_btn.js",
-            "serial_printer_custom_wizard/static/src/js/customizer_preview.js",
+            "serial_printer_custom_wizard/static/src/js/customizer.js",
         ],
     },
     "installable": True,
