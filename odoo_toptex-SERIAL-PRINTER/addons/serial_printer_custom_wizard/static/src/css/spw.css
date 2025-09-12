@@ -28,3 +28,8 @@
   background: var(--spw-dot, #000);
   display: inline-block;
 }
+
+/* --- SPW overlay --- */
+#spw_canvas { position: relative; }
+#spw_canvas #spw_product_img { display: block; width: 100%; height: auto; }
+#spw_logo_preview { z-index: 5; opacity: 1; }
