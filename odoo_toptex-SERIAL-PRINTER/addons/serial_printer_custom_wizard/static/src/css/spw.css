@@ -1,28 +1,30 @@
-/* ===== SPW Customizer ===== */
-.spw-canvas-wrapper{
+/* serial_printer_custom_wizard/static/src/css/spw.css */
+.spw-stage {
   position: relative;
+  overflow: hidden;
+  min-height: 320px;
+}
+.spw-stage .spw-base {
+  display: block;
   width: 100%;
+  height: auto;
 }
-.spw-canvas-wrapper img#spw_product_img{
-  display:block;
-  width:100%;
-  height:auto;
-  border-radius:12px;
+.spw-overlay {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30%;
+  height: auto;
+  transform: translate(-50%, -50%);
+  transform-origin: center center;
+  pointer-events: auto; /* para arrastrar */
+  user-select: none;
+  will-change: transform;
 }
-.spw-canvas-wrapper img#spw_logo_preview.spw-logo{
-  position:absolute;
-  left:50%;
-  top:50%;
-  transform:translate(-50%,-50%);
-  max-width:60%;
-  max-height:60%;
-  pointer-events:auto;
-  cursor:move;
-}
-.spw-color-dot{
-  width:30px;
-  height:30px;
-  border-radius:999px;
-  display:inline-block;
-  cursor:pointer;
+.spw-color-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--spw-dot, #000);
+  display: inline-block;
 }
