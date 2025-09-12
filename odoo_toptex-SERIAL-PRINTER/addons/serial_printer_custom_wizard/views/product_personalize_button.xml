@@ -1,19 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <!-- Botón "Personalizar" en la ficha del producto (website_sale.product) -->
+  <!-- Botón "Personalizar" en la ficha del producto -->
   <template id="spw_personalize_button"
             name="SPW: Botón Personalizar (Product Page)"
             inherit_id="website_sale.product">
 
-    <!-- Insertamos el botón dentro del bloque de acciones -->
-    <xpath expr="//div[contains(@class, 'o_wsale_product_actions')]" position="inside">
-      <a id="spw_personalize_btn"
-         class="btn btn-primary mt-2"
-         role="button"
-         t-attf-href="/spw/customize/#{product.id}?variant_id=#{(combination_info and combination_info.get('product_id')) or product.product_variant_id.id}">
-        <i class="fa fa-magic me-1"/>
-        <span>Personalizar</span>
-      </a>
+    <!-- Insertamos un slot seguro dentro de #product_details -->
+    <xpath expr="//div[@id='product_details']" position="inside">
+      <div id="spw_personalize_slot" class="d-none">
+        <a id="spw_personalize_btn"
+           class="btn btn-primary mt-2"
+           role="button"
+           t-attf-href="/spw/customize/#{product.id}?variant_id=#{(combination_info and combination_info.get('product_id')) or product.product_variant_id.id}">
+          <i class="fa fa-magic me-1"/>
+          <span>Personalizar</span>
+        </a>
+      </div>
     </xpath>
 
   </template>
