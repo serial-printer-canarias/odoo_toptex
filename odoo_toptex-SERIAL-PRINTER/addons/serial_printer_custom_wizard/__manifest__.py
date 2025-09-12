@@ -1,4 +1,3 @@
-# serial_printer_custom_wizard/__manifest__.py
 {
     "name": "Serial Printer — Custom Wizard",
     "summary": "Personalización de productos en eCommerce",
@@ -8,14 +7,14 @@
     "license": "LGPL-3",
     "depends": ["website", "website_sale", "product"],
     "data": [
-        "views/customizer_page.xml",
         "views/product_personalize_button.xml",
+        "views/customizer_page.xml",
     ],
     "assets": {
-        "web.assets_frontend": [
+        "website.assets_frontend": [
             "serial_printer_custom_wizard/static/src/css/spw.css",
             "serial_printer_custom_wizard/static/src/js/personalize_btn.js",
-            "serial_printer_custom_wizard/static/src/js/customizer.js",
+            "serial_printer_custom_wizard/static/src/js/customizer_preview.js",
         ],
     },
     "installable": True,
