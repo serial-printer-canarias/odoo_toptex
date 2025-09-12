@@ -28,6 +28,16 @@
   background: var(--spw-dot, #000);
   display: inline-block;
 }
+.spw-canvas { position: relative; }
+
+.spw-logo-preview {
+  position: absolute; left: 50%; top: 60%;
+  transform: translate(-50%, -50%);
+  max-width: 70%; max-height: 70%;
+  pointer-events: none; z-index: 5; opacity: 1;
+}
+
+.d-none { display: none !important; }
 
 /* --- SPW overlay --- */
 #spw_canvas { position: relative; }
