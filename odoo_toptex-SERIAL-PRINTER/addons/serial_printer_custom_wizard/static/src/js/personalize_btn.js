@@ -1,30 +1,36 @@
-/** @odoo-module **/
+(function () {
+  'use strict';
 
-import publicWidget from 'web.public.widget';
+  function goToCustomizer(evt) {
+    evt.preventDefault();
+    try {
+      const btn = evt.currentTarget;
+      const tmplId = btn.getAttribute('data-product-id'); // product.template id
+      if (!tmplId) return;
 
-publicWidget.registry.SPWPersonalizeBtn = publicWidget.Widget.extend({
-    selector: '#spw_personalize_btn',
-    events: {
-        click: '_onClick',
-    },
+      // el hidden que Odoo mantiene con la variante actual
+      const variantInput = document.querySelector("input[name='product_id']");
+      const variantId = variantInput && variantInput.value ? parseInt(variantInput.value, 10) : null;
 
-    /**
-     * Redirige al customizador con el product_id y el variant_id seleccionado
-     */
-    _onClick(ev) {
-        ev.preventDefault();
-        const productId = Number(ev.currentTarget.dataset.productId || 0);
+      const url = variantId
+        ? `/spw/customize/${tmplId}?variant_id=${variantId}`
+        : `/spw/customize/${tmplId}`;
 
-        // En el formulario hay un hidden con el variant_id actual
-        let variantId = 0;
-        const hiddenVariant = document.querySelector('input[name="product_id"]');
-        if (hiddenVariant) {
-            variantId = Number(hiddenVariant.value || 0);
-        }
+      window.location.href = url;
+    } catch (e) {
+      console.error('SPW personalize_btn error:', e);
+    }
+  }
 
-        const url = `/spw/customize/${productId}${variantId ? `?variant_id=${variantId}` : ''}`;
-        window.location.href = url;
-    },
-});
+  function attach() {
+    const btn = document.getElementById('spw_personalize_btn');
+    if (btn && !btn.dataset.spwBound) {
+      btn.addEventListener('click', goToCustomizer);
+      btn.dataset.spwBound = '1';
+    }
+  }
 
-export default publicWidget.registry.SPWPersonalizeBtn;
+  // Bind en carga y cuando el DOM cambia (editores, etc.)
+  document.addEventListener('DOMContentLoaded', attach);
+  document.addEventListener('o_page_loaded', attach);
+})();
