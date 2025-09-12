@@ -1,4 +1,4 @@
-/* Escenario */
+/* Lienzo */
 .spw-stage {
   position: relative;
   overflow: hidden;
@@ -9,21 +9,26 @@
   width: 100%;
   height: auto;
 }
-
-/* Logo superpuesto */
-.spw-overlay {
+.spw-logo-preview {
   position: absolute;
   left: 50%;
   top: 60%;
+  transform: translate(-50%, -50%) scale(0.7) rotate(0deg);
+  transform-origin: center center;
   max-width: 70%;
   max-height: 70%;
-  transform: translate(-50%, -50%);
-  transform-origin: center center;
   pointer-events: none;
-  will-change: transform;
   z-index: 5;
   opacity: 1;
 }
-
-/* Utilidad */
 .d-none { display: none !important; }
+
+/* Color dots */
+.spw-color-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--spw-dot, #000);
+  display: inline-block;
+  border: 1px solid rgba(0,0,0,.15);
+}
