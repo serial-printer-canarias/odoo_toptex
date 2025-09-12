@@ -3,11 +3,11 @@
   <!-- Página del personalizador -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
-      <!-- Requeridos por website para evitar errores de metadata -->
+      <!-- Requeridos por Website -->
       <t t-set="pageName" t-value="'spw_customize_page'"/>
       <t t-set="main_object" t-value="product"/>
 
-      <!-- Determinar imagen a mostrar: variante si existe, si no la plantilla -->
+      <!-- Fuente de imagen (variante si hay, si no la plantilla) -->
       <t t-set="img_src">
         <t t-if="variant">
           <t t-esc="'/web/image/product.product/%s/image_1024' % variant.id"/>
@@ -26,31 +26,26 @@
                    class="img-fluid rounded"
                    t-att-src="img_src"
                    alt="Producto"/>
-              <!-- Overlay del logo (se hace visible por JS) -->
+              <!-- Overlay del logo (visibilidad controlada por JS) -->
               <img id="spw_logo_preview"
                    class="spw-logo-preview d-none"
                    alt="Logo preview"/>
             </div>
-            <!-- Controles de posición/escala/rotación (sin tocar IDs esperados por el JS) -->
+
+            <!-- Controles simples -->
             <div class="card mt-3">
               <div class="card-body d-flex flex-wrap gap-2 align-items-center">
                 <button type="button" id="spw_move_up" class="btn btn-outline-secondary" aria-label="Arriba">↑</button>
                 <button type="button" id="spw_move_down" class="btn btn-outline-secondary" aria-label="Abajo">↓</button>
                 <button type="button" id="spw_move_left" class="btn btn-outline-secondary" aria-label="Izquierda">←</button>
                 <button type="button" id="spw_move_right" class="btn btn-outline-secondary" aria-label="Derecha">→</button>
-
                 <span class="mx-2">|</span>
-
                 <button type="button" id="spw_scale_minus" class="btn btn-outline-secondary" aria-label="Reducir">−</button>
                 <button type="button" id="spw_scale_plus" class="btn btn-outline-secondary" aria-label="Ampliar">+</button>
-
                 <span class="mx-2">|</span>
-
                 <button type="button" id="spw_rotate_left" class="btn btn-outline-secondary" aria-label="Rotar izquierda">⟲</button>
                 <button type="button" id="spw_rotate_right" class="btn btn-outline-secondary" aria-label="Rotar derecha">⟳</button>
-
                 <span class="mx-2">|</span>
-
                 <button type="button" id="spw_reset" class="btn btn-outline-danger">Reset</button>
               </div>
             </div>
@@ -69,7 +64,7 @@
                   <div class="form-text">Formatos: PNG/JPG/SVG. Máx. 10MB.</div>
                 </div>
 
-                <!-- Técnica (default: Serigrafía) -->
+                <!-- Técnica (mantengo las 4 que pediste) -->
                 <div class="mb-3">
                   <div class="fw-bold mb-1">Técnica</div>
                   <div class="d-flex flex-wrap gap-3">
@@ -92,7 +87,7 @@
                   </div>
                 </div>
 
-                <!-- Colores (placeholder simple, el JS puede ampliarlos) -->
+                <!-- Colores básicos (se pueden ampliar luego) -->
                 <div class="mb-3">
                   <div class="fw-bold mb-1">Color</div>
                   <div class="d-flex flex-wrap gap-2">
@@ -115,7 +110,7 @@
                   <a t-att-href="product.website_url or '/shop'" class="btn btn-outline-secondary">Cancelar</a>
                 </div>
 
-                <!-- Datos ocultos (no tocar IDs) -->
+                <!-- Datos ocultos -->
                 <input type="hidden" id="spw_product_tmpl_id" t-att-value="product.id"/>
                 <t t-if="variant">
                   <input type="hidden" id="spw_variant_id" t-att-value="variant.id"/>
