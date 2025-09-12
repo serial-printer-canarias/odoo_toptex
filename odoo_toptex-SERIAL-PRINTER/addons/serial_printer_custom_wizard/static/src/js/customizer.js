@@ -1,67 +1,88 @@
+/** serial_printer_custom_wizard/static/src/js/customizer.js **/
 odoo.define('serial_printer_custom_wizard.customizer', function (require) {
-  'use strict';
-  const publicWidget = require('web.public.widget');
+    'use strict';
 
-  publicWidget.registry.SpwCustomizer = publicWidget.Widget.extend({
-    selector: '.spw-customizer',
+    const publicWidget = require('web.public.widget');
 
-    start() {
-      this.$base   = this.$('#spw_product_img');
-      this.$logo   = this.$('#spw_logo_preview');
-      this.$file   = this.$('#spw_logo_input');
-      this.$scale  = this.$('#spw_scale');
-      this.$rotate = this.$('#spw_rotate');
-      this.$posX   = this.$('#spw_pos_x');
-      this.$posY   = this.$('#spw_pos_y');
+    publicWidget.registry.spwCustomizer = publicWidget.Widget.extend({
+        selector: '.spw-customizer',
 
-      // Imagen de la variante si viene en la URL
-      const params = new URLSearchParams(window.location.search);
-      const variantId = params.get('product_id');
-      if (variantId) {
-        this.$base.attr('src', `/web/image/product.product/${variantId}/image_1024`);
-      }
+        start() {
+            this._cache();
+            this._bind();
+            return this._super(...arguments);
+        },
 
-      // Preview del logo
-      this.$file.on('change', (ev) => {
-        const f = ev.target.files && ev.target.files[0];
-        if (!f) return;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          this.$logo.attr('src', e.target.result).css('display', 'block');
-          this._applyTransforms();
-        };
-        reader.readAsDataURL(f);
-      });
+        _cache() {
+            this.canvas = this.el.querySelector('#spw_canvas');
+            this.logo = this.el.querySelector('#spw_logo_preview');
+            this.file = this.el.querySelector('#spw_logo');
+            this.scale = this.el.querySelector('#spw_scale');
+            this.rotate = this.el.querySelector('#spw_rotate');
+            this.posX = this.el.querySelector('#spw_pos_x');
+            this.posY = this.el.querySelector('#spw_pos_y');
+        },
 
-      // Controles
-      const refresh = () => this._applyTransforms();
-      this.$scale.on('input change', refresh);
-      this.$rotate.on('input change', refresh);
-      this.$posX.on('input change', refresh);
-      this.$posY.on('input change', refresh);
+        _bind() {
+            if (this.file) {
+                this.file.addEventListener('change', (ev) => {
+                    const f = ev.target.files && ev.target.files[0];
+                    if (!f) return;
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        this.logo.src = e.target.result;
+                        this.logo.classList.remove('d-none');
+                        this._apply();
+                    };
+                    reader.readAsDataURL(f);
+                });
+            }
+            for (const id of ['spw_scale', 'spw_rotate', 'spw_pos_x', 'spw_pos_y']) {
+                const el = this.el.querySelector('#' + id);
+                if (el) el.addEventListener('input', () => this._apply());
+            }
 
-      // Posiciones rápidas
-      this.$('[data-spw-pos]').on('click', (ev) => {
-        const pos = $(ev.currentTarget).data('spw-pos');
-        if (pos === 'left')  { this.$posX.val(25); this.$posY.val(50); }
-        if (pos === 'right') { this.$posX.val(75); this.$posY.val(50); }
-        if (pos === 'back')  { this.$posX.val(50); this.$posY.val(70); }
-        this._applyTransforms();
-      });
+            // Permitir arrastrar el logo para posicionarlo
+            if (this.logo && this.canvas) {
+                let dragging = false;
+                this.logo.addEventListener('mousedown', () => dragging = true);
+                document.addEventListener('mouseup', () => dragging = false);
+                this.canvas.addEventListener('mousemove', (e) => {
+                    if (!dragging) return;
+                    const rect = this.canvas.getBoundingClientRect();
+                    const x = ((e.clientX - rect.left) / rect.width) * 100;
+                    const y = ((e.clientY - rect.top) / rect.height) * 100;
+                    this.posX.value = Math.min(100, Math.max(0, x));
+                    this.posY.value = Math.min(100, Math.max(0, y));
+                    this._apply();
+                });
+                // En móviles
+                this.logo.addEventListener('touchstart', () => dragging = true, {passive: true});
+                document.addEventListener('touchend', () => dragging = false, {passive: true});
+                this.canvas.addEventListener('touchmove', (e) => {
+                    if (!dragging) return;
+                    const t = e.touches[0];
+                    const rect = this.canvas.getBoundingClientRect();
+                    const x = ((t.clientX - rect.left) / rect.width) * 100;
+                    const y = ((t.clientY - rect.top) / rect.height) * 100;
+                    this.posX.value = Math.min(100, Math.max(0, x));
+                    this.posY.value = Math.min(100, Math.max(0, y));
+                    this._apply();
+                }, {passive: true});
+            }
+        },
 
-      return this._super(...arguments);
-    },
+        _apply() {
+            if (!this.logo) return;
+            const s = (parseFloat(this.scale?.value || '100')) / 100;
+            const r = parseFloat(this.rotate?.value || '0');
+            const x = parseFloat(this.posX?.value || '50');
+            const y = parseFloat(this.posY?.value || '50');
+            this.logo.style.left = `${x}%`;
+            this.logo.style.top = `${y}%`;
+            this.logo.style.transform = `translate(-50%, -50%) rotate(${r}deg) scale(${s})`;
+        },
+    });
 
-    _applyTransforms() {
-      const x = parseFloat(this.$posX.val() || 50);
-      const y = parseFloat(this.$posY.val() || 50);
-      const s = parseFloat(this.$scale.val() || 100) / 100; // 1.0 por defecto
-      const r = parseFloat(this.$rotate.val() || 0);
-      this.$logo.css({
-        left: `${x}%`,
-        top: `${y}%`,
-        transform: `translate(-50%, -50%) rotate(${r}deg) scale(${s})`,
-      });
-    },
-  });
+    return publicWidget.registry.spwCustomizer;
 });
