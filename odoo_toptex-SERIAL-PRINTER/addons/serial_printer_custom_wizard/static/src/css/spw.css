@@ -21,3 +21,10 @@
 .spw-color-btn.active {
   border-width: 2px;
 }
+
+#spw_canvas { position: relative; }
+#spw_product_img { display: block; width: 100%; height: auto; }
+
+/* La preview del logo; el JS la muestra/posiciona */
+#spw_logo_preview { position: absolute; left: 50%; top: 60%; transform: translate(-50%,-50%); pointer-events: none; z-index: 5; opacity: 1; }
+.d-none { display: none !important; }
