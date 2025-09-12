@@ -1,9 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-  <!-- =========================
-       PLANTILLA DEL PERSONALIZADOR
-       ========================= -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
@@ -11,12 +8,9 @@
       <div class="container my-5 spw-customizer">
         <div class="row g-4">
 
-          <!-- Lienzo / Preview -->
           <div class="col-12 col-lg-7">
             <div class="spw-canvas card p-3">
-              <!-- Imagen base del producto: se obtiene SOLO de los parámetros de la URL -->
-              <img id="spw_product_img"
-                   class="img-fluid rounded"
+              <img id="spw_product_img" class="img-fluid rounded"
                    t-att-src="
                      request.params.get('image') or
                      (request.params.get('variant_id') and
@@ -24,39 +18,29 @@
                      (request.params.get('tmpl_id') and
                       ('/web/image/product.template/%s/image_1024' % request.params.get('tmpl_id'))) or
                      '/web/image/website.theme_image_01'"/>
-              <!-- Logo cargado por el usuario (lo muestra JS) -->
               <img id="spw_logo_img" class="spw-logo d-none" alt="Logo"/>
               <input id="spw_logo_file" type="file" accept=".png,.jpg,.jpeg,.svg" class="d-none"/>
             </div>
-
-            <p class="text-muted mt-3">
-              Arrastra el logo sobre la imagen para posicionarlo o usa los controles.
-            </p>
+            <p class="text-muted mt-3">Arrastra el logo sobre la imagen para posicionarlo o usa los controles.</p>
           </div>
 
-          <!-- Controles -->
           <div class="col-12 col-lg-5">
             <div class="card p-3">
 
-              <!-- (Opcional) Tipo de personalización -->
               <div id="spw_method" class="mb-3">
                 <label class="form-label">Tipo de personalización</label>
                 <div class="btn-group w-100" role="group">
                   <input class="btn-check" type="radio" name="spw_m" id="spw_m_screen" value="screen" checked="checked"/>
                   <label class="btn btn-outline-secondary" for="spw_m_screen">Serigrafía</label>
-
                   <input class="btn-check" type="radio" name="spw_m" id="spw_m_dtf" value="dtf"/>
                   <label class="btn btn-outline-secondary" for="spw_m_dtf">DTF</label>
-
                   <input class="btn-check" type="radio" name="spw_m" id="spw_m_emb" value="emb"/>
                   <label class="btn btn-outline-secondary" for="spw_m_emb">Bordado</label>
-
                   <input class="btn-check" type="radio" name="spw_m" id="spw_m_lea" value="lea"/>
                   <label class="btn btn-outline-secondary" for="spw_m_lea">Marcado en cuero</label>
                 </div>
               </div>
 
-              <!-- Colores rápidos (demo) -->
               <div id="spw_colors" class="mb-3">
                 <label class="form-label">Color</label>
                 <div class="d-flex gap-3">
@@ -67,14 +51,12 @@
                 </div>
               </div>
 
-              <!-- Observaciones -->
               <div class="mb-3">
                 <label class="form-label">Observaciones</label>
                 <textarea id="spw_notes" class="form-control"
                           placeholder="Tamaño, número de tintas y detalles (p.ej. pecho y espalda)"></textarea>
               </div>
 
-              <!-- Subir logo -->
               <div class="mb-3">
                 <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
                 <div class="input-group">
@@ -83,7 +65,6 @@
                 </div>
               </div>
 
-              <!-- Sliders -->
               <div class="mb-3">
                 <label class="form-label">Tamaño</label>
                 <input id="spw_scale" type="range" min="10" max="200" value="80" class="form-range"/>
@@ -101,7 +82,6 @@
                 <input id="spw_pos_y" type="range" min="-200" max="200" value="0" class="form-range"/>
               </div>
 
-              <!-- Botones -->
               <div class="d-flex justify-content-between">
                 <a class="btn btn-light" t-att-href="request.httprequest.referrer or '/shop'">← Volver al producto</a>
                 <button id="spw_add_to_cart" class="btn btn-primary">
@@ -117,9 +97,7 @@
     </t>
   </template>
 
-  <!-- =========================
-       PÁGINA DEL WEBSITE (EVITA EL 404)
-       ========================= -->
+  <!-- (Puedes dejar esta página; la ruta del controlador tiene prioridad) -->
   <record id="spw_customize_page_page" model="website.page">
     <field name="name">SPW - Personalizador</field>
     <field name="url">/spw/customize</field>
