@@ -1,36 +1,37 @@
+/* plain JS, no odoo.define ni @odoo-module */
 (function () {
-  'use strict';
-
-  function goToCustomizer(evt) {
-    evt.preventDefault();
-    try {
-      const btn = evt.currentTarget;
-      const tmplId = btn.getAttribute('data-product-id'); // product.template id
-      if (!tmplId) return;
-
-      // el hidden que Odoo mantiene con la variante actual
-      const variantInput = document.querySelector("input[name='product_id']");
-      const variantId = variantInput && variantInput.value ? parseInt(variantInput.value, 10) : null;
-
-      const url = variantId
-        ? `/spw/customize/${tmplId}?variant_id=${variantId}`
-        : `/spw/customize/${tmplId}`;
-
-      window.location.href = url;
-    } catch (e) {
-      console.error('SPW personalize_btn error:', e);
-    }
+  function currentVariantId() {
+    const el = document.querySelector("input[name='product_id']");
+    return el && el.value ? el.value : null;
+  }
+  function currentTemplateId(btn) {
+    // Preferimos el data- del propio botón; si no, intentamos localizarlo en el DOM
+    return (
+      btn.dataset.templateId ||
+      (document.querySelector("input[name='product_template_id']") || {}).value ||
+      null
+    );
   }
 
-  function attach() {
-    const btn = document.getElementById('spw_personalize_btn');
-    if (btn && !btn.dataset.spwBound) {
-      btn.addEventListener('click', goToCustomizer);
-      btn.dataset.spwBound = '1';
-    }
-  }
+  document.addEventListener("click", function (ev) {
+    const btn = ev.target.closest("#spw_personalize_btn");
+    if (!btn) return;
 
-  // Bind en carga y cuando el DOM cambia (editores, etc.)
-  document.addEventListener('DOMContentLoaded', attach);
-  document.addEventListener('o_page_loaded', attach);
+    // Evitamos navegar con el href si podemos construir la URL con la variante actual
+    ev.preventDefault();
+
+    const tmplId = currentTemplateId(btn);
+    const variantId = currentVariantId() || btn.dataset.productId;
+
+    if (!tmplId) {
+      console.warn("[SPW] No se encontró template_id para el personalizador");
+      // último recurso: seguir el href original
+      window.location.href = btn.getAttribute("href") || "/";
+      return;
+    }
+
+    const url =
+      "/spw/customize/" + tmplId + (variantId ? "?variant_id=" + variantId : "");
+    window.location.href = url;
+  });
 })();
