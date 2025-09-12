@@ -1,43 +1,30 @@
-/** @odoo-module */
-odoo.define('serial_printer_custom_wizard.move_personalize_btn', function (require) {
-  'use strict';
+/** @odoo-module **/
 
-  const publicWidget = require('web.public.widget');
+import publicWidget from 'web.public.widget';
 
-  publicWidget.registry.SpwMovePersonalizeBtn = publicWidget.Widget.extend({
-    selector: 'body',
-
-    start() {
-      const btn = document.getElementById('spw_personalize_btn');
-      const slot = document.getElementById('spw_personalize_slot');
-      if (!btn || !slot) {
-        return this._super(...arguments);
-      }
-
-      // Posibles contenedores según versión/tema
-      const targets = [
-        ".o_wsale_product_actions",         // v17/18 (tema estándar)
-        ".o_wsale_product_btns",            // v16
-        "form.o_wsale_buy_form .o_wsale_product_actions",
-        "form.o_wsale_buy_form .o_wsale_product_btns",
-        "form.o_wsale_buy_form",            // último recurso
-      ];
-
-      let target = null;
-      for (const sel of targets) {
-        target = document.querySelector(sel);
-        if (target) break;
-      }
-
-      if (target) {
-        target.appendChild(btn);
-        btn.classList.add('mt-3');
-        slot.classList.remove('d-none');
-      } else {
-        // Si no encontramos nada, mostramos el botón al final del wrap
-        slot.classList.remove('d-none');
-      }
-      return this._super(...arguments);
+publicWidget.registry.SPWPersonalizeBtn = publicWidget.Widget.extend({
+    selector: '#spw_personalize_btn',
+    events: {
+        click: '_onClick',
     },
-  });
+
+    /**
+     * Redirige al customizador con el product_id y el variant_id seleccionado
+     */
+    _onClick(ev) {
+        ev.preventDefault();
+        const productId = Number(ev.currentTarget.dataset.productId || 0);
+
+        // En el formulario hay un hidden con el variant_id actual
+        let variantId = 0;
+        const hiddenVariant = document.querySelector('input[name="product_id"]');
+        if (hiddenVariant) {
+            variantId = Number(hiddenVariant.value || 0);
+        }
+
+        const url = `/spw/customize/${productId}${variantId ? `?variant_id=${variantId}` : ''}`;
+        window.location.href = url;
+    },
 });
+
+export default publicWidget.registry.SPWPersonalizeBtn;
