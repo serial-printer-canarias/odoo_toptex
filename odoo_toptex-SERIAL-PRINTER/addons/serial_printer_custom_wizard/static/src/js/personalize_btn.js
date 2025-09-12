@@ -1,35 +1,36 @@
-/** @odoo-module **/
-import publicWidget from 'web.public.widget';
+/** Personalize button -> abre el personalizador */
+odoo.define('serial_printer_custom_wizard.personalize_btn', function (require) {
+    'use strict';
 
-publicWidget.registry.spwPersonalizeBtn = publicWidget.Widget.extend({
-    selector: '#spw_personalize_btn',
-    events: { click: '_onClick' },
+    const publicWidget = require('web.public.widget');
 
-    _onClick(ev) {
-        ev.preventDefault();
+    publicWidget.registry.SPWPersonalizeButton = publicWidget.Widget.extend({
+        selector: '#spw_personalize_btn',
+        events: {
+            'click': '_onClick',
+        },
 
-        // Form estándar de la ficha de producto
-        const $form = $('form.o_add_to_cart_form, form[name="add_to_cart"]');
+        _onClick: function (ev) {
+            ev.preventDefault();
 
-        // En Odoo 16/17/18 suele estar en product_id
-        const variantId =
-            $form.find('input[name="product_id"]').val() ||
-            $form.find('input[name="product_product_id"]').val();
+            // Obtiene variante seleccionada si existe
+            const $form = $('form.o_wsale_product_form, form#product_form');
+            const variantId = ($form.find('input.product_id:checked').val()
+                            || $form.find('input[name="product_id"]').val()
+                            || $form.find('input[name="product_template_id"]').val());
 
-        const tmplId =
-            $form.find('input[name="product_template_id"]').val() ||
-            $form.find('input[name="product_template"]').val();
+            // Imagen base (si podemos leerla del DOM)
+            const img = document.querySelector('.o_wsale_product_img img, img.js_product_img, img.product_detail_img');
+            const imgUrl = img ? img.getAttribute('src') : null;
 
-        // Ruta sin conflicto (también existe /shop/customize en el controlador)
-        let url = '/spw/customize';
-        const qs = [];
-        if (variantId) {
-            qs.push('variant_id=' + encodeURIComponent(variantId));
-        } else if (tmplId) {
-            qs.push('tmpl_id=' + encodeURIComponent(tmplId));
-        }
-        if (qs.length) url += '?' + qs.join('&');
+            const params = new URLSearchParams();
+            if (variantId) params.set('variant_id', variantId);
+            // por compatibilidad, enviamos también tmpl_id si existe en el form
+            const tmplId = $form.find('input[name="product_template_id"]').val();
+            if (tmplId) params.set('tmpl_id', tmplId);
+            if (imgUrl) params.set('image', imgUrl);
 
-        window.location.href = url;
-    },
+            window.location.href = '/spw/customize' + (params.toString() ? ('?' + params.toString()) : '');
+        },
+    });
 });
