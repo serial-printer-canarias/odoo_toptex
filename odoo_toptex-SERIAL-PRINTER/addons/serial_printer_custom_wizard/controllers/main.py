@@ -3,36 +3,51 @@ from odoo import http
 from odoo.http import request
 
 
-class SpwCustomizerController(http.Controller):
-    """Rutas públicas del personalizador"""
+class SPWCustomizer(http.Controller):
 
-    @http.route(['/spw/customize/<int:tmpl_id>'], type='http', auth='public', website=True, sitemap=False)
-    def spw_customize(self, tmpl_id, **kwargs):
+    @http.route('/shop/customize', type='http', auth='public', website=True, sitemap=False)
+    def spw_customize(self, variant_id=None, tmpl_id=None, product_id=None, **kw):
         """
-        Renderiza la página del personalizador para un product.template (tmpl_id).
-        Si viene ?variant_id= usa esa variante para la imagen.
+        Renderiza la página del personalizador.
+        - Si llega variant_id -> usa esa variante y su imagen.
+        - Si no, usa el template indicado (tmpl_id o product_id).
         """
-        # Producto (template) para el website actual
-        ProductTemplate = request.env['product.template'].with_context(
-            website_id=request.website.id
-        ).sudo()
-        template = ProductTemplate.browse(tmpl_id).exists()
-        if not template:
-            return request.not_found()
+        Product = request.env['product.product'].sudo()
+        Template = request.env['product.template'].sudo()
 
-        # Variante opcional
-        variant = False
-        vid = kwargs.get('variant_id')
-        try:
-            vid = int(vid) if vid else 0
-        except Exception:
-            vid = 0
-        if vid:
-            variant = request.env['product.product'].sudo().browse(vid).exists()
+        variant = None
+        template = None
+
+        # Normalizamos parámetros
+        def _to_int(v):
+            try:
+                return int(v)
+            except Exception:
+                return None
+
+        v_id = _to_int(variant_id)
+        t_id = _to_int(tmpl_id) or _to_int(product_id)
+
+        if v_id:
+            variant = Product.browse(v_id).exists()
+            if variant:
+                template = variant.product_tmpl_id
+        if not template and t_id:
+            template = Template.browse(t_id).exists()
+        if not template and not variant:
+            return request.redirect('/shop')
+
+        # URL de la imagen base (variante si hay, si no template)
+        if variant:
+            base_img_url = f'/web/image/product.product/{variant.id}/image_1024'
+        else:
+            base_img_url = f'/web/image/product.template/{template.id}/image_1024'
 
         values = {
+            # Compatibilidad con plantillas QWeb previas
             'product': template,
-            'product_variant': variant or False,
-            'variant_id': variant.id if variant else 0,
+            'product_tmpl': template,
+            'variant': variant,
+            'base_image_url': base_img_url,
         }
         return request.render('serial_printer_custom_wizard.spw_customize_page', values)
