@@ -1,48 +1,55 @@
-odoo.define('serial_printer_custom_wizard.customizer', function (require) {
-  'use strict';
-  const publicWidget = require('web.public.widget');
+/** @odoo-module **/
 
-  publicWidget.registry.SPWCustomizer = publicWidget.Widget.extend({
-    selector: '.spw-container',
-    start() {
-      const file = this.el.querySelector('#spw_file');
-      const logo = this.el.querySelector('#spw_logo');
-      const base = this.el.querySelector('#spw_base_img');
+// Lógica de previsualización; solo actúa si existe #spw_canvas
+document.addEventListener("DOMContentLoaded", () => {
+    const stage = document.querySelector("#spw_canvas");
+    if (!stage) return; // así no carga nada en el resto del sitio
 
-      if (file && logo) {
-        file.addEventListener('change', (e) => {
-          const f = e.target.files && e.target.files[0];
-          if (!f) return;
-          const reader = new FileReader();
-          reader.onload = (ev) => {
-            logo.src = ev.target.result;
-            logo.classList.remove('d-none');
-          };
-          reader.readAsDataURL(f);
-        });
-      }
+    const logo = stage.querySelector("#spw_logo_preview");
+    const fileInput = document.querySelector("#spw_logo_input");
+    const size = document.querySelector("#spw_size");
+    const rot = document.querySelector("#spw_rotate");
+    const posX = document.querySelector("#spw_posx");
+    const posY = document.querySelector("#spw_posy");
 
-      // Sliders
-      const scale = this.el.querySelector('#spw_scale');
-      const rot = this.el.querySelector('#spw_rotate');
-      const posX = this.el.querySelector('#spw_pos_x');
-      const posY = this.el.querySelector('#spw_pos_y');
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-      const apply = () => {
-        if (!logo) return;
-        const s = (scale ? Number(scale.value) : 100) / 100;
-        const r = rot ? Number(rot.value) : 0;
-        const x = posX ? Number(posX.value) : 50;
-        const y = posY ? Number(posY.value) : 50;
-        logo.style.left = x + '%';
-        logo.style.top = y + '%';
-        logo.style.transform = `translate(-50%, -50%) rotate(${r}deg) scale(${s})`;
-      };
-
-      [scale, rot, posX, posY].forEach(inp => inp && inp.addEventListener('input', apply));
-      apply();
-
-      return this._super(...arguments);
+    function update() {
+        if (!logo || !logo.dataset.loaded) return;
+        const s = (Number(size?.value || 70)) / 100;   // 0.1–1.5
+        const a = Number(rot?.value || 0);             // -180–180
+        const x = clamp(Number(posX?.value || 50), 0, 100);
+        const y = clamp(Number(posY?.value || 60), 0, 100);
+        logo.style.left = `${x}%`;
+        logo.style.top = `${y}%`;
+        logo.style.transform = `translate(-50%, -50%) rotate(${a}deg) scale(${s})`;
     }
-  });
+
+    fileInput?.addEventListener("change", (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (!f) return;
+
+        const url = URL.createObjectURL(f);
+        logo.src = url;
+        logo.classList.remove("d-none");
+        logo.dataset.loaded = "1";
+        logo.onload = () => URL.revokeObjectURL(url);
+        update();
+    });
+
+    [size, rot, posX, posY].forEach((el) => el?.addEventListener("input", update));
+
+    // Arrastrar el logo
+    let dragging = false;
+    logo?.addEventListener("mousedown", (ev) => { dragging = true; ev.preventDefault(); });
+    window.addEventListener("mouseup", () => { dragging = false; });
+    stage.addEventListener("mousemove", (ev) => {
+        if (!dragging) return;
+        const rect = stage.getBoundingClientRect();
+        const px = ((ev.clientX - rect.left) / rect.width) * 100;
+        const py = ((ev.clientY - rect.top) / rect.height) * 100;
+        if (posX) posX.value = clamp(px, 0, 100);
+        if (posY) posY.value = clamp(py, 0, 100);
+        update();
+    });
 });
