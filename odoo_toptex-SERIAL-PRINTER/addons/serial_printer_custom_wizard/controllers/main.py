@@ -1,23 +1,37 @@
-# serial_printer_custom_wizard/controllers/main.py
+# -*- coding: utf-8 -*-
 from odoo import http
 from odoo.http import request
 
+
 class SPWController(http.Controller):
 
-    @http.route("/spw/customize/<int:product_id>", type="http", auth="public", website=True, sitemap=False)
-    def spw_customize(self, product_id, **kw):
-        product = request.env["product.template"].sudo().browse(product_id)
-        variant_id = int(kw.get("variant_id") or 0)
+    @http.route(
+        '/spw/customize/<int:product_tmpl_id>',
+        type='http', auth='public', website=True, csrf=False
+    )
+    def spw_customize(self, product_tmpl_id, variant_id=None, **kw):
+        ProductTmpl = request.env['product.template'].sudo()
+        Product = request.env['product.product'].sudo()
 
+        tmpl = ProductTmpl.browse(product_tmpl_id)
+        if not tmpl.exists():
+            return request.not_found()
+
+        variant = None
         if variant_id:
-            variant = request.env["product.product"].sudo().browse(variant_id)
-            if not variant.exists():
-                variant = product.product_variant_id
-        else:
-            variant = product.product_variant_id
+            try:
+                v = Product.browse(int(variant_id))
+                if v.exists() and v.product_tmpl_id.id == product_tmpl_id:
+                    variant = v
+            except Exception:
+                variant = None
+        if not variant:
+            variant = tmpl.product_variant_id
 
         values = {
-            "product": product,
-            "variant": variant,
+            'product_tmpl': tmpl,
+            'variant': variant,
         }
-        return request.render("serial_printer_custom_wizard.customizer_page", values)
+        return request.render(
+            'serial_printer_custom_wizard.spw_customizer_page', values
+        )
