@@ -1,192 +1,137 @@
-/** Serial Printer – Customizer (preview + sliders + color svg)
- * Requiere que en la página existan:
- *  - #spw_canvas (contenedor del producto, position:relative)
- *  - #spw_product_img (imagen del producto/variante)
- *  - #spw_logo_file (input type="file")
- *  - #spw_scale, #spw_rotation, #spw_pos_x, #spw_pos_y (range inputs)
- *  - Botones de color opcionales con atributo data-spw-color="#RRGGBB"
- */
+/** serial_printer_custom_wizard/static/src/js/customizer.js **/
 odoo.define('serial_printer_custom_wizard.customizer', function (require) {
     'use strict';
-    const publicWidget = require('web.public.widget');
 
+    const publicWidget = require('web.public.widget');
+    const domReady = require('web.dom_ready');
+
+    function clamp(n, min, max) { return Math.min(Math.max(n, min), max); }
+
+    // Widget del personalizador (solo se activa si existe el contenedor)
     publicWidget.registry.SPWCustomizer = publicWidget.Widget.extend({
         selector: '.spw-customizer',
-
         start() {
-            // DOM
-            this.$canvas    = this.$('#spw_canvas');
-            this.$prodImg   = this.$('#spw_product_img');
-            this.$file      = this.$('#spw_logo_file');
+            // Elementos del DOM (si alguno no existe, no hacemos nada y no rompemos nada)
+            this.stage = this.el.querySelector('.spw-stage');
+            this.baseImg = this.el.querySelector('#spw_product_img');
+            this.logoImg = this.el.querySelector('#spw_logo_preview');
+            this.fileInput = this.el.querySelector('#spw_logo_input');
 
-            this.$scale     = this.$('#spw_scale');
-            this.$rotation  = this.$('#spw_rotation');
-            this.$posX      = this.$('#spw_pos_x');
-            this.$posY      = this.$('#spw_pos_y');
+            this.rangeSize  = this.el.querySelector('#spw_size');
+            this.rangeRot   = this.el.querySelector('#spw_rotate');
+            this.rangePosX  = this.el.querySelector('#spw_pos_x');
+            this.rangePosY  = this.el.querySelector('#spw_pos_y');
 
-            this.$colorBtns = this.$('[data-spw-color]');
-
-            // Estado
-            this.$logo      = null;   // contenedor del logo (DIV con <img> o <svg> dentro)
-            this.logoType   = null;   // 'img' | 'svg'
-
-            // Asegurar position:relative en el canvas
-            if (this.$canvas.length && this.$canvas.css('position') === 'static') {
-                this.$canvas.css('position', 'relative');
+            if (!this.stage || !this.baseImg || !this.logoImg || !this.fileInput) {
+                return this._super.apply(this, arguments);
             }
 
-            // Bindings
-            this._bindEvents();
+            // Estado
+            this.state = {
+                scale: parseFloat(this.rangeSize?.value || '1'),
+                rot:   parseFloat(this.rangeRot?.value  || '0'),
+                x:     parseFloat(this.rangePosX?.value || '0'),
+                y:     parseFloat(this.rangePosY?.value || '0'),
+            };
+
+            // Listeners
+            this.fileInput.addEventListener('change', (e) => this._onSelectFile(e));
+            this.rangeSize && this.rangeSize.addEventListener('input', () => this._updateTransform());
+            this.rangeRot  && this.rangeRot.addEventListener('input', () => this._updateTransform());
+            this.rangePosX && this.rangePosX.addEventListener('input', () => this._updateTransform());
+            this.rangePosY && this.rangePosY.addEventListener('input', () => this._updateTransform());
+
+            // Drag para mover el logo
+            this._enableDrag();
+
+            // Asegura que el logo esté oculto hasta que haya imagen
+            this.logoImg.style.display = 'none';
+
             return this._super.apply(this, arguments);
         },
 
-        _bindEvents() {
-            this.$file.on('change', (ev) => this._onSelectFile(ev));
-
-            const apply = () => this._applyTransform();
-            this.$scale.on('input change', apply);
-            this.$rotation.on('input change', apply);
-            this.$posX.on('input change', apply);
-            this.$posY.on('input change', apply);
-
-            // Drag & drop del logo
-            this.$canvas.on('mousedown touchstart', '#spw_logo_preview', (ev) => this._startDrag(ev));
-
-            // Color (para SVG; en bitmap se intenta un tinte simple)
-            this.$colorBtns.on('click', (ev) => {
-                const color = String($(ev.currentTarget).data('spw-color') || '').trim();
-                if (color) this._setColor(color);
-            });
-        },
-
-        _ensureLogoContainer() {
-            if (this.$logo && this.$logo.length) return;
-
-            this.$logo = $('<div/>', {
-                id: 'spw_logo_preview',
-                css: {
-                    position: 'absolute',
-                    left: '50%',
-                    top: '50%',
-                    width: '150px',
-                    height: '150px',
-                    transform: 'translate(-50%, -50%)',
-                    'transform-origin': 'center center',
-                    'pointer-events': 'auto',
-                    'touch-action': 'none',
-                },
-            });
-            this.$canvas.append(this.$logo);
-        },
-
-        async _onSelectFile(ev) {
-            const file = ev.currentTarget.files && ev.currentTarget.files[0];
+        _onSelectFile(ev) {
+            const file = ev.target.files && ev.target.files[0];
             if (!file) return;
 
-            this._ensureLogoContainer();
-
-            if (file.type === 'image/svg+xml') {
-                // Inline SVG para poder recolorear
-                const text = await file.text();
-                const cleaned = text
-                    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
-                    .replace(/<foreignObject[\s\S]*?>[\s\S]*?<\/foreignObject>/gi, '');
-                this.logoType = 'svg';
-                this.$logo.empty().append($(cleaned).attr({ width: '100%', height: '100%' }));
-            } else {
-                // PNG/JPG
-                this.logoType = 'img';
-                const url = URL.createObjectURL(file);
-                const $img = $('<img/>', {
-                    src: url,
-                    css: { width: '100%', height: '100%', 'object-fit': 'contain' },
-                });
-                this.$logo.empty().append($img);
-            }
-
-            // Colocar en el centro y aplicar sliders actuales
-            this._applyTransform();
-        },
-
-        _applyTransform() {
-            if (!this.$logo) return;
-
-            const scale = parseFloat(this.$scale.val() || '1');
-            const rot   = parseFloat(this.$rotation.val() || '0');
-            const px    = parseFloat(this.$posX.val() || '0');   // rango esperado: -100..100
-            const py    = parseFloat(this.$posY.val() || '0');
-
-            const w = this.$canvas.outerWidth();
-            const h = this.$canvas.outerHeight();
-            const x = (w / 2) + (px / 100) * (w / 2);
-            const y = (h / 2) + (py / 100) * (h / 2);
-
-            this.$logo.css({ left: `${x}px`, top: `${y}px` });
-            this.$logo.css('transform', `translate(-50%, -50%) rotate(${rot}deg) scale(${scale})`);
-        },
-
-        _setColor(hex) {
-            if (!this.$logo) return;
-
-            if (this.logoType === 'svg') {
-                // Cambiar fill/stroke en todos los nodos del SVG
-                this.$logo.find('*').each(function () {
-                    const $n = $(this);
-                    if ($n.attr('fill') && $n.attr('fill') !== 'none') $n.attr('fill', hex);
-                    if ($n.attr('stroke') && $n.attr('stroke') !== 'none') $n.attr('stroke', hex);
-                });
-            } else {
-                // Tinte simple para bitmaps (no perfecto pero útil para preview)
-                this.$logo.css({
-                    filter: 'brightness(0) saturate(100%)',
-                    'background-color': hex,
-                    'mix-blend-mode': 'multiply',
-                });
+            try {
+                const objectUrl = URL.createObjectURL(file);
+                this.logoImg.onload = () => {
+                    // Tamaño base: 30% del ancho del stage
+                    this.logoImg.style.width = '30%';
+                    this.logoImg.style.display = 'block';
+                    URL.revokeObjectURL(objectUrl);
+                    // Recentramos un poco
+                    if (this.rangeSize)  this.rangeSize.value = '1';
+                    if (this.rangeRot)   this.rangeRot.value = '0';
+                    if (this.rangePosX)  this.rangePosX.value = '0';
+                    if (this.rangePosY)  this.rangePosY.value = '0';
+                    this.state = { scale:1, rot:0, x:0, y:0 };
+                    this._updateTransform();
+                };
+                this.logoImg.src = objectUrl;
+            } catch (e) {
+                // Nunca romper la web
+                console.error('SPW preview error:', e);
             }
         },
 
-        // ---- Drag support ---------------------------------------------------
-        _startDrag(ev) {
-            ev.preventDefault();
-            const start = this._point(ev);
-            const startLeft = parseFloat(this.$logo.css('left'));
-            const startTop  = parseFloat(this.$logo.css('top'));
+        _updateTransform() {
+            // Leemos sliders (con fallback)
+            const s = parseFloat(this.rangeSize?.value || this.state.scale);
+            const r = parseFloat(this.rangeRot?.value  || this.state.rot);
+            const x = parseFloat(this.rangePosX?.value || this.state.x);
+            const y = parseFloat(this.rangePosY?.value || this.state.y);
 
-            const move = (e) => {
-                const p = this._point(e);
-                const dx = p.x - start.x;
-                const dy = p.y - start.y;
-                this.$logo.css({ left: `${startLeft + dx}px`, top: `${startTop + dy}px` });
-                this._syncSlidersWithLogo();
+            // Guards
+            this.state.scale = clamp(s, 0.1, 3);
+            this.state.rot   = clamp(r, -180, 180);
+            this.state.x     = clamp(x, -100, 100);
+            this.state.y     = clamp(y, -100, 100);
+
+            // Aplicamos transform: translate en % relativo al contenedor
+            this.logoImg.style.transform =
+                `translate(${this.state.x}%, ${this.state.y}%) rotate(${this.state.rot}deg) scale(${this.state.scale})`;
+            this.logoImg.style.transformOrigin = 'center center';
+        },
+
+        _enableDrag() {
+            let dragging = false, startX = 0, startY = 0;
+
+            const onDown = (e) => {
+                if (this.logoImg.style.display === 'none') return;
+                dragging = true;
+                const p = this._pointer(e);
+                startX = p.x; startY = p.y;
+                e.preventDefault();
             };
-            const up = () => {
-                $(document).off('mousemove touchmove', move);
-                $(document).off('mouseup touchend', up);
+            const onMove = (e) => {
+                if (!dragging) return;
+                const p = this._pointer(e);
+                const rect = this.stage.getBoundingClientRect();
+                const dx = ((p.x - startX) / rect.width) * 100;
+                const dy = ((p.y - startY) / rect.height) * 100;
+                startX = p.x; startY = p.y;
+                if (this.rangePosX) this.rangePosX.value = (parseFloat(this.rangePosX.value || '0') + dx).toString();
+                if (this.rangePosY) this.rangePosY.value = (parseFloat(this.rangePosY.value || '0') + dy).toString();
+                this._updateTransform();
             };
+            const onUp = () => { dragging = false; };
 
-            $(document).on('mousemove touchmove', move);
-            $(document).on('mouseup touchend', up);
+            this.logoImg.addEventListener('mousedown', onDown);
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+
+            this.logoImg.addEventListener('touchstart', onDown, {passive:false});
+            document.addEventListener('touchmove', onMove, {passive:false});
+            document.addEventListener('touchend', onUp);
         },
 
-        _point(ev) {
-            const oe = ev.originalEvent || ev;
-            if (oe.touches && oe.touches[0]) {
-                return { x: oe.touches[0].clientX, y: oe.touches[0].clientY };
-            }
-            return { x: oe.clientX || 0, y: oe.clientY || 0 };
-        },
-
-        _syncSlidersWithLogo() {
-            const w = this.$canvas.outerWidth();
-            const h = this.$canvas.outerHeight();
-            const x = parseFloat(this.$logo.css('left')) - (w / 2);
-            const y = parseFloat(this.$logo.css('top'))  - (h / 2);
-            const px = (x / (w / 2)) * 100;
-            const py = (y / (h / 2)) * 100;
-            if (this.$posX.length) this.$posX.val(px).trigger('change');
-            if (this.$posY.length) this.$posY.val(py).trigger('change');
+        _pointer(e) {
+            if (e.touches && e.touches[0]) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            return { x: e.clientX, y: e.clientY };
         },
     });
 
-    return publicWidget.registry.SPWCustomizer;
+    domReady(() => {/* vacío: el widget se auto-registra */});
 });
