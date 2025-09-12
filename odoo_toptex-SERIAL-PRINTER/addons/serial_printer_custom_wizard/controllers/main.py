@@ -2,7 +2,6 @@
 from odoo import http
 from odoo.http import request
 
-
 class SPWController(http.Controller):
 
     @http.route(
