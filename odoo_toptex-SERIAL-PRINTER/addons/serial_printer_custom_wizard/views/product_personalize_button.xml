@@ -1,16 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <!-- Inserta el botón en la ficha del producto (debajo de acciones) -->
-  <template id="spw_personalize_button" name="SPW: Botón Personalizar (Product Page)"
+  <!-- Botón "Personalizar" en la página de producto (anclaje seguro) -->
+  <template id="spw_personalize_button"
+            name="SPW: Botón Personalizar (Product Page)"
             inherit_id="website_sale.product">
-    <xpath expr="//div[contains(concat(' ', normalize-space(@class), ' '), ' o_wsale_product_actions ')]"
-           position="inside">
-      <!-- href se queda en #, la navegación la hace JS para construir bien la URL -->
-      <a id="spw_personalize_btn" href="#"
-         class="btn btn-primary mt-3" role="button">
-        <i class="fa fa-magic me-1"/>
-        <span>Personalizar</span>
-      </a>
+
+    <!-- Insertamos un slot SIEMPRE presente para no romper la vista -->
+    <xpath expr="//div[@id='wrap']" position="inside">
+      <div id="spw_personalize_slot"
+           class="d-none"
+           t-att-data-ptmpl="product and product.product_tmpl_id.id or (product_template and product_template.id)">
+        <a id="spw_personalize_btn"
+           class="btn btn-primary"
+           href="#"
+           role="button"
+           data-spw="personalize">
+          <i class="fa fa-magic me-1"/>
+          <span>Personalizar</span>
+        </a>
+      </div>
     </xpath>
   </template>
 </odoo>
