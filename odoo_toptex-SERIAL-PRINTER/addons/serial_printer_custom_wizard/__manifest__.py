@@ -6,11 +6,7 @@
     "category": "Website/Commerce",
     "author": "Serial Printer",
     "license": "LGPL-3",
-    "depends": [
-        "website",
-        "website_sale",
-        "product"
-    ],
+    "depends": ["website", "website_sale", "product"],
     "data": [
         "views/customizer_page.xml",
         "views/personalizacion_form.xml",
