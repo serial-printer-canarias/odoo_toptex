@@ -1,36 +1,38 @@
-# addons/serial_printer_custom_wizard/controllers/main.py
+# -*- coding: utf-8 -*-
 from odoo import http
 from odoo.http import request
 
-class SPWCustomizeController(http.Controller):
 
-    @http.route(['/personalizar/<int:product_tmpl_id>'], type='http', auth='public', website=True, sitemap=False)
-    def customize(self, product_tmpl_id, variant_id=None, **kw):
-        """Página de personalización.
-        product_tmpl_id -> product.template.id
-        variant_id (opcional) -> product.product.id
+class SpwCustomizerController(http.Controller):
+    """Rutas públicas del personalizador"""
+
+    @http.route(['/spw/customize/<int:tmpl_id>'], type='http', auth='public', website=True, sitemap=False)
+    def spw_customize(self, tmpl_id, **kwargs):
         """
-        ProductTemplate = request.env['product.template'].sudo()
-        ProductProduct = request.env['product.product'].sudo()
-
-        product = ProductTemplate.browse(product_tmpl_id)
-        if not product.exists():
+        Renderiza la página del personalizador para un product.template (tmpl_id).
+        Si viene ?variant_id= usa esa variante para la imagen.
+        """
+        # Producto (template) para el website actual
+        ProductTemplate = request.env['product.template'].with_context(
+            website_id=request.website.id
+        ).sudo()
+        template = ProductTemplate.browse(tmpl_id).exists()
+        if not template:
             return request.not_found()
 
-        variant = None
-        if variant_id:
-            v = ProductProduct.browse(int(variant_id))
-            if v.exists() and v.product_tmpl_id.id == product.id:
-                variant = v
-
-        # Fallback: primera combinación posible si no se pasa variant_id
-        if not variant:
-            variant = product._get_first_possible_variant()
+        # Variante opcional
+        variant = False
+        vid = kwargs.get('variant_id')
+        try:
+            vid = int(vid) if vid else 0
+        except Exception:
+            vid = 0
+        if vid:
+            variant = request.env['product.product'].sudo().browse(vid).exists()
 
         values = {
-            'product': product,
-            'variant': variant,
+            'product': template,
+            'product_variant': variant or False,
+            'variant_id': variant.id if variant else 0,
         }
-        # ****** IMPORTANTE ******
-        # Renderizar el XML-ID correcto del template:
-        return request.render("serial_printer_custom_wizard.spw_customize_page", values)
+        return request.render('serial_printer_custom_wizard.spw_customize_page', values)
