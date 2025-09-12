@@ -1,54 +1,63 @@
-// serial_printer_custom_wizard/static/src/js/customizer.js
-// Vanilla JS seguro: solo actúa en la página del configurador
 (function () {
-  function ready(fn) {
-    if (document.readyState !== 'loading') fn();
-    else document.addEventListener('DOMContentLoaded', fn);
+  function qs(id) { return document.getElementById(id); }
+
+  const imgLogo   = qs("spw_logo_preview");
+  const inputFile = qs("spw_logo_file");
+  const rSize     = qs("spw_size");
+  const rRot      = qs("spw_rotate");
+  const rX        = qs("spw_pos_x");
+  const rY        = qs("spw_pos_y");
+
+  function render() {
+    if (!imgLogo || imgLogo.classList.contains("d-none")) return;
+    const s  = parseFloat(rSize.value || "0.7");
+    const r  = parseFloat(rRot.value || "0");
+    const px = parseFloat(rX.value || "50");
+    const py = parseFloat(rY.value || "60");
+
+    imgLogo.style.left = px + "%";
+    imgLogo.style.top  = py + "%";
+    imgLogo.style.transform = `translate(-50%, -50%) scale(${s}) rotate(${r}deg)`;
   }
 
-  ready(function () {
-    var canvas = document.getElementById('spw_canvas');
-    if (!canvas) return; // no estamos en la página del configurador
-
-    var imgLogo = document.getElementById('spw_logo_preview');
-    var input   = document.getElementById('spw_logo_input');
-    var size    = document.getElementById('spw_size');
-    var rot     = document.getElementById('spw_rotate');
-    var posx    = document.getElementById('spw_posx');
-    var posy    = document.getElementById('spw_posy');
-
-    function applyTransform() {
-      var s = (parseInt(size && size.value || '70', 10)) / 100;
-      var r = parseInt(rot && rot.value || '0', 10);
-      var x = parseInt(posx && posx.value || '50', 10);
-      var y = parseInt(posy && posy.value || '60', 10);
-
-      imgLogo.style.left = x + '%';
-      imgLogo.style.top  = y + '%';
-      imgLogo.style.transform = 'translate(-50%, -50%) scale(' + s + ') rotate(' + r + 'deg)';
-    }
-
-    [size, rot, posx, posy].forEach(function (el) {
-      if (el) el.addEventListener('input', applyTransform);
+  // Cargar imagen (PNG/JPG/SVG) via FileReader como DataURL
+  if (inputFile) {
+    inputFile.addEventListener("change", function (e) {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = function () {
+        imgLogo.src = reader.result;
+        imgLogo.classList.remove("d-none");
+        render();
+      };
+      reader.readAsDataURL(f);
     });
+  }
 
-    if (input) {
-      input.addEventListener('change', function (ev) {
-        var file = ev.target.files && ev.target.files[0];
-        if (!file) return;
-
-        // Limpia el blob anterior si lo hubiera
-        if (imgLogo.dataset.url) {
-          URL.revokeObjectURL(imgLogo.dataset.url);
-          delete imgLogo.dataset.url;
-        }
-
-        var url = URL.createObjectURL(file);
-        imgLogo.dataset.url = url;
-        imgLogo.src = url;
-        imgLogo.classList.remove('d-none');
-        applyTransform();
-      });
-    }
+  [rSize, rRot, rX, rY].forEach(function (el) {
+    if (el) el.addEventListener("input", render);
   });
+
+  // Volver
+  const back = qs("spw_back");
+  if (back) {
+    back.addEventListener("click", function (e) {
+      e.preventDefault();
+      if (history.length > 1) history.back();
+      else window.location.href = "/shop";
+    });
+  }
+
+  // Añadir al carrito (sin guardar aún la imagen; se añade la variante)
+  const add = qs("spw_add_to_cart");
+  if (add) {
+    add.addEventListener("click", function (e) {
+      e.preventDefault();
+      const variantId = add.dataset.variantId || add.dataset.fallbackVariantId;
+      if (!variantId) return;
+      // Redirección simple al endpoint estándar
+      window.location.href = `/shop/cart/update?product_id=${variantId}&add_qty=1`;
+    });
+  }
 })();
