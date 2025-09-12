@@ -1,39 +1,17 @@
-// Vanilla JS para previsualizar el logo y moverlo/rotarlo/escalar.
-(function () {
-  const root = document.getElementById('spw_canvas');
-  if (!root) return; // no cargar nada fuera de la página de personalización
+/** preview local del logo **/
+document.addEventListener('DOMContentLoaded', () => {
+  const file = document.getElementById('spw_logo_input');
+  const preview = document.getElementById('spw_logo_preview');
+  if (!file || !preview) return;
 
-  const file = document.getElementById('spw_logo_file');
-  const overlay = document.getElementById('spw_logo_preview');
-
-  const size = document.getElementById('spw_size');
-  const rot = document.getElementById('spw_rot');
-  const posx = document.getElementById('spw_posx');
-  const posy = document.getElementById('spw_posy');
-
-  function applyTransform() {
-    const s = (parseFloat(size?.value) || 100) / 100;
-    const r = parseFloat(rot?.value) || 0;
-    const x = parseFloat(posx?.value) || 0;
-    const y = parseFloat(posy?.value) || 0;
-    overlay.style.transform =
-      `translate(-50%,-50%) translate(${x}%, ${y}%) rotate(${r}deg) scale(${s})`;
-  }
-
-  [size, rot, posx, posy].forEach(el => el && el.addEventListener('input', applyTransform));
-
-  if (file) {
-    file.addEventListener('change', (ev) => {
-      const f = ev.target.files && ev.target.files[0];
-      if (!f) return;
-
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        overlay.src = e.target.result;   // data URL
-        overlay.classList.remove('d-none');
-        applyTransform();
-      };
-      reader.readAsDataURL(f);
-    });
-  }
-})();
+  file.addEventListener('change', e => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) { preview.removeAttribute('src'); preview.classList.add('d-none'); return; }
+    const reader = new FileReader();
+    reader.onload = evt => {
+      preview.src = evt.target.result;
+      preview.classList.remove('d-none');
+    };
+    reader.readAsDataURL(f);
+  });
+});
