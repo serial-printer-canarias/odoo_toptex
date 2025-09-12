@@ -2,7 +2,7 @@
 {
     "name": "Serial Printer - Custom Wizard",
     "summary": "Personalización de productos en eCommerce",
-    "version": "18.0.1.0.4",
+    "version": "18.0.1.0.0",
     "category": "Website/Commerce",
     "author": "Serial Printer",
     "license": "LGPL-3",
