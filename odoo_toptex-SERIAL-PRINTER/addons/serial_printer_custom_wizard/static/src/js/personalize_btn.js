@@ -3,9 +3,7 @@ import publicWidget from 'web.public.widget';
 
 publicWidget.registry.spwPersonalizeBtn = publicWidget.Widget.extend({
     selector: '#spw_personalize_btn',
-    events: {
-        'click': '_onClick',
-    },
+    events: { click: '_onClick' },
 
     _onClick(ev) {
         ev.preventDefault();
@@ -22,17 +20,16 @@ publicWidget.registry.spwPersonalizeBtn = publicWidget.Widget.extend({
             $form.find('input[name="product_template_id"]').val() ||
             $form.find('input[name="product_template"]').val();
 
-        // Usamos la ruta sin conflicto
+        // Ruta sin conflicto (también existe /shop/customize en el controlador)
         let url = '/spw/customize';
-        const params = [];
+        const qs = [];
         if (variantId) {
-            params.push('variant_id=' + encodeURIComponent(variantId));
+            qs.push('variant_id=' + encodeURIComponent(variantId));
         } else if (tmplId) {
-            params.push('tmpl_id=' + encodeURIComponent(tmplId));
+            qs.push('tmpl_id=' + encodeURIComponent(tmplId));
         }
-        if (params.length) {
-            url += '?' + params.join('&');
-        }
+        if (qs.length) url += '?' + qs.join('&');
+
         window.location.href = url;
     },
 });
