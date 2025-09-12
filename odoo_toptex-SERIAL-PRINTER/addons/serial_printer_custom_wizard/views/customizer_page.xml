@@ -1,60 +1,48 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <template id="spw_customizer_page" name="SPW: Página de Personalización">
+  <template id="spw_customizer_page" name="SPW Customizer Page">
     <t t-call="website.layout">
-      <div class="container py-4">
-        <div class="row g-4">
-          <!-- Lienzo de previsualización -->
-          <div class="col-12 col-lg-7">
+      <div id="wrap" class="container py-4 spw-customizer">
+        <div class="row">
+          <!-- Lienzo -->
+          <div class="col-12 col-lg-8 mb-4">
             <div id="spw_canvas" class="spw-stage">
-              <!-- Imagen de la variante seleccionada -->
-              <img id="spw_product_img"
-                   class="spw-base"
-                   t-att-src="'/web/image/product.product/%s/image_1024' % variant.id"
-                   alt="Producto"/>
-              <!-- Logo subido por el usuario -->
-              <img id="spw_logo_preview"
-                   class="spw-overlay d-none"
-                   src=""
-                   alt="Logo"/>
+              <t t-if="variant">
+                <img id="spw_product_img"
+                     class="spw-base"
+                     t-att-src="'/web/image/product.product/%s/image_1920' % variant.id"/>
+              </t>
+              <t t-else="">
+                <img id="spw_product_img"
+                     class="spw-base"
+                     t-att-src="'/web/image/product.template/%s/image_1920' % product_template.id"/>
+              </t>
+              <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="logo preview"/>
             </div>
           </div>
 
           <!-- Controles -->
-          <div class="col-12 col-lg-5">
-            <div class="card">
+          <div class="col-12 col-lg-4">
+            <form id="spw_form" class="card" method="post" action="/spw/add_to_cart" enctype="multipart/form-data">
               <div class="card-body">
-                <h5 class="mb-3">Subir logo (PNG/JPG/SVG)</h5>
-                <input id="spw_logo_file" type="file"
-                       class="form-control mb-4"
-                       accept=".png,.jpg,.jpeg,.svg"/>
+                <!-- ids ocultos -->
+                <input type="hidden" name="tmpl_id" t-att-value="product_template.id"/>
+                <input type="hidden" name="variant_id" t-att-value="variant and variant.id or ''"/>
+                <input type="hidden" id="spw_size_hidden"     name="spw_size"/>
+                <input type="hidden" id="spw_rotation_hidden" name="spw_rotation"/>
+                <input type="hidden" id="spw_posx_hidden"     name="spw_pos_x"/>
+                <input type="hidden" id="spw_posy_hidden"     name="spw_pos_y"/>
+                <input type="hidden" id="spw_color_hidden"    name="spw_color"/>
+                <input type="hidden" id="spw_ptype_hidden"    name="spw_ptype"/>
 
-                <label class="form-label">Tamaño</label>
-                <input id="spw_size" type="range" class="form-range mb-3"
-                       min="30" max="200" value="100"/>
+                <!-- Tipo de personalización (simple, como lo tenías) -->
+                <div class="mb-3">
+                  <label class="form-label d-block">Tipo de personalización</label>
+                  <div class="btn-group" role="group">
+                    <input type="radio" class="btn-check" name="spw_ptype_local" id="ptype_s" value="Serigrafía" checked="checked"/>
+                    <label class="btn btn-outline-secondary" for="ptype_s">Serigrafía</label>
 
-                <label class="form-label">Rotación</label>
-                <input id="spw_rot" type="range" class="form-range mb-3"
-                       min="-180" max="180" value="0"/>
+                    <input type="radio" class="btn-check" name="spw_ptype_local" id="ptype_h" value="HTV"/>
+                    <label class="btn btn-outline-secondary" for="ptype_h">HTV</label>
 
-                <label class="form-label">Posición X</label>
-                <input id="spw_posx" type="range" class="form-range mb-3"
-                       min="-50" max="50" value="0"/>
-
-                <label class="form-label">Posición Y</label>
-                <input id="spw_posy" type="range" class="form-range mb-4"
-                       min="-50" max="50" value="10"/>
-
-                <a t-att-href="'/shop/product/%s' % product_tmpl.id"
-                   class="btn btn-light me-2">← Volver</a>
-                <a href="#" class="btn btn-primary">
-                  Añadir al carrito con esta personalización
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </t>
-  </template>
-</odoo>
+                    <input type="radio" class="btn-check" name="spw_ptype_local" id="ptype_b" value="Bord
