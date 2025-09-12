@@ -30,7 +30,7 @@
               <!-- Tipo de personalización -->
               <h5 class="mb-2">Tipo de personalización</h5>
               <div class="btn-group w-100 mb-3" role="group" aria-label="types">
-                <input type="radio" class="btn-check" name="spw_type" id="spw_type_s" value="screen" checked/>
+                <input type="radio" class="btn-check" name="spw_type" id="spw_type_s" value="screen" checked="checked"/>
                 <label class="btn btn-outline-secondary" for="spw_type_s">Serigrafía</label>
 
                 <input type="radio" class="btn-check" name="spw_type" id="spw_type_dtf" value="dtf"/>
@@ -46,7 +46,7 @@
               <!-- Colores (demo) -->
               <h5 class="mb-2">Color</h5>
               <div class="d-flex gap-3 mb-3">
-                <input type="radio" class="btn-check" name="spw_color" id="spw_c_black" value="#000000" checked/>
+                <input type="radio" class="btn-check" name="spw_color" id="spw_c_black" value="#000000" checked="checked"/>
                 <label class="spw-color-dot" for="spw_c_black" style="background:#000000"></label>
 
                 <input type="radio" class="btn-check" name="spw_color" id="spw_c_white" value="#ffffff"/>
@@ -102,7 +102,7 @@
 
               <!-- Acciones -->
               <div class="d-flex gap-2">
-                <a class="btn btn-outline-secondary" t-att-href="product.website_url or '/shop'">&larr; Volver al producto</a>
+                <a class="btn btn-outline-secondary" t-att-href="product.website_url or '/shop'">← Volver al producto</a>
                 <button id="spw_add_to_cart" class="btn btn-primary flex-fill" type="button">
                   Añadir al carrito con esta personalización
                 </button>
