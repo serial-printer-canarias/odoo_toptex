@@ -1,98 +1,74 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <!-- Página del personalizador -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
-      <!-- Contexto para el editor de website -->
+      <!-- Requerido por Website para no romper editor -->
       <t t-set="pageName" t-value="'spw_customize_page'"/>
       <t t-set="main_object" t-value="product"/>
 
-      <div class="container my-5 spw-customizer">
-        <t t-if="product">
-          <div class="row g-4">
-            <!-- Lienzo / previsualización -->
-            <div class="col-12 col-lg-7">
-              <div id="spw_canvas" class="spw-canvas card p-3">
-                <!-- Imagen del producto (variante si hay, si no el template) -->
-                <img id="spw_product_img"
-                     class="img-fluid rounded"
-                     t-att-src="product_variant and ('/web/image/product.product/%s/image_1024' % product_variant.id) or ('/web/image/product.template/%s/image_1024' % product.id)"
-                     t-att-alt="product.name or 'Product'"/>
-                <!-- Overlay del logo subido -->
-                <img id="spw_logo_preview" class="spw-logo d-none" src="" alt="Logo preview"/>
+      <main id="wrap" class="oe_structure spw-customizer">
+        <div class="container py-4">
+          <t t-if="product">
+            <div class="row g-4">
+              <!-- Lienzo -->
+              <div class="col-12 col-lg-7">
+                <div id="spw_canvas" class="spw-canvas card p-3">
+                  <!-- Imagen del producto (si viene variante, ya la usaremos en el paso 2) -->
+                  <t t-if="product_variant">
+                    <img id="spw_product_img" class="img-fluid rounded"
+                         t-att-src="'/web/image/product.product/%s/image_1024' % product_variant.id"
+                         alt="Product"/>
+                  </t>
+                  <t t-else="">
+                    <img id="spw_product_img" class="img-fluid rounded"
+                         t-att-src="'/web/image/product.template/%s/image_1024' % product.id"
+                         alt="Product"/>
+                  </t>
+                  <!-- PREVIEW del logo -->
+                  <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
+                </div>
               </div>
-              <p class="text-muted mt-3">Arrastra el logo sobre la imagen para posicionarlo o usa los controles.</p>
-            </div>
 
-            <!-- Controles -->
-            <div class="col-12 col-lg-5">
-              <div class="card p-3">
-                <h5 class="mb-3">Tipo de personalización</h5>
-                <div class="btn-group w-100 mb-3" role="group" aria-label="Tipos">
-                  <button class="btn btn-outline-secondary active" type="button">Serigrafía</button>
-                  <button class="btn btn-outline-secondary" type="button">DTF</button>
-                  <button class="btn btn-outline-secondary" type="button">Bordado</button>
-                  <button class="btn btn-outline-secondary" type="button">Marcado en cuero</button>
-                </div>
+              <!-- Controles mínimos para el logo -->
+              <div class="col-12 col-lg-5">
+                <div class="card p-3">
+                  <h5 class="mb-3">Subir logo (PNG/JPG/SVG)</h5>
+                  <input id="spw_logo_input" type="file"
+                         accept="image/png,image/jpeg,image/svg+xml"
+                         class="form-control mb-3"/>
 
-                <h6 class="mb-2">Color</h6>
-                <div class="d-flex gap-3 mb-3">
-                  <button type="button" class="spw-color rounded-circle" style="background:#000" aria-label="Negro"></button>
-                  <button type="button" class="spw-color rounded-circle" style="background:#fff; border:1px solid #ccc" aria-label="Blanco"></button>
-                  <button type="button" class="spw-color rounded-circle" style="background:#2166f3" aria-label="Azul"></button>
-                  <button type="button" class="spw-color rounded-circle" style="background:#CF2A2A" aria-label="Rojo"></button>
-                </div>
+                  <div class="mb-3">
+                    <label class="form-label">Tamaño</label>
+                    <input id="spw_scale" type="range" min="10" max="300" step="1" value="100"
+                           class="form-range"/>
+                  </div>
 
-                <h6 class="mb-2">Posición rápida</h6>
-                <div class="row g-2 mb-3">
-                  <div class="col-6"><button class="btn btn-outline-secondary w-100" type="button" data-pos="left_chest">Pecho izq.</button></div>
-                  <div class="col-6"><button class="btn btn-outline-secondary w-100" type="button" data-pos="right_chest">Pecho dcha.</button></div>
-                  <div class="col-6"><button class="btn btn-outline-secondary w-100" type="button" data-pos="back">Espalda</button></div>
-                  <div class="col-6"><button class="btn btn-secondary w-100" type="button" data-pos="free">Libre</button></div>
-                </div>
+                  <div class="mb-3">
+                    <label class="form-label">Rotación</label>
+                    <input id="spw_rotate" type="range" min="-180" max="180" step="1" value="0"
+                           class="form-range"/>
+                  </div>
 
-                <div class="mb-3">
-                  <label class="form-label">Observaciones</label>
-                  <textarea class="form-control" id="spw_notes" rows="3"
-                            placeholder="Tamaño, número de tintas y detalles (p.ej. pecho y espalda)"></textarea>
-                </div>
+                  <div class="mb-3">
+                    <label class="form-label">Posición X</label>
+                    <input id="spw_pos_x" type="range" min="0" max="100" step="1" value="50"
+                           class="form-range"/>
+                  </div>
 
-                <div class="mb-3">
-                  <label for="spw_logo" class="form-label">Subir logo (PNG/JPG/SVG)</label>
-                  <input id="spw_logo" type="file" accept=".png,.jpg,.jpeg,.svg" class="form-control"/>
-                </div>
-
-                <div class="mb-3">
-                  <label class="form-label">Tamaño</label>
-                  <input id="spw_scale" type="range" min="20" max="200" value="100" class="form-range"/>
-                </div>
-                <div class="mb-3">
-                  <label class="form-label">Rotación</label>
-                  <input id="spw_rotate" type="range" min="-180" max="180" value="0" class="form-range"/>
-                </div>
-                <div class="mb-3">
-                  <label class="form-label">Posición X</label>
-                  <input id="spw_pos_x" type="range" min="0" max="100" value="50" class="form-range"/>
-                </div>
-                <div class="mb-4">
-                  <label class="form-label">Posición Y</label>
-                  <input id="spw_pos_y" type="range" min="0" max="100" value="50" class="form-range"/>
-                </div>
-
-                <div class="d-flex justify-content-between">
-                  <a t-att-href="product.website_url" class="btn btn-light">← Volver al producto</a>
-                  <button id="spw_add_to_cart" class="btn btn-primary">
-                    Añadir al carrito con esta personalización
-                  </button>
+                  <div class="mb-3">
+                    <label class="form-label">Posición Y</label>
+                    <input id="spw_pos_y" type="range" min="0" max="100" step="1" value="50"
+                           class="form-range"/>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        </t>
-        <t t-if="not product">
-          <div class="alert alert-danger">Producto no encontrado.</div>
-        </t>
-      </div>
+          </t>
+          <t t-else="">
+            <div class="alert alert-danger">Producto no encontrado.</div>
+          </t>
+        </div>
+      </main>
     </t>
   </template>
 </odoo>
