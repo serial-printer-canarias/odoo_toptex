@@ -1,53 +1,122 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+  <!-- Página del personalizador -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
 
-      <main id="wrap" class="container py-4 spw-customizer">
-        <div class="row g-4">
-          <!-- Vista previa -->
-          <div class="col-12 col-lg-7">
-            <div class="card p-3 spw-canvas">
-              <img id="spw_product_img"
-                   class="img-fluid rounded"
-                   t-att-src="variant_id and ('/web/image/product.product/%s/image_1024' % variant_id) or ('/web/image/product.template/%s/image_1024' % product_template.id)"
-                   alt="Producto"/>
-              <img id="spw_logo_img" class="spw-logo d-none" alt="Logo"/>
+      <div class="container py-5 spw-customizer">
+        <t t-if="product">
+          <div class="row g-4">
+
+            <!-- Lienzo / previsualización -->
+            <div class="col-12 col-lg-7">
+              <div id="spw_canvas"
+                   style="position:relative;background:#fff;border-radius:12px;padding:16px;text-align:center;">
+                <!-- Imagen del producto (si hay variante, usa su imagen; si no, la del template) -->
+                <img id="spw_product_img"
+                     class="img-fluid"
+                     t-att-alt="product.name or ''"
+                     t-att-src="variant and ('/web/image/product.product/%s/image_1024' % variant.id) or ('/web/image/product.template/%s/image_1024' % product.id)"/>
+
+                <!-- Logo subido (se muestra al elegir archivo) -->
+                <img id="spw_logo_overlay" src=""
+                     alt="logo overlay"
+                     style="position:absolute;left:50%;top:50%;
+                            transform:translate(-50%,-50%) scale(0.6) rotate(0deg);
+                            transform-origin:center center;
+                            max-width:75%;max-height:75%;
+                            display:none;pointer-events:none;border:none;"/>
+              </div>
+              <p class="text-muted mt-3">Arrastra el logo sobre la imagen para posicionarlo o usa los controles.</p>
+            </div>
+
+            <!-- Controles -->
+            <div class="col-12 col-lg-5">
+              <form id="spw_form">
+
+                <!-- Tipo de personalización -->
+                <h5 class="mb-2">Tipo de personalización</h5>
+                <div class="btn-group w-100 mb-3" role="group" aria-label="Tipo de personalización">
+                  <input class="btn-check" type="radio" name="spw_tech" id="spw_tech_screen" value="serigrafia" checked="checked"/>
+                  <label class="btn btn-outline-secondary" for="spw_tech_screen">Serigrafía</label>
+
+                  <input class="btn-check" type="radio" name="spw_tech" id="spw_tech_dtf" value="dtf"/>
+                  <label class="btn btn-outline-secondary" for="spw_tech_dtf">DTF</label>
+
+                  <input class="btn-check" type="radio" name="spw_tech" id="spw_tech_emb" value="bordado"/>
+                  <label class="btn btn-outline-secondary" for="spw_tech_emb">Bordado</label>
+
+                  <input class="btn-check" type="radio" name="spw_tech" id="spw_tech_leather" value="cuero"/>
+                  <label class="btn btn-outline-secondary" for="spw_tech_leather">Marcado en cuero</label>
+                </div>
+
+                <!-- Colores (UI) -->
+                <h5 class="mb-2">Color</h5>
+                <div class="d-flex align-items-center gap-3 mb-3">
+                  <input class="btn-check" type="radio" name="spw_color" id="spw_color_black" value="#000000" checked="checked"/>
+                  <label class="btn rounded-circle border" for="spw_color_black"
+                         style="width:28px;height:28px;background:#000;"></label>
+
+                  <input class="btn-check" type="radio" name="spw_color" id="spw_color_white" value="#FFFFFF"/>
+                  <label class="btn rounded-circle border" for="spw_color_white"
+                         style="width:28px;height:28px;background:#fff;"></label>
+
+                  <input class="btn-check" type="radio" name="spw_color" id="spw_color_blue" value="#2F66FF"/>
+                  <label class="btn rounded-circle border" for="spw_color_blue"
+                         style="width:28px;height:28px;background:#2F66FF;"></label>
+
+                  <input class="btn-check" type="radio" name="spw_color" id="spw_color_red" value="#E13B3B"/>
+                  <label class="btn rounded-circle border" for="spw_color_red"
+                         style="width:28px;height:28px;background:#E13B3B;"></label>
+                </div>
+
+                <!-- Subida de logo -->
+                <h5 class="mb-2">Subir logo (PNG/JPG/SVG)</h5>
+                <input id="spw_logo_input" class="form-control mb-3"
+                       type="file" accept="image/png,image/jpeg,image/svg+xml"/>
+
+                <!-- Sliders (mantengo los actuales) -->
+                <div class="mb-3">
+                  <label class="form-label">Tamaño</label>
+                  <input id="spw_size" type="range" class="form-range" min="20" max="200" value="60"/>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label">Rotación</label>
+                  <input id="spw_rotation" type="range" class="form-range" min="-180" max="180" value="0"/>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label">Posición X</label>
+                  <input id="spw_pos_x" type="range" class="form-range" min="-300" max="300" value="0"/>
+                </div>
+
+                <div class="mb-4">
+                  <label class="form-label">Posición Y</label>
+                  <input id="spw_pos_y" type="range" class="form-range" min="-300" max="300" value="0"/>
+                </div>
+
+                <div class="d-flex gap-3">
+                  <a t-att-href="product and product.website_url or '/shop'" class="btn btn-light">&larr; Volver</a>
+                  <button type="button" class="btn btn-primary flex-fill" id="spw_add_to_cart">
+                    Añadir al carrito con esta personalización
+                  </button>
+                </div>
+
+                <!-- Datos mínimos para JS (no tocan lo existente) -->
+                <input type="hidden" id="spw_product_tmpl_id" t-att-value="product.id"/>
+                <input type="hidden" id="spw_variant_id" t-att-value="variant and variant.id or ''"/>
+
+              </form>
             </div>
           </div>
+        </t>
 
-          <!-- Controles -->
-          <div class="col-12 col-lg-5">
-            <div class="card p-3">
-              <h3 class="h5 mb-3">Subir logo (PNG/JPG/SVG)</h3>
-              <input type="file" id="spw_logo_input" accept=".png,.jpg,.jpeg,.svg"/>
-
-              <div class="mt-3">
-                <label class="form-label">Tamaño</label>
-                <input type="range" id="spw_size" min="10" max="200" value="100"/>
-              </div>
-              <div class="mt-3">
-                <label class="form-label">Rotación</label>
-                <input type="range" id="spw_rotate" min="-180" max="180" value="0"/>
-              </div>
-              <div class="mt-3">
-                <label class="form-label">Posición X</label>
-                <input type="range" id="spw_pos_x" min="-200" max="200" value="0"/>
-              </div>
-              <div class="mt-3">
-                <label class="form-label">Posición Y</label>
-                <input type="range" id="spw_pos_y" min="-200" max="200" value="0"/>
-              </div>
-
-              <div class="d-flex gap-2 mt-4">
-                <a t-att-href="'/shop/product/%s' % product_template.id" class="btn btn-light w-50">← Volver</a>
-                <a href="#" class="btn btn-primary w-50 disabled" id="spw_add_to_cart">Añadir al carrito con esta personalización</a>
-              </div>
-            </div>
-          </div>
-        </div>
-      </main>
+        <t t-else>
+          <div class="alert alert-warning">Producto no encontrado.</div>
+        </t>
+      </div>
     </t>
   </template>
 </odoo>
