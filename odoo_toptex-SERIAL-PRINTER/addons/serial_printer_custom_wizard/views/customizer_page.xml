@@ -1,91 +1,129 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <template id="spw_customizer_page" name="SPW Customizer Page">
+  <!-- Página del personalizador -->
+  <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
-      <div id="wrap" class="container py-4 spw-customizer">
-        <div class="row">
-          <!-- Lienzo / previsualización -->
-          <div class="col-12 col-lg-8 mb-4">
-            <div id="spw_canvas" class="spw-stage">
-              <t t-if="variant">
-                <img id="spw_product_img"
-                     class="spw-base"
-                     t-att-src="'/web/image/product.product/%s/image_1920' % variant.id"/>
-              </t>
-              <t t-else="">
-                <img id="spw_product_img"
-                     class="spw-base"
-                     t-att-src="'/web/image/product.template/%s/image_1920' % product_template.id"/>
-              </t>
-              <!-- Capa flotante del logo -->
-              <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="logo preview"/>
+      <!-- Requeridos por website para evitar errores de metadata -->
+      <t t-set="pageName" t-value="'spw_customize_page'"/>
+      <t t-set="main_object" t-value="product"/>
+
+      <!-- Determinar imagen a mostrar: variante si existe, si no la plantilla -->
+      <t t-set="img_src">
+        <t t-if="variant">
+          <t t-esc="'/web/image/product.product/%s/image_1024' % variant.id"/>
+        </t>
+        <t t-else="">
+          <t t-esc="'/web/image/product.template/%s/image_1024' % product.id"/>
+        </t>
+      </t>
+
+      <div class="container my-5 spw-customizer">
+        <div class="row g-4">
+          <!-- Lienzo -->
+          <div class="col-12 col-lg-7">
+            <div id="spw_canvas" class="spw-canvas card p-3">
+              <img id="spw_product_img"
+                   class="img-fluid rounded"
+                   t-att-src="img_src"
+                   alt="Producto"/>
+              <!-- Overlay del logo (se hace visible por JS) -->
+              <img id="spw_logo_preview"
+                   class="spw-logo-preview d-none"
+                   alt="Logo preview"/>
+            </div>
+            <!-- Controles de posición/escala/rotación (sin tocar IDs esperados por el JS) -->
+            <div class="card mt-3">
+              <div class="card-body d-flex flex-wrap gap-2 align-items-center">
+                <button type="button" id="spw_move_up" class="btn btn-outline-secondary" aria-label="Arriba">↑</button>
+                <button type="button" id="spw_move_down" class="btn btn-outline-secondary" aria-label="Abajo">↓</button>
+                <button type="button" id="spw_move_left" class="btn btn-outline-secondary" aria-label="Izquierda">←</button>
+                <button type="button" id="spw_move_right" class="btn btn-outline-secondary" aria-label="Derecha">→</button>
+
+                <span class="mx-2">|</span>
+
+                <button type="button" id="spw_scale_minus" class="btn btn-outline-secondary" aria-label="Reducir">−</button>
+                <button type="button" id="spw_scale_plus" class="btn btn-outline-secondary" aria-label="Ampliar">+</button>
+
+                <span class="mx-2">|</span>
+
+                <button type="button" id="spw_rotate_left" class="btn btn-outline-secondary" aria-label="Rotar izquierda">⟲</button>
+                <button type="button" id="spw_rotate_right" class="btn btn-outline-secondary" aria-label="Rotar derecha">⟳</button>
+
+                <span class="mx-2">|</span>
+
+                <button type="button" id="spw_reset" class="btn btn-outline-danger">Reset</button>
+              </div>
             </div>
           </div>
 
-          <!-- Panel de controles -->
-          <div class="col-12 col-lg-4">
+          <!-- Panel lateral -->
+          <div class="col-12 col-lg-5">
             <div class="card">
               <div class="card-body">
-                <!-- (dejamos tipos de personalización básicos para futuro; no afectan al preview) -->
-                <h6 class="text-muted mb-2">Tipo de personalización</h6>
-                <div class="btn-group w-100 mb-3" role="group" aria-label="tipo">
-                  <input type="radio" class="btn-check" name="spw_mode" id="spw_mode_seri" autocomplete="off" checked>
-                  <label class="btn btn-outline-secondary" for="spw_mode_seri">Serigrafía</label>
-                  <input type="radio" class="btn-check" name="spw_mode" id="spw_mode_dtf" autocomplete="off">
-                  <label class="btn btn-outline-secondary" for="spw_mode_dtf">DTF</label>
-                  <input type="radio" class="btn-check" name="spw_mode" id="spw_mode_bord" autocomplete="off">
-                  <label class="btn btn-outline-secondary" for="spw_mode_bord">Bordado</label>
-                  <input type="radio" class="btn-check" name="spw_mode" id="spw_mode_cuero" autocomplete="off">
-                  <label class="btn btn-outline-secondary" for="spw_mode_cuero">Cuero</label>
+                <a t-att-href="product.website_url or '/shop'" class="btn btn-link p-0 mb-3">← Volver al producto</a>
+
+                <!-- Subida de logo -->
+                <div class="mb-3">
+                  <label for="spw_logo_input" class="form-label fw-bold">Subir logo</label>
+                  <input id="spw_logo_input" class="form-control" type="file" accept="image/*"/>
+                  <div class="form-text">Formatos: PNG/JPG/SVG. Máx. 10MB.</div>
                 </div>
 
-                <h6 class="text-muted mb-2">Color</h6>
-                <div class="d-flex gap-2 mb-3 align-items-center">
-                  <input type="radio" class="btn-check" name="spw_color" id="spw_col_black" checked>
-                  <label class="spw-color-dot border" style="--spw-dot:#000" for="spw_col_black"></label>
-
-                  <input type="radio" class="btn-check" name="spw_color" id="spw_col_white">
-                  <label class="spw-color-dot border" style="--spw-dot:#fff" for="spw_col_white"></label>
-
-                  <input type="radio" class="btn-check" name="spw_color" id="spw_col_blue">
-                  <label class="spw-color-dot border" style="--spw-dot:#1f57ff" for="spw_col_blue"></label>
-
-                  <input type="radio" class="btn-check" name="spw_color" id="spw_col_red">
-                  <label class="spw-color-dot border" style="--spw-dot:#ff2d2d" for="spw_col_red"></label>
+                <!-- Técnica (default: Serigrafía) -->
+                <div class="mb-3">
+                  <div class="fw-bold mb-1">Técnica</div>
+                  <div class="d-flex flex-wrap gap-3">
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="spw_technique" id="spw_tech_ser" value="serigrafia" checked="checked"/>
+                      <label class="form-check-label" for="spw_tech_ser">Serigrafía</label>
+                    </div>
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="spw_technique" id="spw_tech_dtf" value="dtf"/>
+                      <label class="form-check-label" for="spw_tech_dtf">DTF</label>
+                    </div>
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="spw_technique" id="spw_tech_bor" value="bordado"/>
+                      <label class="form-check-label" for="spw_tech_bor">Bordado</label>
+                    </div>
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="spw_technique" id="spw_tech_cue" value="cuero"/>
+                      <label class="form-check-label" for="spw_tech_cue">Marcado en cuero</label>
+                    </div>
+                  </div>
                 </div>
 
-                <h6 class="text-muted mb-2">Subir logo (PNG/JPG/SVG)</h6>
-                <input id="spw_logo_file" type="file" accept=".png,.jpg,.jpeg,.svg" class="form-control mb-3"/>
-
-                <label class="form-label">Tamaño</label>
-                <input id="spw_size" class="form-range mb-3" type="range" min="0.2" max="2" step="0.01" value="0.7"/>
-
-                <label class="form-label">Rotación</label>
-                <input id="spw_rotate" class="form-range mb-3" type="range" min="-180" max="180" step="1" value="0"/>
-
-                <label class="form-label">Posición X</label>
-                <input id="spw_pos_x" class="form-range mb-3" type="range" min="10" max="90" step="0.5" value="50"/>
-
-                <label class="form-label">Posición Y</label>
-                <input id="spw_pos_y" class="form-range mb-4" type="range" min="20" max="85" step="0.5" value="60"/>
-
-                <div class="d-flex gap-2">
-                  <a id="spw_back" href="#" class="btn btn-outline-secondary flex-fill">← Volver</a>
-                  <a id="spw_add_to_cart"
-                     t-att-data-variant-id="(variant and variant.id) or ''"
-                     t-att-data-fallback-variant-id="product_template.product_variant_id.id"
-                     class="btn btn-primary flex-fill">
-                    Añadir al carrito con esta personalización
-                  </a>
+                <!-- Colores (placeholder simple, el JS puede ampliarlos) -->
+                <div class="mb-3">
+                  <div class="fw-bold mb-1">Color</div>
+                  <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-outline-secondary spw-color-btn" data-color="#000000">Negro</button>
+                    <button type="button" class="btn btn-outline-secondary spw-color-btn" data-color="#FFFFFF">Blanco</button>
+                    <button type="button" class="btn btn-outline-secondary spw-color-btn" data-color="#C8102E">Rojo</button>
+                    <button type="button" class="btn btn-outline-secondary spw-color-btn" data-color="#0032A0">Azul</button>
+                  </div>
                 </div>
+
+                <!-- Observaciones -->
+                <div class="mb-3">
+                  <label for="spw_notes" class="form-label fw-bold">Observaciones (tamaño, posición…)</label>
+                  <textarea id="spw_notes" class="form-control" rows="3" placeholder="Ej.: Pecho 10 cm, Espalda 25 cm"></textarea>
+                </div>
+
+                <!-- Acciones -->
+                <div class="d-grid gap-2">
+                  <button id="spw_apply_to_cart" type="button" class="btn btn-primary">Aplicar y volver al producto</button>
+                  <a t-att-href="product.website_url or '/shop'" class="btn btn-outline-secondary">Cancelar</a>
+                </div>
+
+                <!-- Datos ocultos (no tocar IDs) -->
+                <input type="hidden" id="spw_product_tmpl_id" t-att-value="product.id"/>
+                <t t-if="variant">
+                  <input type="hidden" id="spw_variant_id" t-att-value="variant.id"/>
+                </t>
               </div>
             </div>
           </div>
         </div>
-
-        <!-- IDs ocultos de contexto -->
-        <input type="hidden" id="spw_tmpl_id" t-att-value="product_template.id"/>
-        <input type="hidden" id="spw_variant_id" t-att-value="(variant and variant.id) or ''"/>
       </div>
     </t>
   </template>
