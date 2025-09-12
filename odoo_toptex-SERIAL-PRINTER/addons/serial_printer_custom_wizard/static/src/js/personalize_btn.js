@@ -1,15 +1,26 @@
-/** @odoo-module **/
-
-// Navegar al customizer con el product_id y la variante seleccionada
-document.addEventListener("click", (ev) => {
-    const btn = ev.target.closest("#spw_personalize_btn");
-    if (!btn) return;
+// serial_printer_custom_wizard/static/src/js/personalize_btn.js
+// Vanilla JS seguro: no usa el cargador de módulos de Odoo
+(function () {
+  document.addEventListener('click', function (ev) {
+    var a = ev.target.closest('#spw_personalize_btn');
+    if (!a) return;
 
     ev.preventDefault();
-    const pId = btn.dataset.productId;
-    const vInput = document.querySelector("input[name='product_id']");
-    const variantId = vInput && vInput.value;
+    try {
+      var form = a.closest('form') ||
+                 document.querySelector('form[action="/shop/cart/update"]') ||
+                 document.querySelector('form.js_add_cart_json');
 
-    if (!pId || !variantId) return;
-    window.location.href = `/spw/customize/${pId}?variant_id=${variantId}`;
-});
+      var pidInput = form ? form.querySelector('input[name="product_id"]') : null;
+      var variantId = pidInput ? pidInput.value : '';
+      var tmplId = a.getAttribute('data-tmpl-id') || '';
+
+      if (!tmplId) return;
+
+      var url = '/spw/customize/' + tmplId + (variantId ? ('?variant_id=' + encodeURIComponent(variantId)) : '');
+      window.location.href = url;
+    } catch (e) {
+      console.error('SPW personalize button error:', e);
+    }
+  }, false);
+})();
