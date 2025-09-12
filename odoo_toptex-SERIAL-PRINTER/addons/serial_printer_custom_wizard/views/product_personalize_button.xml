@@ -1,22 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <!-- Botón "Personalizar" en la ficha del producto -->
-  <template id="spw_personalize_button"
-            name="SPW: Botón Personalizar (Product Page)"
-            inherit_id="website_sale.product">
-
-    <!-- Insertamos un slot seguro dentro de #product_details -->
-    <xpath expr="//div[@id='product_details']" position="inside">
-      <div id="spw_personalize_slot" class="d-none">
+  <!-- Inserta el botón dentro del formulario de compra de la página de producto -->
+  <template id="spw_personalize_button" name="SPW: Botón Personalizar (Product Page)"
+            inherit_id="website_sale.product_buy">
+    <!-- Buscamos el <form> que contiene el input hidden product_id (siempre existe) -->
+    <xpath expr="//form[.//input[@name='product_id']]" position="inside">
+      <div class="mt-3">
         <a id="spw_personalize_btn"
-           class="btn btn-primary mt-2"
-           role="button"
-           t-attf-href="/spw/customize/#{product.id}?variant_id=#{(combination_info and combination_info.get('product_id')) or product.product_variant_id.id}">
+           class="btn btn-primary w-100"
+           t-att-data-product-id="product.id"
+           href="#">
           <i class="fa fa-magic me-1"/>
           <span>Personalizar</span>
         </a>
       </div>
     </xpath>
-
   </template>
 </odoo>
