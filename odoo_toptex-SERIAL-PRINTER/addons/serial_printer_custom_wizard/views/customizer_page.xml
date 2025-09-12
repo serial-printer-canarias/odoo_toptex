@@ -1,64 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <!-- serial_printer_custom_wizard/views/customizer_page.xml -->
 <odoo>
-  <template id="customizer_page" name="SPW Customizer Page" page="True">
-    <t t-call="website.layout">
-      <div class="container my-5">
-        <div class="row">
-          <!-- Lienzo -->
-          <div class="col-lg-7">
-            <div id="spw_canvas" class="spw-stage">
-              <!-- Imagen de la variante -->
-              <img id="spw_product_img"
-                   t-att-src="'/web/image/product.product/%s/image_1920' % variant.id"
-                   alt="Producto" />
-              <!-- Logo encima -->
-              <img id="spw_logo_preview"
-                   class="spw-logo-preview d-none"
-                   alt="Logo preview"/>
+  <data>
+    <template id="customizer_page" name="SPW Customizer Page">
+      <t t-call="website.layout">
+        <div class="container my-5">
+          <div class="row">
+            <!-- Lienzo -->
+            <div class="col-lg-7">
+              <div id="spw_canvas" class="spw-stage">
+                <!-- Imagen de la variante -->
+                <img id="spw_product_img"
+                     t-if="variant"
+                     t-att-src="'/web/image/product.product/%s/image_1920' % variant.id"
+                     alt="Producto"/>
+                <!-- Logo encima -->
+                <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
+              </div>
+            </div>
+
+            <!-- Controles -->
+            <div class="col-lg-5">
+              <form id="spw_form">
+                <div class="mb-3">
+                  <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
+                  <input id="spw_logo_input" class="form-control" type="file"
+                         accept="image/png,image/jpeg,image/svg+xml"/>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label">Tamaño</label>
+                  <input id="spw_size" class="form-range" type="range" min="10" max="150" step="1" value="70"/>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label">Rotación</label>
+                  <input id="spw_rotate" class="form-range" type="range" min="-180" max="180" step="1" value="0"/>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label">Posición X</label>
+                  <input id="spw_posx" class="form-range" type="range" min="0" max="100" step="1" value="50"/>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label">Posición Y</label>
+                  <input id="spw_posy" class="form-range" type="range" min="0" max="100" step="1" value="60"/>
+                </div>
+
+                <a t-attf-href="/shop/product/{{ product.id }}" class="btn btn-light me-2">← Volver</a>
+                <button type="button" class="btn btn-primary">
+                  Añadir al carrito con esta personalización
+                </button>
+              </form>
             </div>
           </div>
-
-          <!-- Controles -->
-          <div class="col-lg-5">
-            <form id="spw_form">
-              <div class="mb-3">
-                <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
-                <input id="spw_logo_input" class="form-control"
-                       type="file" accept="image/png,image/jpeg,image/svg+xml"/>
-              </div>
-
-              <div class="mb-3">
-                <label class="form-label">Tamaño</label>
-                <input id="spw_size" class="form-range" type="range"
-                       min="10" max="150" step="1" value="70"/>
-              </div>
-
-              <div class="mb-3">
-                <label class="form-label">Rotación</label>
-                <input id="spw_rotate" class="form-range" type="range"
-                       min="-180" max="180" step="1" value="0"/>
-              </div>
-
-              <div class="mb-3">
-                <label class="form-label">Posición X</label>
-                <input id="spw_posx" class="form-range" type="range"
-                       min="0" max="100" step="1" value="50"/>
-              </div>
-
-              <div class="mb-3">
-                <label class="form-label">Posición Y</label>
-                <input id="spw_posy" class="form-range" type="range"
-                       min="0" max="100" step="1" value="60"/>
-              </div>
-
-              <a t-attf-href="/shop/product/{{ product.id }}" class="btn btn-light me-2">← Volver</a>
-              <button type="button" class="btn btn-primary">
-                Añadir al carrito con esta personalización
-              </button>
-            </form>
-          </div>
         </div>
-      </div>
-    </t>
-  </template>
+      </t>
+    </template>
+  </data>
 </odoo>
