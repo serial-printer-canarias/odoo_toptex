@@ -1,49 +1,86 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <template id="customizer_page" name="SPW Customizer Page">
+  <!-- Página del personalizador (no tocamos nada fuera de aquí) -->
+  <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
-      <div class="container my-5">
-        <div id="spw_canvas" class="spw-stage">
-          <img id="spw_product_img" class="spw-base img-fluid" t-att-src="img_src" alt="Producto"/>
-          <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
-        </div>
+      <!-- Evita errores del Website editor -->
+      <t t-set="pageName" t-value="'spw_customize_page'"/>
+      <t t-set="main_object" t-value="template"/>
 
-        <div class="row g-4 mt-4">
-          <div class="col-12">
-            <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
-            <input id="spw_logo_input" class="form-control"
-                   type="file" accept=".png,.jpg,.jpeg,.svg,.SVG,.PNG,.JPG,.JPEG"/>
-            <small class="text-muted">Formatos: PNG/JPG/SVG. Máx. 10MB.</small>
+      <div class="container my-5 spw-customizer">
+        <!-- Datos invisibles para JS -->
+        <input type="hidden" id="spw_template_id" t-att-value="template.id"/>
+        <input type="hidden" id="spw_variant_id" t-att-value="variant_id or ''"/>
+
+        <div class="row g-4">
+          <!-- Lienzo -->
+          <div class="col-12 col-lg-7">
+            <div id="spw_canvas" class="spw-stage card p-3">
+              <img id="spw_product_img"
+                   class="spw-base img-fluid rounded"
+                   t-att-src="img_src"
+                   alt="Producto"/>
+
+              <!-- Overlay del logo -->
+              <img id="spw_logo_preview"
+                   class="spw-logo-preview d-none"
+                   alt="Logo preview"/>
+            </div>
           </div>
 
-          <div class="col-12">
-            <label class="form-label">Tamaño</label>
-            <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
-          </div>
+          <!-- Controles -->
+          <div class="col-12 col-lg-5">
+            <div class="card h-100">
+              <div class="card-body">
+                <h5 class="card-title mb-3">Personalización</h5>
 
-          <div class="col-12">
-            <label class="form-label">Posición X</label>
-            <input id="spw_pos_x" class="form-range" type="range" min="-50" max="50" value="0"/>
-          </div>
+                <!-- Subida logo -->
+                <div class="mb-3">
+                  <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
+                  <input id="spw_logo_input" class="form-control"
+                         type="file"
+                         accept=".png,.jpg,.jpeg,.svg,.PNG,.JPG,.JPEG,.SVG"/>
+                  <small class="text-muted">Máx. 10MB.</small>
+                </div>
 
-          <div class="col-12">
-            <label class="form-label">Posición Y</label>
-            <input id="spw_pos_y" class="form-range" type="range" min="-50" max="50" value="10"/>
-          </div>
+                <!-- Tamaño -->
+                <div class="mb-3">
+                  <label for="spw_size" class="form-label">Tamaño</label>
+                  <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
+                </div>
 
-          <div class="col-12">
-            <label class="form-label">Rotación</label>
-            <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
-          </div>
+                <!-- Posición X -->
+                <div class="mb-3">
+                  <label for="spw_pos_x" class="form-label">Posición X</label>
+                  <input id="spw_pos_x" class="form-range" type="range" min="-50" max="50" value="0"/>
+                </div>
 
-          <div class="col-12">
-            <!-- ESCAPADO CORRECTO -->
-            <a class="btn btn-outline-secondary" href="javascript:void(0)"
-               onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
-            <a class="btn btn-link ms-3" t-att-href="'/shop/product/%s' % template.id">&#8592; Volver al producto</a>
+                <!-- Posición Y -->
+                <div class="mb-3">
+                  <label for="spw_pos_y" class="form-label">Posición Y</label>
+                  <input id="spw_pos_y" class="form-range" type="range" min="-50" max="50" value="10"/>
+                </div>
+
+                <!-- Rotación -->
+                <div class="mb-3">
+                  <label for="spw_rotation" class="form-label">Rotación</label>
+                  <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
+                </div>
+
+                <div class="d-flex align-items-center gap-2">
+                  <!-- OJO: & escapado a &amp; -->
+                  <a class="btn btn-outline-secondary" href="javascript:void(0)"
+                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
+
+                  <a class="btn btn-link ms-2" t-att-href="'/shop/product/%s' % template.id">
+                    &#8592; Volver al producto
+                  </a>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </div> <!-- row -->
+      </div> <!-- container -->
     </t>
   </template>
 </odoo>
