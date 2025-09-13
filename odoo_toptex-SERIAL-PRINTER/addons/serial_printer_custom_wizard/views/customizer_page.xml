@@ -1,55 +1,45 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Página del configurador. NO tocamos el product page. -->
   <template id="customizer_page" name="SPW: Customizer Page">
     <t t-call="website.layout">
-      <!-- >>> Línea clave para el editor de Website (evita el TypeError) <<< -->
-      <t t-set="main_object" t-value="request.env['website'].get_current_website()"/>
-
       <div class="container py-4">
-        <!-- Lienzo: imagen de la variante + overlay del logo -->
+
+        <!-- Lienzo -->
         <div id="spw_canvas" class="spw-canvas">
           <img id="spw_product_img"
                t-att-src="product_image_url"
                alt="Producto"
                class="img-fluid"/>
-          <!-- El logo se hace visible al elegir archivo -->
-          <img id="spw_logo_preview"
-               class="spw-logo-preview d-none"
-               alt="Logo preview"/>
+          <!-- Vista previa del logo (se muestra al elegir archivo) -->
+          <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
         </div>
 
-        <!-- Controles existentes; no cambiamos nombres ni estructura -->
+        <!-- Controles (los mismos sliders que ya usabas) -->
         <form id="spw_form" class="mt-4" method="post" enctype="multipart/form-data">
           <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
           <input type="hidden" name="variant_id" t-att-value="variant_id"/>
 
           <div class="mb-3">
             <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
-            <input id="spw_logo_input"
-                   class="form-control"
-                   type="file"
-                   name="logo"
+            <input id="spw_logo_input" class="form-control" type="file" name="logo"
                    accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"/>
           </div>
 
-          <div class="row g-3">
-            <div class="col-12">
-              <label class="form-label">Tamaño</label>
-              <input id="spw_size" type="range" min="10" max="100" value="40" class="form-range"/>
-            </div>
-            <div class="col-12">
-              <label class="form-label">Posición X</label>
-              <input id="spw_pos_x" type="range" min="-200" max="200" value="0" class="form-range"/>
-            </div>
-            <div class="col-12">
-              <label class="form-label">Posición Y</label>
-              <input id="spw_pos_y" type="range" min="-200" max="200" value="0" class="form-range"/>
-            </div>
-            <div class="col-12">
-              <label class="form-label">Rotación</label>
-              <input id="spw_rotate" type="range" min="-180" max="180" value="0" class="form-range"/>
-            </div>
+          <div class="mb-3">
+            <label class="form-label">Tamaño</label>
+            <input id="spw_size" type="range" min="10" max="100" value="40" class="form-range"/>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Posición X</label>
+            <input id="spw_pos_x" type="range" min="-200" max="200" value="0" class="form-range"/>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Posición Y</label>
+            <input id="spw_pos_y" type="range" min="-200" max="200" value="0" class="form-range"/>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Rotación</label>
+            <input id="spw_rotate" type="range" min="-180" max="180" value="0" class="form-range"/>
           </div>
         </form>
       </div>
