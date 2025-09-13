@@ -1,86 +1,165 @@
-/** @odoo-module **/
-
-// SOLO: previsualizar el logo que sube el cliente sobre la imagen de la variante.
-// No toca menús ni controles que ya tengas.
+/** serial_printer_custom_wizard/static/src/js/spw.js **/
 
 (function () {
-  document.addEventListener("DOMContentLoaded", function () {
-    const fileInput  = document.querySelector("#spw_file");
-    const previewImg = document.querySelector("#spw_logo_preview");
-    const baseImg    = document.querySelector("#spw_product_img");
+  "use strict";
 
-    // Si tu página no tiene alguno de estos, salimos sin romper nada.
-    if (!fileInput || !previewImg || !baseImg) return;
+  // ==== FICHA DE PRODUCTO: Navegar a la página de personalización con la variante seleccionada ====
+  function initProductPage() {
+    const btn = document.getElementById("spw_personalize_btn");
+    if (!btn) return;
 
-    // Estado por defecto (no cambia tu UI actual)
+    btn.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      // Buscar el form que contiene el input name=product_id (variante actual)
+      const form = btn.closest("form") || document.querySelector("form");
+      if (!form) return;
+
+      const variantInput = form.querySelector("input[name='product_id']");
+      const variantId = variantInput && variantInput.value ? parseInt(variantInput.value, 10) : null;
+      if (!variantId) {
+        console.warn("[SPW] No se encontró product_id (variante).");
+        return;
+      }
+      window.location.href = `/spw/customize/${variantId}`;
+    });
+  }
+
+  // ==== PÁGINA DE PERSONALIZACIÓN: Previsualizar logo sobre imagen de variante ====
+  function initCustomizerPage() {
+    const canvas = document.getElementById("spw_canvas");
+    const baseImg = document.getElementById("spw_product_img");
+    const logo = document.getElementById("spw_logo_preview");
+    const fileInput = document.getElementById("spw_logo_input");
+    const sizeRange = document.getElementById("spw_size");
+    const posXRange = document.getElementById("spw_pos_x");
+    const posYRange = document.getElementById("spw_pos_y");
+    const rotRange = document.getElementById("spw_rotate");
+    const resetBtn = document.getElementById("spw_reset");
+
+    if (!canvas || !baseImg || !logo) return;
+
+    // Estado del overlay
     const state = {
-      widthPct: 30,  // % del ancho del producto
-      rot: 0,        // grados
-      x: 50,         // % desde la izquierda
-      y: 60,         // % desde arriba (aprox. zona del dobladillo)
+      scalePct: 100,
+      posX: 0,
+      posY: 0,
+      rotate: 0,
+      dragging: false,
+      dragStart: { x: 0, y: 0 },
+      startPos: { x: 0, y: 0 },
     };
 
     function applyTransform() {
-      previewImg.style.position  = "absolute";
-      previewImg.style.left      = state.x + "%";
-      previewImg.style.top       = state.y + "%";
-      previewImg.style.width     = state.widthPct + "%";
-      previewImg.style.height    = "auto";
-      previewImg.style.transform = `translate(-50%, -50%) rotate(${state.rot}deg)`;
-      previewImg.style.pointerEvents = "none";
-      previewImg.style.zIndex    = "5";
-      previewImg.style.opacity   = "1";
-      previewImg.classList.remove("d-none");
+      // Colocamos el centro en el centro del canvas (50%, 50%) y aplicamos offsets y transform
+      logo.style.transform =
+        `translate(calc(-50% + ${state.posX}px), calc(-50% + ${state.posY}px)) ` +
+        `rotate(${state.rotate}deg) ` +
+        `scale(${state.scalePct / 100})`;
     }
 
-    function showPreview(dataUrl) {
-      previewImg.onload = () => applyTransform();
-      previewImg.src = dataUrl;
-    }
+    // Input file -> mostrar logo
+    if (fileInput) {
+      fileInput.addEventListener("change", function (e) {
+        const file = e.target.files && e.target.files[0] ? e.target.files[0] : null;
+        if (!file) return;
 
-    // ── Carga del archivo local (PNG/JPG/SVG) ──────────────────────────────────
-    fileInput.addEventListener("change", (ev) => {
-      const f = ev.target.files && ev.target.files[0];
-      if (!f) return;
-      if (f.size > 10 * 1024 * 1024) {
-        alert("El archivo supera 10MB.");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = (e) => showPreview(e.target.result);
-      reader.readAsDataURL(f); // compatible para PNG/JPG/SVG
-    });
+        const reader = new FileReader();
+        reader.onload = function (ev) {
+          logo.src = ev.target.result;
+          logo.classList.remove("d-none");
 
-    // ── SI EXISTEN, enganchamos tus sliders/botones actuales (no los creamos) ─
-    const sSize = document.getElementById("spw_size");
-    const sRot  = document.getElementById("spw_rotation");
-    const sX    = document.getElementById("spw_pos_x");
-    const sY    = document.getElementById("spw_pos_y");
-    const btnReset = document.getElementById("spw_reset");
-
-    if (sSize) {
-      state.widthPct = +sSize.value || state.widthPct;
-      sSize.addEventListener("input", () => { state.widthPct = +sSize.value || 30; applyTransform(); });
-    }
-    if (sRot) {
-      state.rot = +sRot.value || 0;
-      sRot.addEventListener("input", () => { state.rot = +sRot.value || 0; applyTransform(); });
-    }
-    if (sX) {
-      state.x = +sX.value || 50;
-      sX.addEventListener("input", () => { state.x = +sX.value || 50; applyTransform(); });
-    }
-    if (sY) {
-      state.y = +sY.value || 60;
-      sY.addEventListener("input", () => { state.y = +sY.value || 60; applyTransform(); });
-    }
-    if (btnReset) {
-      btnReset.addEventListener("click", () => {
-        fileInput.value = "";
-        previewImg.classList.add("d-none");
-        // Vuelve al estado por defecto sin tocar tu UI
-        state.widthPct = 30; state.rot = 0; state.x = 50; state.y = 60;
+          // Reset básico
+          state.scalePct = 100;
+          state.posX = 0;
+          state.posY = 0;
+          state.rotate = 0;
+          if (sizeRange) sizeRange.value = String(state.scalePct);
+          if (posXRange) posXRange.value = String(state.posX);
+          if (posYRange) posYRange.value = String(state.posY);
+          if (rotRange) rotRange.value = String(state.rotate);
+          applyTransform();
+        };
+        reader.readAsDataURL(file);
       });
     }
+
+    // Controles
+    if (sizeRange) {
+      sizeRange.addEventListener("input", () => {
+        state.scalePct = parseInt(sizeRange.value || "100", 10);
+        applyTransform();
+      });
+    }
+    if (posXRange) {
+      posXRange.addEventListener("input", () => {
+        state.posX = parseInt(posXRange.value || "0", 10);
+        applyTransform();
+      });
+    }
+    if (posYRange) {
+      posYRange.addEventListener("input", () => {
+        state.posY = parseInt(posYRange.value || "0", 10);
+        applyTransform();
+      });
+    }
+    if (rotRange) {
+      rotRange.addEventListener("input", () => {
+        state.rotate = parseInt(rotRange.value || "0", 10);
+        applyTransform();
+      });
+    }
+    if (resetBtn) {
+      resetBtn.addEventListener("click", () => {
+        state.scalePct = 100;
+        state.posX = 0;
+        state.posY = 0;
+        state.rotate = 0;
+        if (sizeRange) sizeRange.value = "100";
+        if (posXRange) posXRange.value = "0";
+        if (posYRange) posYRange.value = "0";
+        if (rotRange) rotRange.value = "0";
+        applyTransform();
+      });
+    }
+
+    // Arrastrar el logo con el ratón / touch
+    function onPointerDown(ev) {
+      if (logo.classList.contains("d-none")) return;
+      state.dragging = true;
+      state.dragStart.x = ev.clientX || (ev.touches && ev.touches[0].clientX) || 0;
+      state.dragStart.y = ev.clientY || (ev.touches && ev.touches[0].clientY) || 0;
+      state.startPos.x = state.posX;
+      state.startPos.y = state.posY;
+      ev.preventDefault();
+    }
+    function onPointerMove(ev) {
+      if (!state.dragging) return;
+      const cx = ev.clientX || (ev.touches && ev.touches[0].clientX) || 0;
+      const cy = ev.clientY || (ev.touches && ev.touches[0].clientY) || 0;
+      const dx = cx - state.dragStart.x;
+      const dy = cy - state.dragStart.y;
+      state.posX = state.startPos.x + dx;
+      state.posY = state.startPos.y + dy;
+      if (posXRange) posXRange.value = String(state.posX);
+      if (posYRange) posYRange.value = String(state.posY);
+      applyTransform();
+      ev.preventDefault();
+    }
+    function onPointerUp() {
+      state.dragging = false;
+    }
+
+    logo.addEventListener("mousedown", onPointerDown);
+    logo.addEventListener("touchstart", onPointerDown, { passive: false });
+    window.addEventListener("mousemove", onPointerMove, { passive: false });
+    window.addEventListener("touchmove", onPointerMove, { passive: false });
+    window.addEventListener("mouseup", onPointerUp);
+    window.addEventListener("touchend", onPointerUp);
+  }
+
+  // Init
+  document.addEventListener("DOMContentLoaded", function () {
+    initProductPage();
+    initCustomizerPage();
   });
 })();
