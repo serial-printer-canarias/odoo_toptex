@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Serial Printer — Custom Wizard",
-    "summary": "Personalización de productos en eCommerce",
-    "version": "18.0.1.0.0",
-    "category": "Website/Commerce",
-    "author": "Serial Printer",
+    "version": "16.0.1.0.0",  # usa 17.0.* si tu base es v17
+    "category": "Website/Website",
+    "summary": "Botón Personalizar + página de previsualización de logo sobre la variante.",
     "license": "LGPL-3",
-    "depends": ["website", "website_sale", "product"],
+    "author": "Serial Printer",
+    "depends": ["website_sale"],
     "data": [
         "views/product_personalize_button.xml",
         "views/customizer_page.xml",
@@ -14,9 +14,10 @@
     "assets": {
         "web.assets_frontend": [
             "serial_printer_custom_wizard/static/src/css/spw.css",
-            "serial_printer_custom_wizard/static/src/js/personalize_btn.js",
-            "serial_printer_custom_wizard/static/src/js/customizer.js",
-            "serial_printer_custom_wizard/static/src/js/spw.js"
+            "serial_printer_custom_wizard/static/src/js/spw.js",
+        ],
+        "web.assets_frontend_lazy": [
+            "serial_printer_custom_wizard/static/src/js/spw.js",
         ],
     },
     "installable": True,
