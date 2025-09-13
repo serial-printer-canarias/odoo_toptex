@@ -1,35 +1,42 @@
-/** serial_printer_custom_wizard/static/src/js/spw_button.js **/
+/** @odoo-module **/
+
 odoo.define('serial_printer_custom_wizard.spw_button', function (require) {
     'use strict';
 
-    const publicRoot = require('web.public.root');
+    const publicWidget = require('web.public.widget');
 
-    function getVariantIdFromForm() {
-        const form = document.querySelector("form[action*='/shop']");
-        const hidden = form && form.querySelector("input[name='product_id']");
-        return hidden ? hidden.value : null;
-    }
+    publicWidget.registry.SpwPersonalizeBtn = publicWidget.Widget.extend({
+        selector: '#spw_personalize_btn',
+        events: {
+            'click': '_onClick',
+        },
 
-    publicRoot.whenReady(() => {
-        document.addEventListener('click', (ev) => {
-            const btn = ev.target.closest('#spw_personalize_btn');
-            if (!btn) return;
-
+        /**
+         * Click en "Personalizar"
+         */
+        _onClick: function (ev) {
             ev.preventDefault();
 
-            const tmplId = btn.dataset.productTemplateId || null;
-            const variantId = btn.dataset.variantId || getVariantIdFromForm();
-
-            if (!tmplId || tmplId === '0') {
-                console.error('SPW: Falta data-product-template-id en el botón');
+            const btn = ev.currentTarget;
+            const templateId = btn.dataset.productTemplateId;
+            if (!templateId) {
+                console.warn('SPW: Falta data-product-template-id en el botón.');
                 return;
             }
 
-            const url =
-                `/spw/customize/${encodeURIComponent(tmplId)}` +
-                (variantId ? `?variant_id=${encodeURIComponent(variantId)}` : '');
+            // Tomamos la variante seleccionada del <form> donde está el botón
+            const $form = $(btn).closest('form');
+            const $variantInput = $form.find('input[name="product_id"]');
+            const variantId = $variantInput.length ? $variantInput.val() : '';
 
-            window.location.assign(url);
-        });
+            // Construimos URL de tu customizer (no tocamos nada más)
+            let url = `/spw/customize/${templateId}`;
+            if (variantId) {
+                url += `?variant_id=${encodeURIComponent(variantId)}`;
+            }
+            window.location.href = url;
+        },
     });
+
+    return publicWidget.registry.SpwPersonalizeBtn;
 });
