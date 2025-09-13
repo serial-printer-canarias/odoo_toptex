@@ -8,8 +8,7 @@
     "depends": ["website_sale"],
     "data": [
         "views/customizer_page.xml",           # <-- aquí está la página del configurador
-        # Si tienes el botón en un XML aparte, descomenta la siguiente línea
-        # "views/product_button.xml",
+         "views/product_personalize_button.xml",
     ],
     "assets": {
         "web.assets_frontend": [
