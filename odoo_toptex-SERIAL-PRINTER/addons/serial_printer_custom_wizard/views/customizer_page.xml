@@ -3,6 +3,9 @@
   <!-- Página del configurador. NO tocamos el product page. -->
   <template id="customizer_page" name="SPW: Customizer Page">
     <t t-call="website.layout">
+      <!-- >>> Línea clave para el editor de Website (evita el TypeError) <<< -->
+      <t t-set="main_object" t-value="request.env['website'].get_current_website()"/>
+
       <div class="container py-4">
         <!-- Lienzo: imagen de la variante + overlay del logo -->
         <div id="spw_canvas" class="spw-canvas">
@@ -16,7 +19,7 @@
                alt="Logo preview"/>
         </div>
 
-        <!-- Controles: NO cambiamos estructura, solo ids que usa el JS -->
+        <!-- Controles existentes; no cambiamos nombres ni estructura -->
         <form id="spw_form" class="mt-4" method="post" enctype="multipart/form-data">
           <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
           <input type="hidden" name="variant_id" t-att-value="variant_id"/>
