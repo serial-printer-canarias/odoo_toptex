@@ -1,28 +1,31 @@
-/* Lienzo */
+/* addons/serial_printer_custom_wizard/static/src/css/spw.css */
 .spw-stage {
   position: relative;
   overflow: hidden;
-  min-height: 320px;
+  min-height: 360px;
 }
 .spw-stage .spw-base {
   display: block;
   width: 100%;
   height: auto;
+  border-radius: 8px;
 }
 
-/* Overlay del logo */
 .spw-logo-preview {
   position: absolute;
   left: 50%;
-  top: 60%;           /* cae en la banda delantera del gorro */
-  transform: translate(-50%, -50%) rotate(0deg);
-  width: 100%;        /* la escala la ajustamos con JS (porcentaje) */
-  max-width: 70%;
-  max-height: 70%;
-  pointer-events: none;
+  top: 60%;
+  transform: translate(-50%, -50%);
+  max-width: 90%;
+  height: auto;
   z-index: 5;
-  opacity: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: transform .1s linear;
 }
-
-/* Utilidad */
 .d-none { display: none !important; }
+
+/* Ajustes básicos responsive */
+@media (min-width: 992px) {
+  .spw-stage { min-height: 500px; }
+}
