@@ -1,30 +1,33 @@
-/* Lienzo */
-.spw-canvas { position: relative; }
-#spw_product_img { display: block; width: 100%; height: auto; }
+/* serial_printer_custom_wizard/static/src/css/spw.css */
 
-/* Overlay del logo */
+.spw-stage {
+  position: relative;
+  overflow: hidden;
+  min-height: 360px;
+  background: #fff;
+}
+.spw-stage .spw-base {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .spw-logo-preview {
   position: absolute;
   left: 50%;
-  top: 60%;
-  transform: translate(-50%, -50%);
+  top: 50%;
   max-width: 70%;
   max-height: 70%;
-  pointer-events: none;
+  transform: translate(-50%, -50%) scale(1);
+  transform-origin: center center;
+  pointer-events: auto; /* permite arrastrar */
+  user-select: none;
   z-index: 5;
   opacity: 1;
 }
 
 .d-none { display: none !important; }
 
-/* Botones de color */
-.spw-color-btn.active {
-  border-width: 2px;
+.spw-controls .form-range {
+  accent-color: #0d6efd;
 }
-
-#spw_canvas { position: relative; }
-#spw_product_img { display: block; width: 100%; height: auto; }
-
-/* La preview del logo; el JS la muestra/posiciona */
-#spw_logo_preview { position: absolute; left: 50%; top: 60%; transform: translate(-50%,-50%); pointer-events: none; z-index: 5; opacity: 1; }
-.d-none { display: none !important; }
