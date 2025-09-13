@@ -1,57 +1,78 @@
-// Ejecuta SOLO en la página del customizer y no toca nada más.
+/** SPW - Previsualización de logo sobre la imagen del producto */
 (function () {
-  "use strict";
+  function qs(id) { return document.getElementById(id); }
 
-  function ready(fn) {
-    if (document.readyState !== "loading") fn();
-    else document.addEventListener("DOMContentLoaded", fn);
-  }
+  function initPreview() {
+    const fileInput = qs('spw_logo_input');
+    const canvas = qs('spw_canvas');
+    const preview = qs('spw_logo_preview');
 
-  ready(() => {
-    const fileInput = document.getElementById("spw_logo_input");
-    if (!fileInput) return; // si no hay input, no hacemos nada
+    if (!fileInput || !canvas || !preview) return;
 
-    // Contenedor y overlay
-    const canvas =
-      document.getElementById("spw_canvas") ||
-      document.querySelector(".spw-canvas") ||
-      fileInput.closest("main")?.querySelector("#spw_canvas");
-    if (!canvas) return;
+    // Asegurar estilos base
+    canvas.style.position = canvas.style.position || 'relative';
+    preview.style.position = 'absolute';
+    preview.style.left = '50%';
+    preview.style.top = '60%';
+    preview.style.transform = 'translate(-50%, -50%)';
+    preview.style.pointerEvents = 'none';
+    preview.style.zIndex = '5';
+    preview.style.maxWidth = '80%';
+    preview.style.maxHeight = '80%';
+    preview.style.opacity = '1';
 
-    let preview = document.getElementById("spw_logo_preview");
-    if (!preview) {
-      preview = document.createElement("img");
-      preview.id = "spw_logo_preview";
-      preview.className = "spw-logo-preview d-none";
-      canvas.appendChild(preview);
-    }
-
-    // Mostrar/ocultar preview
     function showPreviewFromFile(file) {
       if (!file) return;
-      const url = URL.createObjectURL(file);
-      preview.src = url;
-      preview.onload = () => {
-        // tamaño inicial: 30% del ancho del canvas
-        const cw = canvas.clientWidth || 600;
-        preview.style.width = Math.round(cw * 0.3) + "px";
-        preview.classList.remove("d-none");
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        preview.src = e.target.result;   // DataURL (sirve PNG/JPG/SVG)
+        preview.classList.remove('d-none');
       };
+      reader.readAsDataURL(file);
     }
 
-    fileInput.addEventListener("change", (ev) => {
+    fileInput.addEventListener('change', function (ev) {
       const f = ev.target.files && ev.target.files[0];
       showPreviewFromFile(f);
     });
 
-    // Soporte por si existe un botón reset con ese id (no obligamos a tenerlo)
-    const resetBtn = document.getElementById("spw_reset_btn");
-    if (resetBtn) {
-      resetBtn.addEventListener("click", () => {
-        preview.classList.add("d-none");
-        preview.removeAttribute("src");
-        try { fileInput.value = ""; } catch (_) {}
-      });
+    // Controles opcionales si existen (no obligatorios)
+    const size = qs('spw_size');
+    const posX = qs('spw_pos_x');
+    const posY = qs('spw_pos_y');
+    const rot  = qs('spw_rotation');
+
+    function updateTransform() {
+      if (!preview) return;
+      const s = size ? (Number(size.value || 100) / 100) : 1;
+      const x = posX ? Number(posX.value || 0) : 0;
+      const y = posY ? Number(posY.value || 0) : 0;
+      const r = rot  ? Number(rot.value  || 0) : 0;
+      preview.style.transform =
+        `translate(-50%, -50%) translate(${x}%, ${y}%) rotate(${r}deg) scale(${s})`;
     }
-  });
+
+    [size, posX, posY, rot].forEach(ctrl => {
+      if (ctrl) ctrl.addEventListener('input', updateTransform);
+    });
+
+    // Reset si existe window.spwReset
+    window.spwReset = function () {
+      preview.classList.add('d-none');
+      preview.removeAttribute('src');
+      if (size) size.value = 100;
+      if (posX) posX.value = 0;
+      if (posY) posY.value = 10;
+      if (rot)  rot.value  = 0;
+      updateTransform();
+    };
+
+    updateTransform();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPreview);
+  } else {
+    initPreview();
+  }
 })();
