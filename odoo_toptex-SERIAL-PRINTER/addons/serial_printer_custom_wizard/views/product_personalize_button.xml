@@ -4,12 +4,13 @@
   <template id="spw_product_button" inherit_id="website_sale.product" name="SPW: Personalizar (Product)">
     <!-- Insertar DENTRO del <form> que contiene el input hidden name="product_id" -->
     <xpath expr="//form[.//input[@name='product_id']]" position="inside">
-      <button id="spw_personalize_btn"
-              type="button"
-              class="btn btn-primary w-100 mt-3"
-              t-att-data-product-template-id="product.id">
+      <!-- Enlace robusto: siempre lleva al customizer del TEMPLATE;
+           el JS (abajo) sólo añade ?variant_id=<id> si puede. -->
+      <a id="spw_personalize_btn"
+         class="btn btn-primary w-100 mt-3"
+         t-att-href="'/spw/customize/%s' % product.id">
         <i class="fa fa-magic me-1"/><span>Personalizar</span>
-      </button>
+      </a>
     </xpath>
   </template>
 </odoo>
