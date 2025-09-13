@@ -2,29 +2,39 @@
 from odoo import http
 from odoo.http import request
 
+class SpwCustomizer(http.Controller):
 
-class SerialPrinterWizard(http.Controller):
+    # URL: /spw/customize/<product.template.id>?variant_id=<product.product.id>
+    @http.route(['/spw/customize/<int:tmpl_id>'], type='http', auth='public', website=True, sitemap=False)
+    def spw_customize(self, tmpl_id, variant_id=None, **kw):
+        ProductTemplate = request.env['product.template'].sudo()
+        ProductProduct  = request.env['product.product'].sudo()
 
-    @http.route(['/spw/customize/<int:variant_id>'], type='http', auth='public', website=True, sitemap=False)
-    def spw_customize(self, variant_id, **kw):
-        """Página del configurador.
-        - Evita el TypeError del editor pasando main_object correctamente.
-        - Muestra la imagen de la variante seleccionada.
-        """
-        ProductProduct = request.env['product.product'].sudo()
-        variant = ProductProduct.browse(variant_id)
-        if not variant.exists():
+        template = ProductTemplate.browse(tmpl_id).exists()
+        if not template:
             return request.not_found()
 
-        # URL de imagen de la variante (route estándar /web/image)
-        product_image_url = f"/web/image/product.product/{variant.id}/image_1920"
+        variant = None
+        # Si viene variant_id lo validamos que pertenezca al template
+        if variant_id:
+            v = ProductProduct.browse(int(variant_id)).exists()
+            if v and v.product_tmpl_id.id == tmpl_id:
+                variant = v
 
-        # FIX: el editor de Website necesita main_object (un record real con modelo)
-        main_object = variant.product_tmpl_id  # product.template
+        # Fallback variante por defecto del template (NO cambiamos de producto)
+        if not variant:
+            variant = template.product_variant_id
 
-        qcontext = {
-            'variant_id': variant.id,
-            'product_image_url': product_image_url,
-            'main_object': main_object,
+        # Imagen de la variante si existe, si no la del template
+        if variant:
+            img_src = f"/web/image/product.product/{variant.id}/image_1920"
+        else:
+            img_src = f"/web/image/product.template/{template.id}/image_1920"
+
+        values = {
+            'template': template,
+            'variant': variant,
+            'img_src': img_src,
         }
-        return request.render('serial_printer_custom_wizard.customizer_page', qcontext)
+        # Importante: este ID debe coincidir con tu vista XML de la página
+        return request.render('serial_printer_custom_wizard.customizer_page', values)
