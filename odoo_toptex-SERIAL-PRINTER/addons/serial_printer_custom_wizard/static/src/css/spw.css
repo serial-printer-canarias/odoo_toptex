@@ -1,16 +1,17 @@
-/* === Canvas producto + overlay logo === */
-#spw_canvas { position: relative; max-width: 900px; margin: 0 auto; }
+/* Lienzo */
+.spw-canvas { position: relative; }
 #spw_product_img { display: block; width: 100%; height: auto; }
 
-/* El logo arranca oculto y se muestra al elegir archivo */
-#spw_logo_preview {
-  position: absolute;
-  left: 50%;
-  top: 55%;                 /* centro aproximado; se ajusta con sliders */
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-  z-index: 10;
-  opacity: 1;
+/* Preview del logo sobre la imagen */
+.spw-logo-preview{
+  position:absolute;
+  left:50%;
+  top:50%;
+  transform:translate(-50%,-50%);
+  max-width:80%;
+  height:auto;
+  pointer-events:none;
+  opacity:0;
+  z-index:5;
 }
-
-.d-none { display: none !important; }
+.d-none{ display:none !important; }
