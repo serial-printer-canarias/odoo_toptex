@@ -1,33 +1,16 @@
-/* serial_printer_custom_wizard/static/src/css/spw.css */
+/* === Canvas producto + overlay logo === */
+#spw_canvas { position: relative; max-width: 900px; margin: 0 auto; }
+#spw_product_img { display: block; width: 100%; height: auto; }
 
-.spw-stage {
-  position: relative;
-  overflow: hidden;
-  min-height: 360px;
-  background: #fff;
-}
-.spw-stage .spw-base {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.spw-logo-preview {
+/* El logo arranca oculto y se muestra al elegir archivo */
+#spw_logo_preview {
   position: absolute;
   left: 50%;
-  top: 50%;
-  max-width: 70%;
-  max-height: 70%;
-  transform: translate(-50%, -50%) scale(1);
-  transform-origin: center center;
-  pointer-events: auto; /* permite arrastrar */
-  user-select: none;
-  z-index: 5;
+  top: 55%;                 /* centro aproximado; se ajusta con sliders */
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 10;
   opacity: 1;
 }
 
 .d-none { display: none !important; }
-
-.spw-controls .form-range {
-  accent-color: #0d6efd;
-}
