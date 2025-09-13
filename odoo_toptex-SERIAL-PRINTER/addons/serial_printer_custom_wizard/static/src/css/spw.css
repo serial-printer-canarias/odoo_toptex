@@ -29,3 +29,17 @@
 @media (min-width: 992px) {
   .spw-stage { min-height: 500px; }
 }
+/* AÑADIDO SOLO PARA LA PREVISUALIZACIÓN */
+#spw_canvas { position: relative; }
+
+#spw_logo_preview {
+  position: absolute;
+  left: 50%;
+  top: 60%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 5;
+  opacity: 1;
+  max-width: 80%;
+  max-height: 80%;
+}
