@@ -1,17 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Página del customizer -->
   <template id="customizer_page" name="SPW Customizer Page">
     <t t-call="website.layout">
       <div class="container my-5">
-        <!-- Lienzo con la foto de la variante y el overlay del logo -->
         <div id="spw_canvas" class="spw-stage">
           <img id="spw_product_img" class="spw-base img-fluid" t-att-src="img_src" alt="Producto"/>
-          <!-- El logo se muestra aquí al elegir archivo -->
           <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
         </div>
 
-        <!-- Controles -->
         <div class="row g-4 mt-4">
           <div class="col-12">
             <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
@@ -41,9 +37,9 @@
           </div>
 
           <div class="col-12">
+            <!-- ESCAPADO CORRECTO -->
             <a class="btn btn-outline-secondary" href="javascript:void(0)"
-               onclick="window.spwReset && window.spwReset();">Reset</a>
-            <!-- FIX: NO usar &larr; en XML. Usamos unicode/código numérico -->
+               onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
             <a class="btn btn-link ms-3" t-att-href="'/shop/product/%s' % template.id">&#8592; Volver al producto</a>
           </div>
         </div>
