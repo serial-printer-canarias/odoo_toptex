@@ -1,30 +1,56 @@
 /** serial_printer_custom_wizard/static/src/js/spw.js **/
-
 (function () {
   "use strict";
 
-  // ==== FICHA DE PRODUCTO: Navegar a la página de personalización con la variante seleccionada ====
-  function initProductPage() {
-    const btn = document.getElementById("spw_personalize_btn");
-    if (!btn) return;
+  // -------- util: obtener la variante actual de forma robusta ----------
+  function getCurrentVariantId(scope) {
+    const root = scope || document;
 
-    btn.addEventListener("click", function (ev) {
-      ev.preventDefault();
-      // Buscar el form que contiene el input name=product_id (variante actual)
-      const form = btn.closest("form") || document.querySelector("form");
-      if (!form) return;
+    // 1) estándar: hidden input name="product_id"
+    const hidden = root.querySelector("input[name='product_id']");
+    if (hidden && hidden.value && !isNaN(hidden.value)) {
+      return parseInt(hidden.value, 10);
+    }
 
-      const variantInput = form.querySelector("input[name='product_id']");
-      const variantId = variantInput && variantInput.value ? parseInt(variantInput.value, 10) : null;
-      if (!variantId) {
-        console.warn("[SPW] No se encontró product_id (variante).");
-        return;
-      }
-      window.location.href = `/spw/customize/${variantId}`;
-    });
+    // 2) a veces el form lleva data-product-id
+    const form = root.querySelector("form");
+    if (form && form.dataset && form.dataset.productId && !isNaN(form.dataset.productId)) {
+      return parseInt(form.dataset.productId, 10);
+    }
+
+    // 3) radio de atributos con data-product-id
+    const checked = root.querySelector("[data-attribute_exclusions] input[type='radio'][name^='attribute_']:checked");
+    if (checked && checked.dataset && checked.dataset.productId && !isNaN(checked.dataset.productId)) {
+      return parseInt(checked.dataset.productId, 10);
+    }
+
+    // 4) último recurso: parámetro ?variant=123
+    const m = location.search.match(/[?&]variant=(\d+)/);
+    if (m) return parseInt(m[1], 10);
+
+    return null;
   }
 
-  // ==== PÁGINA DE PERSONALIZACIÓN: Previsualizar logo sobre imagen de variante ====
+  // -------- PRODUCT PAGE: delegación de eventos para el botón ----------
+  document.addEventListener("click", function (ev) {
+    const btn = ev.target.closest("#spw_personalize_btn");
+    if (!btn) return;
+
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    const scope = btn.closest("form") || document;
+    const variantId = getCurrentVariantId(scope);
+
+    if (!variantId) {
+      console.warn("[SPW] No se pudo detectar la variante (product_id).");
+      alert("No se ha podido detectar la variante seleccionada. Selecciona un color/talla e inténtalo de nuevo.");
+      return;
+    }
+    window.location.assign(`/spw/customize/${variantId}`);
+  });
+
+  // -------- CUSTOMIZER: previsualización del logo (sin cambios de UX) ----------
   function initCustomizerPage() {
     const canvas = document.getElementById("spw_canvas");
     const baseImg = document.getElementById("spw_product_img");
@@ -38,7 +64,6 @@
 
     if (!canvas || !baseImg || !logo) return;
 
-    // Estado del overlay
     const state = {
       scalePct: 100,
       posX: 0,
@@ -50,14 +75,12 @@
     };
 
     function applyTransform() {
-      // Colocamos el centro en el centro del canvas (50%, 50%) y aplicamos offsets y transform
       logo.style.transform =
         `translate(calc(-50% + ${state.posX}px), calc(-50% + ${state.posY}px)) ` +
         `rotate(${state.rotate}deg) ` +
         `scale(${state.scalePct / 100})`;
     }
 
-    // Input file -> mostrar logo
     if (fileInput) {
       fileInput.addEventListener("change", function (e) {
         const file = e.target.files && e.target.files[0] ? e.target.files[0] : null;
@@ -67,62 +90,30 @@
         reader.onload = function (ev) {
           logo.src = ev.target.result;
           logo.classList.remove("d-none");
-
-          // Reset básico
-          state.scalePct = 100;
-          state.posX = 0;
-          state.posY = 0;
-          state.rotate = 0;
-          if (sizeRange) sizeRange.value = String(state.scalePct);
-          if (posXRange) posXRange.value = String(state.posX);
-          if (posYRange) posYRange.value = String(state.posY);
-          if (rotRange) rotRange.value = String(state.rotate);
+          state.scalePct = 100; state.posX = 0; state.posY = 0; state.rotate = 0;
+          if (sizeRange) sizeRange.value = "100";
+          if (posXRange) posXRange.value = "0";
+          if (posYRange) posYRange.value = "0";
+          if (rotRange) rotRange.value = "0";
           applyTransform();
         };
         reader.readAsDataURL(file);
       });
     }
 
-    // Controles
-    if (sizeRange) {
-      sizeRange.addEventListener("input", () => {
-        state.scalePct = parseInt(sizeRange.value || "100", 10);
-        applyTransform();
-      });
-    }
-    if (posXRange) {
-      posXRange.addEventListener("input", () => {
-        state.posX = parseInt(posXRange.value || "0", 10);
-        applyTransform();
-      });
-    }
-    if (posYRange) {
-      posYRange.addEventListener("input", () => {
-        state.posY = parseInt(posYRange.value || "0", 10);
-        applyTransform();
-      });
-    }
-    if (rotRange) {
-      rotRange.addEventListener("input", () => {
-        state.rotate = parseInt(rotRange.value || "0", 10);
-        applyTransform();
-      });
-    }
-    if (resetBtn) {
-      resetBtn.addEventListener("click", () => {
-        state.scalePct = 100;
-        state.posX = 0;
-        state.posY = 0;
-        state.rotate = 0;
-        if (sizeRange) sizeRange.value = "100";
-        if (posXRange) posXRange.value = "0";
-        if (posYRange) posYRange.value = "0";
-        if (rotRange) rotRange.value = "0";
-        applyTransform();
-      });
-    }
+    if (sizeRange) sizeRange.addEventListener("input", () => { state.scalePct = parseInt(sizeRange.value || "100", 10); applyTransform(); });
+    if (posXRange) posXRange.addEventListener("input", () => { state.posX = parseInt(posXRange.value || "0", 10); applyTransform(); });
+    if (posYRange) posYRange.addEventListener("input", () => { state.posY = parseInt(posYRange.value || "0", 10); applyTransform(); });
+    if (rotRange)  rotRange.addEventListener("input",  () => { state.rotate = parseInt(rotRange.value  || "0", 10); applyTransform(); });
+    if (resetBtn)  resetBtn.addEventListener("click",  () => {
+      state.scalePct = 100; state.posX = 0; state.posY = 0; state.rotate = 0;
+      if (sizeRange) sizeRange.value = "100";
+      if (posXRange) posXRange.value = "0";
+      if (posYRange) posYRange.value = "0";
+      if (rotRange)  rotRange.value  = "0";
+      applyTransform();
+    });
 
-    // Arrastrar el logo con el ratón / touch
     function onPointerDown(ev) {
       if (logo.classList.contains("d-none")) return;
       state.dragging = true;
@@ -136,18 +127,14 @@
       if (!state.dragging) return;
       const cx = ev.clientX || (ev.touches && ev.touches[0].clientX) || 0;
       const cy = ev.clientY || (ev.touches && ev.touches[0].clientY) || 0;
-      const dx = cx - state.dragStart.x;
-      const dy = cy - state.dragStart.y;
-      state.posX = state.startPos.x + dx;
-      state.posY = state.startPos.y + dy;
+      state.posX = state.startPos.x + (cx - state.dragStart.x);
+      state.posY = state.startPos.y + (cy - state.dragStart.y);
       if (posXRange) posXRange.value = String(state.posX);
       if (posYRange) posYRange.value = String(state.posY);
       applyTransform();
       ev.preventDefault();
     }
-    function onPointerUp() {
-      state.dragging = false;
-    }
+    function onPointerUp() { state.dragging = false; }
 
     logo.addEventListener("mousedown", onPointerDown);
     logo.addEventListener("touchstart", onPointerDown, { passive: false });
@@ -157,9 +144,5 @@
     window.addEventListener("touchend", onPointerUp);
   }
 
-  // Init
-  document.addEventListener("DOMContentLoaded", function () {
-    initProductPage();
-    initCustomizerPage();
-  });
+  document.addEventListener("DOMContentLoaded", initCustomizerPage);
 })();
