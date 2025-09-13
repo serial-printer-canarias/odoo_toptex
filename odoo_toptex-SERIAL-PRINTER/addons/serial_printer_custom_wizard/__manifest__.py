@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Serial Printer - Custom Wizard",
-    "version": "18.0.1.0",
-    "author": "Serial Printer",
+    "version": "18.0.1.0.0",
+    "summary": "Personalización de producto con vista previa de logo.",
+    "category": "Website/Website",
     "license": "LGPL-3",
     "depends": ["website_sale"],
     "data": [
-        "views/product_button.xml",
-        "views/customizer_page.xml",
+        "views/customizer_page.xml",           # <-- aquí está la página del configurador
+        # Si tienes el botón en un XML aparte, descomenta la siguiente línea
+        # "views/product_button.xml",
     ],
     "assets": {
         "web.assets_frontend": [
