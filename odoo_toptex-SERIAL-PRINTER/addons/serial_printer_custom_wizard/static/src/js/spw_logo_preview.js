@@ -1,73 +1,57 @@
-/** @odoo-module **/
+// Ejecuta SOLO en la página del customizer y no toca nada más.
+(function () {
+  "use strict";
 
-odoo.define('serial_printer_custom_wizard.spw_logo_preview', function (require) {
-  'use strict';
-
-  function onCustomizerPage() {
-    return window.location.pathname.indexOf('/spw/customize/') === 0;
+  function ready(fn) {
+    if (document.readyState !== "loading") fn();
+    else document.addEventListener("DOMContentLoaded", fn);
   }
 
-  function init() {
-    if (!onCustomizerPage()) return;
+  ready(() => {
+    const fileInput = document.getElementById("spw_logo_input");
+    if (!fileInput) return; // si no hay input, no hacemos nada
 
-    const logoInput = document.getElementById('spw_logo_input');
-    const logoImg   = document.getElementById('spw_logo_preview');
-    const sizeR     = document.getElementById('spw_size');
-    const posXR     = document.getElementById('spw_pos_x');
-    const posYR     = document.getElementById('spw_pos_y');
-    const rotR      = document.getElementById('spw_rotation');
+    // Contenedor y overlay
+    const canvas =
+      document.getElementById("spw_canvas") ||
+      document.querySelector(".spw-canvas") ||
+      fileInput.closest("main")?.querySelector("#spw_canvas");
+    if (!canvas) return;
 
-    if (!logoInput || !logoImg) return;
-
-    // Estado
-    let size = parseInt(sizeR ? sizeR.value : 100, 10);   // porcentaje del ancho base
-    let posX = parseInt(posXR ? posXR.value : 0, 10);     // porcentaje extra respecto al centro
-    let posY = parseInt(posYR ? posYR.value : 10, 10);
-    let rot  = parseInt(rotR ? rotR.value  : 0, 10);
-
-    function apply() {
-      // ancho como % para que sea intuitivo
-      logoImg.style.width = size + '%';
-      // centrado + offsets porcentuales
-      logoImg.style.left = (50 + posX) + '%';
-      logoImg.style.top  = (50 + posY) + '%';
-      logoImg.style.transform = `translate(-50%, -50%) rotate(${rot}deg)`;
+    let preview = document.getElementById("spw_logo_preview");
+    if (!preview) {
+      preview = document.createElement("img");
+      preview.id = "spw_logo_preview";
+      preview.className = "spw-logo-preview d-none";
+      canvas.appendChild(preview);
     }
 
-    // Exponer reset (usado por el botón Reset de la vista)
-    window.spwReset = function () {
-      size = 100; posX = 0; posY = 10; rot = 0;
-      if (sizeR) sizeR.value = size;
-      if (posXR) posXR.value = posX;
-      if (posYR) posYR.value = posY;
-      if (rotR)  rotR.value  = rot;
-      apply();
-    };
-
-    // Cargar imagen local (PNG/JPG/SVG) como DataURL
-    logoInput.addEventListener('change', function () {
-      const file = this.files && this.files[0];
+    // Mostrar/ocultar preview
+    function showPreviewFromFile(file) {
       if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = function (e) {
-        logoImg.src = e.target.result;   // DataURL
-        logoImg.classList.remove('d-none');
-        apply();
+      const url = URL.createObjectURL(file);
+      preview.src = url;
+      preview.onload = () => {
+        // tamaño inicial: 30% del ancho del canvas
+        const cw = canvas.clientWidth || 600;
+        preview.style.width = Math.round(cw * 0.3) + "px";
+        preview.classList.remove("d-none");
       };
-      reader.readAsDataURL(file);
+    }
+
+    fileInput.addEventListener("change", (ev) => {
+      const f = ev.target.files && ev.target.files[0];
+      showPreviewFromFile(f);
     });
 
-    // Sliders
-    if (sizeR) sizeR.addEventListener('input', (e) => { size = parseInt(e.target.value || '100', 10); apply(); });
-    if (posXR) posXR.addEventListener('input', (e) => { posX = parseInt(e.target.value || '0', 10);   apply(); });
-    if (posYR) posYR.addEventListener('input', (e) => { posY = parseInt(e.target.value || '10', 10);  apply(); });
-    if (rotR)  rotR.addEventListener('input',  (e) => { rot  = parseInt(e.target.value || '0', 10);   apply(); });
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-});
+    // Soporte por si existe un botón reset con ese id (no obligamos a tenerlo)
+    const resetBtn = document.getElementById("spw_reset_btn");
+    if (resetBtn) {
+      resetBtn.addEventListener("click", () => {
+        preview.classList.add("d-none");
+        preview.removeAttribute("src");
+        try { fileInput.value = ""; } catch (_) {}
+      });
+    }
+  });
+})();
