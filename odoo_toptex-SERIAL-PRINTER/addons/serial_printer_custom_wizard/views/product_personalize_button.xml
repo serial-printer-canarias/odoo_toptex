@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+  <!-- SPW: Botón "Personalizar" en la ficha de producto -->
   <template id="spw_product_button" inherit_id="website_sale.product">
+    <!-- Lo insertamos DENTRO del <form> que contiene el input hidden name="product_id" -->
     <xpath expr="//form[.//input[@name='product_id']]" position="inside">
-      <button id="spw_personalize_btn" type="button"
+      <button id="spw_personalize_btn"
+              type="button"
               class="btn btn-primary w-100 mt-3"
-              t-att-data-product-template-id="product.product_tmpl_id.id if product else product_template.id">
+              t-att-data-product-template-id="product.id">
         <i class="fa fa-magic me-1"/><span>Personalizar</span>
       </button>
     </xpath>
