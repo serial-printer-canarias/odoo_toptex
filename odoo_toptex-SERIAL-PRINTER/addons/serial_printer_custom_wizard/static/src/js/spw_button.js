@@ -4,6 +4,12 @@ odoo.define('serial_printer_custom_wizard.spw_button', function (require) {
 
     const publicRoot = require('web.public.root');
 
+    function getVariantIdFromForm() {
+        const form = document.querySelector("form[action*='/shop']");
+        const hidden = form && form.querySelector("input[name='product_id']");
+        return hidden ? hidden.value : null;
+    }
+
     publicRoot.whenReady(() => {
         document.addEventListener('click', (ev) => {
             const btn = ev.target.closest('#spw_personalize_btn');
@@ -11,28 +17,19 @@ odoo.define('serial_printer_custom_wizard.spw_button', function (require) {
 
             ev.preventDefault();
 
-            // 1) Sacar la variante seleccionada del <form> (input hidden name="product_id")
-            const form = btn.closest('form') || document.querySelector("form[action*='/shop']");
-            const variantInput = form && form.querySelector("input[name='product_id']");
-            const variantId = variantInput ? variantInput.value : null;
+            const tmplId = btn.dataset.productTemplateId || null;
+            const variantId = btn.dataset.variantId || getVariantIdFromForm();
 
-            // 2) Sacar el product.template id
-            let tmplId = btn.dataset.productTemplateId || null;
-            if (!tmplId) {
-                // Fallback: parsear el ID del final de la URL /shop/slug-<id>
-                const last = (window.location.pathname.split('/').filter(Boolean).pop() || '');
-                const m = last.match(/-(\d+)$/);
-                if (m) tmplId = m[1];
-            }
-
-            if (!tmplId) {
-                console.error('SPW: no se pudo obtener el product.template id');
+            if (!tmplId || tmplId === '0') {
+                console.error('SPW: Falta data-product-template-id en el botón');
                 return;
             }
 
-            // 3) Construir URL del configurador (mantiene la variante si existe)
-            const url = `/spw/customize/${tmplId}${variantId ? `?variant_id=${variantId}` : ''}`;
-            window.location.href = url;
+            const url =
+                `/spw/customize/${encodeURIComponent(tmplId)}` +
+                (variantId ? `?variant_id=${encodeURIComponent(variantId)}` : '');
+
+            window.location.assign(url);
         });
     });
 });
