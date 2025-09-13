@@ -1,63 +1,112 @@
+/** addons/serial_printer_custom_wizard/static/src/js/customizer.js
+ * Previsualización del logo sobre la imagen (sin tocar nada más).
+ * Seguro en cualquier página: sólo actúa si existe #spw_canvas.
+ */
 (function () {
-  function qs(id) { return document.getElementById(id); }
+  'use strict';
 
-  const imgLogo   = qs("spw_logo_preview");
-  const inputFile = qs("spw_logo_file");
-  const rSize     = qs("spw_size");
-  const rRot      = qs("spw_rotate");
-  const rX        = qs("spw_pos_x");
-  const rY        = qs("spw_pos_y");
+  function qs(sel) { return document.querySelector(sel); }
 
-  function render() {
-    if (!imgLogo || imgLogo.classList.contains("d-none")) return;
-    const s  = parseFloat(rSize.value || "0.7");
-    const r  = parseFloat(rRot.value || "0");
-    const px = parseFloat(rX.value || "50");
-    const py = parseFloat(rY.value || "60");
+  function init() {
+    const canvas = qs('#spw_canvas');
+    if (!canvas) return; // No estamos en la página del customizer
 
-    imgLogo.style.left = px + "%";
-    imgLogo.style.top  = py + "%";
-    imgLogo.style.transform = `translate(-50%, -50%) scale(${s}) rotate(${r}deg)`;
+    const logoInput = qs('#spw_logo_input');
+    const logoImg   = qs('#spw_logo_preview');
+    const sizeEl    = qs('#spw_size');
+    const posXEl    = qs('#spw_pos_x');
+    const posYEl    = qs('#spw_pos_y');
+    const rotEl     = qs('#spw_rotation');
+
+    // Estado inicial
+    const state = {
+      widthPct: parseInt(sizeEl?.value || '100', 10), // porcentaje respecto al ancho del lienzo
+      dxPct: parseInt(posXEl?.value || '0', 10),      // -50 .. 50
+      dyPct: parseInt(posYEl?.value || '10', 10),     // -50 .. 50
+      rotDeg: parseInt(rotEl?.value || '0', 10),
+    };
+
+    function applyTransform() {
+      if (!logoImg) return;
+      // Base: centrado (-50%, -50%). Offset añadiendo dx/dy en porcentaje relativo al canvas
+      const left = 50 + state.dxPct; // %
+      const top  = 50 + state.dyPct; // %
+      logoImg.style.left = left + '%';
+      logoImg.style.top  = top + '%';
+
+      // Ancho relativo al lienzo
+      logoImg.style.width = state.widthPct + '%';
+
+      // Rotación alrededor del centro del logo
+      logoImg.style.transform = 'translate(-50%, -50%) rotate(' + state.rotDeg + 'deg)';
+      logoImg.style.opacity = '1';
+    }
+
+    function reset() {
+      if (sizeEl) sizeEl.value = '100';
+      if (posXEl) posXEl.value = '0';
+      if (posYEl) posYEl.value = '10';
+      if (rotEl)  rotEl.value  = '0';
+      state.widthPct = 100;
+      state.dxPct = 0;
+      state.dyPct = 10;
+      state.rotDeg = 0;
+      applyTransform();
+    }
+
+    // Exponer reset para el botón (ya usado en la vista)
+    window.spwReset = reset;
+
+    // Controles
+    if (sizeEl)  sizeEl.addEventListener('input',  () => { state.widthPct = parseInt(sizeEl.value || '100', 10); applyTransform(); });
+    if (posXEl)  posXEl.addEventListener('input',  () => { state.dxPct    = parseInt(posXEl.value || '0', 10);   applyTransform(); });
+    if (posYEl)  posYEl.addEventListener('input',  () => { state.dyPct    = parseInt(posYEl.value || '10', 10);  applyTransform(); });
+    if (rotEl)   rotEl.addEventListener('input',   () => { state.rotDeg   = parseInt(rotEl.value || '0', 10);    applyTransform(); });
+
+    // Carga de logo
+    if (logoInput && logoImg) {
+      logoInput.addEventListener('change', (ev) => {
+        const file = ev.target.files && ev.target.files[0];
+        if (!file) return;
+
+        // Validación tamaño (10MB)
+        if (file.size > 10 * 1024 * 1024) {
+          alert('El archivo supera 10MB.');
+          return;
+        }
+        const mime = (file.type || '').toLowerCase();
+        const isImage = mime.startsWith('image/');
+        if (!isImage) {
+          alert('Formato no soportado. Usa PNG, JPG o SVG.');
+          return;
+        }
+
+        // Mostrar rápidamente con ObjectURL (va bien para PNG/JPG/SVG)
+        try {
+          const url = URL.createObjectURL(file);
+          logoImg.src = url;
+          logoImg.classList.remove('d-none');
+          applyTransform();
+        } catch (e) {
+          // Fallback FileReader
+          const reader = new FileReader();
+          reader.onload = function (e2) {
+            logoImg.src = e2.target.result;
+            logoImg.classList.remove('d-none');
+            applyTransform();
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+    }
+
+    // Primera aplicación por si hay valores por defecto
+    applyTransform();
   }
 
-  // Cargar imagen (PNG/JPG/SVG) via FileReader como DataURL
-  if (inputFile) {
-    inputFile.addEventListener("change", function (e) {
-      const f = e.target.files && e.target.files[0];
-      if (!f) return;
-      const reader = new FileReader();
-      reader.onload = function () {
-        imgLogo.src = reader.result;
-        imgLogo.classList.remove("d-none");
-        render();
-      };
-      reader.readAsDataURL(f);
-    });
-  }
-
-  [rSize, rRot, rX, rY].forEach(function (el) {
-    if (el) el.addEventListener("input", render);
-  });
-
-  // Volver
-  const back = qs("spw_back");
-  if (back) {
-    back.addEventListener("click", function (e) {
-      e.preventDefault();
-      if (history.length > 1) history.back();
-      else window.location.href = "/shop";
-    });
-  }
-
-  // Añadir al carrito (sin guardar aún la imagen; se añade la variante)
-  const add = qs("spw_add_to_cart");
-  if (add) {
-    add.addEventListener("click", function (e) {
-      e.preventDefault();
-      const variantId = add.dataset.variantId || add.dataset.fallbackVariantId;
-      if (!variantId) return;
-      // Redirección simple al endpoint estándar
-      window.location.href = `/shop/cart/update?product_id=${variantId}&add_qty=1`;
-    });
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
   }
 })();
