@@ -1,42 +1,29 @@
 /** @odoo-module **/
 
 odoo.define('serial_printer_custom_wizard.spw_button', function (require) {
-    'use strict';
+  'use strict';
 
-    const publicWidget = require('web.public.widget');
+  function init() {
+    const btn = document.getElementById('spw_personalize_btn');
+    if (!btn) return;
 
-    publicWidget.registry.SpwPersonalizeBtn = publicWidget.Widget.extend({
-        selector: '#spw_personalize_btn',
-        events: {
-            'click': '_onClick',
-        },
+    btn.addEventListener('click', function (ev) {
+      // Si no hay variante, dejamos seguir el href base (sigue funcionando)
+      const form = btn.closest('form');
+      const variantInput = form ? form.querySelector('input[name="product_id"]') : null;
+      const variantId = variantInput && variantInput.value ? variantInput.value : null;
+      if (!variantId) return; // fallback: sin JS extra, va al href base
 
-        /**
-         * Click en "Personalizar"
-         */
-        _onClick: function (ev) {
-            ev.preventDefault();
-
-            const btn = ev.currentTarget;
-            const templateId = btn.dataset.productTemplateId;
-            if (!templateId) {
-                console.warn('SPW: Falta data-product-template-id en el botón.');
-                return;
-            }
-
-            // Tomamos la variante seleccionada del <form> donde está el botón
-            const $form = $(btn).closest('form');
-            const $variantInput = $form.find('input[name="product_id"]');
-            const variantId = $variantInput.length ? $variantInput.val() : '';
-
-            // Construimos URL de tu customizer (no tocamos nada más)
-            let url = `/spw/customize/${templateId}`;
-            if (variantId) {
-                url += `?variant_id=${encodeURIComponent(variantId)}`;
-            }
-            window.location.href = url;
-        },
+      ev.preventDefault();
+      const url = new URL(btn.getAttribute('href'), window.location.origin);
+      url.searchParams.set('variant_id', variantId);
+      window.location.href = url.toString();
     });
+  }
 
-    return publicWidget.registry.SpwPersonalizeBtn;
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 });
