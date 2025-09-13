@@ -7,9 +7,9 @@ class SpwCustomizerController(http.Controller):
     @http.route(['/spw/customize/<int:template_id>'], type='http', auth='public', website=True, sitemap=False)
     def spw_customize(self, template_id, **kw):
         """
-        Renderiza el personalizador mostrando SIEMPRE la imagen correcta:
-        - Prioriza la variante recibida por ?variant_id= o ?product_id=
-        - Si no hay variante válida, usa la imagen del template
+        Renderiza el personalizador mostrando la imagen CORRECTA:
+        - Si llega ?variant_id= o ?product_id= (id de product.product), usamos esa variante
+        - Si no, usamos la imagen del template
         """
         template = request.env['product.template'].sudo().browse(template_id).exists()
         if not template:
@@ -37,7 +37,7 @@ class SpwCustomizerController(http.Controller):
             'variant': variant,
             'variant_id': variant.id if variant else None,
             'img_src': img_src,
-            # Evita el error del editor de Website
+            # Evita errores del editor de Website
             'pageName': 'spw_customize_page',
             'main_object': template,
         }
