@@ -1,75 +1,73 @@
-/** serial_printer_custom_wizard/static/src/js/spw_logo_preview.js **/
+/** @odoo-module **/
+
 odoo.define('serial_printer_custom_wizard.spw_logo_preview', function (require) {
   'use strict';
 
-  const publicWidget = require('web.public.widget');
+  function onCustomizerPage() {
+    return window.location.pathname.indexOf('/spw/customize/') === 0;
+  }
 
-  publicWidget.registry.SpwLogoPreview = publicWidget.Widget.extend({
-    selector: '#spw_canvas',
+  function init() {
+    if (!onCustomizerPage()) return;
 
-    start() {
-      this.$canvas  = this.$el;
-      this.$product = this.$('#spw_product_img');
-      this.$logo    = this.$('#spw_logo_preview');
+    const logoInput = document.getElementById('spw_logo_input');
+    const logoImg   = document.getElementById('spw_logo_preview');
+    const sizeR     = document.getElementById('spw_size');
+    const posXR     = document.getElementById('spw_pos_x');
+    const posYR     = document.getElementById('spw_pos_y');
+    const rotR      = document.getElementById('spw_rotation');
 
-      // Controles (están fuera del canvas)
-      this.$input   = $('#spw_logo_input');
-      this.$size    = $('#spw_size');
-      this.$posx    = $('#spw_pos_x');
-      this.$posy    = $('#spw_pos_y');
-      this.$rotate  = $('#spw_rotate');
+    if (!logoInput || !logoImg) return;
 
-      // Eventos
-      this.$input.on('change', this._onFileChange.bind(this));
-      [this.$size, this.$posx, this.$posy, this.$rotate].forEach(($el) => {
-        $el.on('input change', this._applyTransform.bind(this));
-      });
+    // Estado
+    let size = parseInt(sizeR ? sizeR.value : 100, 10);   // porcentaje del ancho base
+    let posX = parseInt(posXR ? posXR.value : 0, 10);     // porcentaje extra respecto al centro
+    let posY = parseInt(posYR ? posYR.value : 10, 10);
+    let rot  = parseInt(rotR ? rotR.value  : 0, 10);
 
-      // Recalcular al redimensionar (móvil/rotación)
-      $(window).on('resize', this._applyTransform.bind(this));
+    function apply() {
+      // ancho como % para que sea intuitivo
+      logoImg.style.width = size + '%';
+      // centrado + offsets porcentuales
+      logoImg.style.left = (50 + posX) + '%';
+      logoImg.style.top  = (50 + posY) + '%';
+      logoImg.style.transform = `translate(-50%, -50%) rotate(${rot}deg)`;
+    }
 
-      return this._super.apply(this, arguments);
-    },
+    // Exponer reset (usado por el botón Reset de la vista)
+    window.spwReset = function () {
+      size = 100; posX = 0; posY = 10; rot = 0;
+      if (sizeR) sizeR.value = size;
+      if (posXR) posXR.value = posX;
+      if (posYR) posYR.value = posY;
+      if (rotR)  rotR.value  = rot;
+      apply();
+    };
 
-    // Carga el archivo local en base64 y lo pone en <img id="spw_logo_preview">
-    _onFileChange(ev) {
-      const file = ev.target.files && ev.target.files[0];
+    // Cargar imagen local (PNG/JPG/SVG) como DataURL
+    logoInput.addEventListener('change', function () {
+      const file = this.files && this.files[0];
       if (!file) return;
 
       const reader = new FileReader();
-      reader.onload = (e) => {
-        // Mostrar el logo
-        this.$logo.attr('src', e.target.result).removeClass('d-none');
-
-        // Reset valores cómodos
-        this.$size.val(40);
-        this.$posx.val(0);
-        this.$posy.val(0);
-        this.$rotate.val(0);
-
-        this._applyTransform();
+      reader.onload = function (e) {
+        logoImg.src = e.target.result;   // DataURL
+        logoImg.classList.remove('d-none');
+        apply();
       };
-      reader.readAsDataURL(file); // compatible con iOS/Safari
-    },
+      reader.readAsDataURL(file);
+    });
 
-    // Aplica tamaño/posición/rotación al overlay
-    _applyTransform() {
-      if (!this.$logo.attr('src')) return;
+    // Sliders
+    if (sizeR) sizeR.addEventListener('input', (e) => { size = parseInt(e.target.value || '100', 10); apply(); });
+    if (posXR) posXR.addEventListener('input', (e) => { posX = parseInt(e.target.value || '0', 10);   apply(); });
+    if (posYR) posYR.addEventListener('input', (e) => { posY = parseInt(e.target.value || '10', 10);  apply(); });
+    if (rotR)  rotR.addEventListener('input',  (e) => { rot  = parseInt(e.target.value || '0', 10);   apply(); });
+  }
 
-      const sizePct = parseInt(this.$size.val() || '40', 10); // porcentaje del ancho del producto
-      const dx      = parseInt(this.$posx.val() || '0', 10);  // px relativos
-      const dy      = parseInt(this.$posy.val() || '0', 10);
-      const rot     = parseInt(this.$rotate.val() || '0', 10);
-
-      const prodW = this.$product.width() || 1;
-      const logoW = Math.max(10, Math.round((sizePct / 100) * prodW));
-
-      this.$logo.css({
-        width: logoW + 'px',
-        transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) rotate(${rot}deg)`,
-      });
-    },
-  });
-
-  return publicWidget.registry.SpwLogoPreview;
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 });
