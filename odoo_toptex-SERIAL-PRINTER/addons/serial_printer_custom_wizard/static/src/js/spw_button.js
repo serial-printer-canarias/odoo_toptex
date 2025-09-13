@@ -1,29 +1,31 @@
-/** @odoo-module **/
-
-odoo.define('serial_printer_custom_wizard.spw_button', function (require) {
+(function () {
   'use strict';
+  function ready(fn){ if(document.readyState !== 'loading'){ fn(); } else { document.addEventListener('DOMContentLoaded', fn); } }
 
-  function init() {
+  ready(function(){
     const btn = document.getElementById('spw_personalize_btn');
     if (!btn) return;
 
-    btn.addEventListener('click', function (ev) {
-      // Si no hay variante, dejamos seguir el href base (sigue funcionando)
-      const form = btn.closest('form');
-      const variantInput = form ? form.querySelector('input[name="product_id"]') : null;
-      const variantId = variantInput && variantInput.value ? variantInput.value : null;
-      if (!variantId) return; // fallback: sin JS extra, va al href base
-
+    btn.addEventListener('click', function(ev){
       ev.preventDefault();
-      const url = new URL(btn.getAttribute('href'), window.location.origin);
-      url.searchParams.set('variant_id', variantId);
-      window.location.href = url.toString();
-    });
-  }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-});
+      // 1) Tomar la variante actual desde el <form> (input hidden name=product_id)
+      const form = btn.closest('form') || document.querySelector('form[action*="/shop/cart/update"]') || document.querySelector('form');
+      let variantId = null;
+      if (form) {
+        const hidden = form.querySelector('input[name="product_id"]');
+        if (hidden && hidden.value) variantId = parseInt(hidden.value, 10) || null;
+      }
+
+      // 2) Tomar el template id del data-atributo del propio botón
+      const tmplId = parseInt(btn.getAttribute('data-product-template-id'), 10) || null;
+      if (!tmplId) { console.error('SPW: falta data-product-template-id en el botón'); return; }
+
+      // 3) Construir URL
+      let url = '/spw/customize/' + tmplId;
+      if (variantId) url += '?variant_id=' + variantId;
+
+      window.location.href = url;
+    });
+  });
+})();
