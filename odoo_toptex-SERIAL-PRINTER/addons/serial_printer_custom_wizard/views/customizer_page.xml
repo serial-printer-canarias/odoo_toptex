@@ -1,43 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Página del personalizador -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
       <t t-set="main_object" t-value="template"/>
 
       <div class="container my-5 spw-customizer">
-        <!-- Datos invisibles para JS -->
         <input type="hidden" id="spw_template_id" t-att-value="template.id"/>
         <input type="hidden" id="spw_variant_id" t-att-value="variant_id or ''"/>
 
         <div class="row g-4">
-          <!-- Lienzo -->
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3">
-              <img id="spw_product_img"
-                   class="spw-base img-fluid rounded"
-                   t-att-src="img_src"
-                   alt="Producto"/>
-
-              <!-- Overlay del logo -->
-              <img id="spw_logo_preview"
-                   class="spw-logo-preview d-none"
-                   alt="Logo preview"/>
+              <img id="spw_product_img" class="spw-base img-fluid rounded" t-att-src="img_src" alt="Producto"/>
+              <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
           </div>
 
-          <!-- Controles -->
           <div class="col-12 col-lg-5">
             <div class="card h-100">
               <div class="card-body">
                 <h5 class="card-title mb-3">Personalización</h5>
 
-                <!-- Subida logo -->
+                <!-- Subir logo -->
                 <div class="mb-3">
                   <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
-                  <input id="spw_logo_input" class="form-control"
-                         type="file"
+                  <input id="spw_logo_input" class="form-control" type="file"
                          accept=".png,.jpg,.jpeg,.svg,.PNG,.JPG,.JPEG,.SVG"/>
                   <small class="text-muted">Máx. 10MB.</small>
                 </div>
@@ -61,7 +49,7 @@
                   </div>
                 </div>
 
-                <!-- Paleta de color (aplica solo a SVG) -->
+                <!-- Paleta color (solo SVG) -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
                   <div class="spw-color-row">
@@ -89,53 +77,42 @@
                   <div class="spw-help mt-1">Se aplica solo a logos SVG.</div>
                 </div>
 
-                <!-- Tamaño -->
+                <!-- Sliders -->
                 <div class="mb-3">
-                  <label for="spw_size" class="form-label">Tamaño</label>
+                  <label class="form-label" for="spw_size">Tamaño</label>
                   <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
                 </div>
-
-                <!-- Posición X -->
                 <div class="mb-3">
-                  <label for="spw_pos_x" class="form-label">Posición X</label>
+                  <label class="form-label" for="spw_pos_x">Posición X</label>
                   <input id="spw_pos_x" class="form-range" type="range" min="-50" max="50" value="0"/>
                 </div>
-
-                <!-- Posición Y -->
                 <div class="mb-3">
-                  <label for="spw_pos_y" class="form-label">Posición Y</label>
+                  <label class="form-label" for="spw_pos_y">Posición Y</label>
                   <input id="spw_pos_y" class="form-range" type="range" min="-50" max="50" value="10"/>
                 </div>
-
-                <!-- Rotación -->
                 <div class="mb-3">
-                  <label for="spw_rotation" class="form-label">Rotación</label>
+                  <label class="form-label" for="spw_rotation">Rotación</label>
                   <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
                 </div>
 
-                <!-- Cantidad -->
+                <!-- Cantidad + Observaciones -->
                 <div class="mb-3">
-                  <label for="spw_qty" class="form-label">Cantidad</label>
+                  <label class="form-label" for="spw_qty">Cantidad</label>
                   <input id="spw_qty" type="number" min="1" value="1" class="form-control"/>
                 </div>
-
-                <!-- Observaciones -->
                 <div class="mb-3">
-                  <label for="spw_notes" class="form-label">Observaciones</label>
+                  <label class="form-label" for="spw_notes">Observaciones</label>
                   <textarea id="spw_notes" class="form-control" rows="3" placeholder="Indica instrucciones para el taller..."></textarea>
                 </div>
 
                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                  <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
+                  <a class="btn btn-outline-secondary" href="javascript:void(0)" id="spw_reset_btn">Reset</a>
 
-                  <button id="spw_add_to_cart_btn" type="button" class="btn btn-primary flex-fill"
-                          onclick="window.spwAddToCart &amp;&amp; window.spwAddToCart();">
+                  <button id="spw_add_to_cart_btn" type="button" class="btn btn-primary flex-fill">
                     Añadir al carrito con esta personalización
                   </button>
 
-                  <button id="spw_download_png_btn" type="button" class="btn btn-light"
-                          onclick="window.spwDownloadPNG &amp;&amp; window.spwDownloadPNG();">
+                  <button id="spw_download_png_btn" type="button" class="btn btn-light">
                     Descargar PNG
                   </button>
 
@@ -149,16 +126,29 @@
         </div> <!-- row -->
       </div> <!-- container -->
 
-      <!-- Script inline envuelto en CDATA para evitar errores de & -->
+      <!-- JS (solo lo necesario) -->
       <script type="text/javascript"><![CDATA[
         (function () {
           function $(id){ return document.getElementById(id); }
+          function on(el, ev, cb){ if (el) el.addEventListener(ev, cb); }
+          function whenLoaded(img){
+            return new Promise(resolve=>{
+              if (!img) return resolve();
+              if (img.complete && img.naturalWidth) return resolve();
+              img.addEventListener('load', ()=>resolve(), {once:true});
+            });
+          }
 
-          function buildCanvas() {
+          async function buildCanvas() {
             const stage = $('spw_canvas');
             const base  = $('spw_product_img');
             const logo  = $('spw_logo_preview');
             if (!stage || !base) return null;
+
+            await whenLoaded(base);
+            if (logo && !logo.classList.contains('d-none') && logo.src) {
+              await whenLoaded(logo);
+            }
 
             const dpr = window.devicePixelRatio || 1;
             const stageRect = stage.getBoundingClientRect();
@@ -181,76 +171,128 @@
               const lr = logo.getBoundingClientRect();
               const cx = (lr.left - stageRect.left) + lr.width/2;
               const cy = (lr.top  - stageRect.top ) + lr.height/2;
-              const rotDeg = parseFloat(($('spw_rotation') && $('spw_rotation').value) || 0);
-              const rad = rotDeg * Math.PI / 180;
+              const deg = parseFloat(($('spw_rotation') && $('spw_rotation').value) || 0);
               ctx.save();
               ctx.translate(cx, cy);
-              ctx.rotate(rad);
+              ctx.rotate(deg * Math.PI / 180);
               ctx.drawImage(logo, -lr.width/2, -lr.height/2, lr.width, lr.height);
               ctx.restore();
             }
             return canvas;
           }
 
-          window.spwDownloadPNG = function () {
-            try {
-              const canvas = buildCanvas();
-              if (!canvas) return;
-              const url = canvas.toDataURL('image/png');
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = 'personalizacion.png';
-              document.body.appendChild(a);
-              a.click();
-              a.remove();
-            } catch (e) {
-              console.error('spwDownloadPNG error', e);
-              alert('No se pudo generar el PNG.');
-            }
+          window.spwReset = function () {
+            const logo = $('spw_logo_preview');
+            if (logo) { logo.classList.add('d-none'); logo.removeAttribute('src'); }
+            const s = $('spw_size');      if (s) s.value = 100;
+            const x = $('spw_pos_x');     if (x) x.value = 0;
+            const y = $('spw_pos_y');     if (y) y.value = 10;
+            const r = $('spw_rotation');  if (r) r.value = 0;
           };
 
-          window.spwAddToCart = async function () {
+          async function downloadPNG() {
             try {
-              const canvas = buildCanvas();
-              if (!canvas) return;
-              const dataUrl = canvas.toDataURL('image/png');
-              const png_b64 = dataUrl.split(',')[1] || '';
+              const canvas = await buildCanvas();
+              if (!canvas) return alert('No se pudo preparar la imagen.');
 
-              const variantId = $('spw_variant_id') && $('spw_variant_id').value;
-              const qty       = parseInt(($('spw_qty') && $('spw_qty').value) || '1', 10);
+              // iOS safe: toBlob + ObjectURL
+              if (canvas.toBlob) {
+                canvas.toBlob(function(blob){
+                  if (!blob) { alert('No se pudo generar el PNG.'); return; }
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = 'personalizacion.png';
+                  document.body.appendChild(a);
+                  a.click();
+                  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 0);
+                }, 'image/png');
+              } else {
+                const url = canvas.toDataURL('image/png');
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'personalizacion.png';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+              }
+            } catch (e) {
+              console.error('Descargar PNG', e);
+              alert('No se pudo generar el PNG.');
+            }
+          }
+
+          function pick(name, obj, fallback){
+            return (obj && typeof obj[name] === 'string') ? obj[name] : fallback;
+          }
+
+          async function addToCart() {
+            try {
+              const variantId = parseInt((($('spw_variant_id')||{}).value)||'0', 10);
+              const qty       = Math.max(1, parseInt((($('spw_qty')||{}).value)||'1', 10));
+              if (!variantId) { alert('Variante no válida.'); return; }
+
+              const canvas = await buildCanvas();
+              if (!canvas) { alert('No se pudo preparar la imagen.'); return; }
+              const dataUrl = canvas.toDataURL('image/png');
+              const png_b64 = (dataUrl.split(',')[1]||'');
 
               const techEl = document.querySelector('input[name="spw_tech"]:checked');
               const svgEl  = document.querySelector('input[name="spw_svg_color"]:checked');
-              const tech = techEl ? techEl.value : '';
-              const svg_color = svgEl ? svgEl.value : '';
-              const notes = ($('spw_notes') && $('spw_notes').value) || '';
 
               const payload = {
-                variant_id: parseInt(variantId || '0', 10),
-                qty: isNaN(qty) || qty < 1 ? 1 : qty,
-                tech: tech,
-                svg_color: svg_color,
-                notes: notes,
+                variant_id: variantId,
+                qty: qty,
+                tech: techEl ? techEl.value : '',
+                svg_color: svgEl ? svgEl.value : '',
+                notes: (($('spw_notes')||{}).value)||'',
                 png_b64: png_b64,
               };
 
               const resp = await fetch('/spw/add_to_cart', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-Requested-With': 'XMLHttpRequest'
+                },
                 body: JSON.stringify(payload),
                 credentials: 'same-origin',
               });
-              const res = await resp.json();
-              if (res && res.ok) {
-                window.location.href = res.cart_url || '/shop/cart';
-              } else {
-                alert((res && res.message) || 'No se pudo añadir al carrito.');
+
+              const text = await resp.text();
+              let data = null;
+              try { data = JSON.parse(text); } catch(_) {}
+
+              if (resp.ok && data && data.ok) {
+                window.location.assign(data.cart_url || '/shop/cart');
+                return;
               }
+
+              // Mostrar mensaje útil
+              let msg =
+                pick('message', data, '') ||
+                (data && data.error && (data.error.data && data.error.data.message)) ||
+                text || 'No se pudo añadir al carrito.';
+              alert(typeof msg === 'string' ? msg : 'No se pudo añadir al carrito.');
+              console.error('add_to_cart response', resp.status, data || text);
+
             } catch (e) {
-              console.error('spwAddToCart error', e);
+              console.error('Añadir carrito', e);
               alert('No se pudo añadir al carrito.');
             }
-          };
+          }
+
+          function init(){
+            on($('spw_download_png_btn'), 'click', downloadPNG);
+            on($('spw_add_to_cart_btn'), 'click', addToCart);
+            on($('spw_reset_btn'), 'click', function(e){ e.preventDefault(); window.spwReset(); });
+          }
+
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+          } else {
+            init();
+          }
         })();
       ]]></script>
     </t>
