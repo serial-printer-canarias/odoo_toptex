@@ -24,9 +24,11 @@
 }
 .d-none { display: none !important; }
 
-@media (min-width: 992px) { .spw-stage { min-height: 500px; } }
+@media (min-width: 992px) {
+  .spw-stage { min-height: 500px; }
+}
 
-/* Mantener overlay visible para preview */
+/* AÑADIDO SOLO PARA LA PREVISUALIZACIÓN */
 #spw_canvas { position: relative; }
 #spw_logo_preview {
   position: absolute;
@@ -40,11 +42,27 @@
   max-height: 80%;
 }
 
-/* Paleta de colores (SVG) */
-.spw-colors { gap: .5rem; }
-.spw-color-dot{
-  width: 28px; height: 28px; border-radius: 999px;
-  border: 2px solid #111; background: var(--spw-dot, #000);
-  display: inline-block; cursor: pointer;
+/* ===== Botones de color (SVG) ===== */
+.spw-color-row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+.spw-color-swatch {
+  position: relative;
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: 2px solid #e0e0e0;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
 }
-.spw-color-dot.is-active{ outline: 3px solid #0d6efd; outline-offset: 2px; }
+.spw-color-swatch input { position:absolute; inset:0; opacity:0; cursor:pointer; }
+.spw-color-swatch.is-black { background:#000; }
+.spw-color-swatch.is-white { background:#fff; }
+.spw-color-swatch.is-red   { background:#d62828; }
+.spw-color-swatch.is-blue  { background:#2060ff; }
+.spw-color-swatch.is-green { background:#2a9d8f; }
+.spw-color-swatch input:checked + .spw-color-ring,
+.spw-color-swatch input:focus-visible + .spw-color-ring {
+  box-shadow: 0 0 0 3px rgba(32,96,255,.35);
+}
+.spw-color-ring { position:absolute; inset:-4px; border-radius:50%; pointer-events:none; }
+
+/* etiqueta “Se aplica solo a logos SVG.” más discreta */
+.spw-help { font-size:.875rem; color:#6c757d; }
