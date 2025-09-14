@@ -3,7 +3,6 @@
   <!-- Página del personalizador -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
-      <!-- Evita errores del Website editor -->
       <t t-set="pageName" t-value="'spw_customize_page'"/>
       <t t-set="main_object" t-value="template"/>
 
@@ -127,11 +126,9 @@
                 </div>
 
                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                  <!-- Reset (ya funcionaba) -->
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
                      onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
 
-                  <!-- AÑADIDO: onclicks explícitos -->
                   <button id="spw_add_to_cart_btn" type="button" class="btn btn-primary flex-fill"
                           onclick="window.spwAddToCart &amp;&amp; window.spwAddToCart();">
                     Añadir al carrito con esta personalización
@@ -152,8 +149,8 @@
         </div> <!-- row -->
       </div> <!-- container -->
 
-      <!-- === Script inline mínimo para no tocar otros archivos === -->
-      <script type="text/javascript">
+      <!-- Script inline envuelto en CDATA para evitar errores de & -->
+      <script type="text/javascript"><![CDATA[
         (function () {
           function $(id){ return document.getElementById(id); }
 
@@ -173,16 +170,13 @@
             const ctx = canvas.getContext('2d');
             ctx.scale(dpr, dpr);
 
-            // Fondo blanco para impresión
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(0, 0, stageRect.width, stageRect.height);
 
-            // Dibuja producto en la posición exacta visual
             const bx = baseRect.left - stageRect.left;
             const by = baseRect.top  - stageRect.top;
             ctx.drawImage(base, bx, by, baseRect.width, baseRect.height);
 
-            // Dibuja logo si está visible
             if (logo && !logo.classList.contains('d-none') && logo.src) {
               const lr = logo.getBoundingClientRect();
               const cx = (lr.left - stageRect.left) + lr.width/2;
@@ -198,7 +192,6 @@
             return canvas;
           }
 
-          // Exponer funciones globales que invocan los botones
           window.spwDownloadPNG = function () {
             try {
               const canvas = buildCanvas();
@@ -259,7 +252,7 @@
             }
           };
         })();
-      </script>
+      ]]></script>
     </t>
   </template>
 </odoo>
