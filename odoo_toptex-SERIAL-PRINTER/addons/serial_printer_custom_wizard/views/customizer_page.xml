@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+  <!-- Página del personalizador (no tocamos nada fuera de aquí) -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
+      <!-- Evita errores del Website editor -->
       <t t-set="pageName" t-value="'spw_customize_page'"/>
       <t t-set="main_object" t-value="template"/>
 
@@ -18,8 +20,11 @@
                    class="spw-base img-fluid rounded"
                    t-att-src="img_src"
                    alt="Producto"/>
+
               <!-- Overlay del logo -->
-              <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
+              <img id="spw_logo_preview"
+                   class="spw-logo-preview d-none"
+                   alt="Logo preview"/>
             </div>
           </div>
 
@@ -38,72 +43,86 @@
                   <small class="text-muted">Máx. 10MB.</small>
                 </div>
 
-                <!-- Técnica -->
+                <!-- === AÑADIDO: Técnica === -->
                 <div class="mb-3">
-                  <label class="form-label d-block">Técnica</label>
-                  <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="spw_technique" id="spw_tech_screen" value="Serigrafía" checked="checked"/>
-                    <label class="form-check-label" for="spw_tech_screen">Serigrafía</label>
-                  </div>
-                  <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="spw_technique" id="spw_tech_dtf" value="DTF"/>
-                    <label class="form-check-label" for="spw_tech_dtf">DTF</label>
-                  </div>
-                  <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="spw_technique" id="spw_tech_emb" value="Bordado"/>
-                    <label class="form-check-label" for="spw_tech_emb">Bordado</label>
+                  <label class="form-label">Técnica</label>
+                  <div class="d-flex gap-3 flex-wrap">
+                    <label class="form-check">
+                      <input class="form-check-input" type="radio" name="spw_tech" value="Serigrafía" checked="checked"/>
+                      <span class="form-check-label">Serigrafía</span>
+                    </label>
+                    <label class="form-check">
+                      <input class="form-check-input" type="radio" name="spw_tech" value="DTF"/>
+                      <span class="form-check-label">DTF</span>
+                    </label>
+                    <label class="form-check">
+                      <input class="form-check-input" type="radio" name="spw_tech" value="Bordado"/>
+                      <span class="form-check-label">Bordado</span>
+                    </label>
                   </div>
                 </div>
 
-                <!-- Colores (solo aplica a SVG) -->
+                <!-- === AÑADIDO: Paleta de color (solo para SVG) === -->
                 <div class="mb-3">
-                  <label class="form-label d-block">Color (SVG)</label>
-                  <div id="spw_color_palette" class="spw-colors d-flex flex-wrap gap-2"></div>
-                  <small class="text-muted d-block mt-1">Se aplica solo a logos SVG.</small>
+                  <label class="form-label">Color (SVG)</label>
+                  <div class="spw-color-row">
+                    <label class="spw-color-swatch is-black">
+                      <input type="radio" name="spw_svg_color" value="#000000" checked="checked"/>
+                      <span class="spw-color-ring"></span>
+                    </label>
+                    <label class="spw-color-swatch is-white">
+                      <input type="radio" name="spw_svg_color" value="#FFFFFF"/>
+                      <span class="spw-color-ring"></span>
+                    </label>
+                    <label class="spw-color-swatch is-red">
+                      <input type="radio" name="spw_svg_color" value="#D62828"/>
+                      <span class="spw-color-ring"></span>
+                    </label>
+                    <label class="spw-color-swatch is-blue">
+                      <input type="radio" name="spw_svg_color" value="#2060FF"/>
+                      <span class="spw-color-ring"></span>
+                    </label>
+                    <label class="spw-color-swatch is-green">
+                      <input type="radio" name="spw_svg_color" value="#2A9D8F"/>
+                      <span class="spw-color-ring"></span>
+                    </label>
+                  </div>
+                  <div class="spw-help mt-1">Se aplica solo a logos SVG.</div>
                 </div>
 
-                <!-- Tamaño / Posición / Rotación -->
+                <!-- Tamaño -->
                 <div class="mb-3">
                   <label for="spw_size" class="form-label">Tamaño</label>
                   <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
                 </div>
+
+                <!-- Posición X -->
                 <div class="mb-3">
                   <label for="spw_pos_x" class="form-label">Posición X</label>
                   <input id="spw_pos_x" class="form-range" type="range" min="-50" max="50" value="0"/>
                 </div>
+
+                <!-- Posición Y -->
                 <div class="mb-3">
                   <label for="spw_pos_y" class="form-label">Posición Y</label>
                   <input id="spw_pos_y" class="form-range" type="range" min="-50" max="50" value="10"/>
                 </div>
+
+                <!-- Rotación -->
                 <div class="mb-3">
                   <label for="spw_rotation" class="form-label">Rotación</label>
                   <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
                 </div>
 
-                <!-- Observaciones -->
-                <div class="mb-3">
-                  <label for="spw_notes" class="form-label">Observaciones</label>
-                  <textarea id="spw_notes" class="form-control" rows="3" placeholder="Indica instrucciones para el taller..."></textarea>
-                </div>
-
-                <!-- Acciones -->
-                <div class="d-flex flex-wrap align-items-center gap-2">
+                <div class="d-flex align-items-center gap-2">
+                  <!-- OJO: & escapado a &amp; -->
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
                      onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
 
-                  <a class="btn btn-primary" id="spw_add_to_cart" href="javascript:void(0)">
-                    Añadir al carrito con esta personalización
-                  </a>
-
-                  <a class="btn btn-light" id="spw_download_png" href="javascript:void(0)">
-                    Descargar PNG
-                  </a>
-
-                  <a class="btn btn-link ms-auto" t-att-href="'/shop/product/%s' % template.id">
+                  <a class="btn btn-link ms-2" t-att-href="'/shop/product/%s' % template.id">
                     &#8592; Volver al producto
                   </a>
                 </div>
-
               </div>
             </div>
           </div>
