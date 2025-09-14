@@ -10,7 +10,6 @@
   height: auto;
   border-radius: 8px;
 }
-
 .spw-logo-preview {
   position: absolute;
   left: 50%;
@@ -25,14 +24,10 @@
 }
 .d-none { display: none !important; }
 
-/* Ajustes básicos responsive */
-@media (min-width: 992px) {
-  .spw-stage { min-height: 500px; }
-}
+@media (min-width: 992px) { .spw-stage { min-height: 500px; } }
 
-/* AÑADIDO SOLO PARA LA PREVISUALIZACIÓN */
+/* Mantener overlay visible para preview */
 #spw_canvas { position: relative; }
-
 #spw_logo_preview {
   position: absolute;
   left: 50%;
@@ -45,22 +40,11 @@
   max-height: 80%;
 }
 
-/* ========================= */
-/* AÑADIDO: Botones de color */
-/* ========================= */
-.spw-color {
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  display: inline-block;
-  cursor: pointer;
-  border: 1px solid rgba(0,0,0,.12);
-  box-shadow: 0 0 0 2px #fff inset; /* aro blanco interior para contrastar */
-  transition: transform .05s ease-in-out, box-shadow .15s ease-in-out;
+/* Paleta de colores (SVG) */
+.spw-colors { gap: .5rem; }
+.spw-color-dot{
+  width: 28px; height: 28px; border-radius: 999px;
+  border: 2px solid #111; background: var(--spw-dot, #000);
+  display: inline-block; cursor: pointer;
 }
-.spw-color:hover { transform: scale(1.06); }
-.spw-color:active { transform: scale(0.98); }
-/* seleccionado (JS añade/quita .active) */
-.spw-color.active {
-  box-shadow: 0 0 0 2px #fff inset, 0 0 0 3px #0d6efd;
-}
+.spw-color-dot.is-active{ outline: 3px solid #0d6efd; outline-offset: 2px; }
