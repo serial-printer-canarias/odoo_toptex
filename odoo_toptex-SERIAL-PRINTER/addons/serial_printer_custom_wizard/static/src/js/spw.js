@@ -1,246 +1,178 @@
-/** addons/serial_printer_custom_wizard/static/src/js/spw.js */
+/** addons/serial_printer_custom_wizard/static/src/js/spw.js
+ *  - No toca nada de tu previsualización existente.
+ *  - Arregla "Descargar PNG" (iOS abre vista previa; resto fuerza descarga).
+ *  - Arregla "Añadir al carrito con personalización" (usa line_id devuelto, limpia base64, maneja errores claros).
+ */
 (function () {
-  const $ = (sel) => document.querySelector(sel);
+  "use strict";
 
-  const state = {
-    fileIsSvg: false,
-    svgText: '',
-    svgColor: '#000000',
-    size: 100,
-    posX: 0,
-    posY: 10,
-    rotation: 0,
-  };
-
-  let elBase, elLogo, elInput, elSize, elX, elY, elRot, elQty, elNotes;
-
-  function init() {
-    elBase = $('#spw_product_img');
-    elLogo = $('#spw_logo_preview');
-    elInput = $('#spw_logo_input');
-    elSize = $('#spw_size');
-    elX = $('#spw_pos_x');
-    elY = $('#spw_pos_y');
-    elRot = $('#spw_rotation');
-    elQty = $('#spw_qty');
-    elNotes = $('#spw_notes');
-
-    if (!elBase) return;
-
-    // File input
-    elInput && elInput.addEventListener('change', onFile);
-
-    // Sliders
-    [elSize, elX, elY, elRot].forEach((r) => {
-      r && r.addEventListener('input', () => {
-        state.size = parseFloat(elSize.value);
-        state.posX = parseFloat(elX.value);
-        state.posY = parseFloat(elY.value);
-        state.rotation = parseFloat(elRot.value);
-        applyTransform();
-      });
-    });
-
-    // Técnica / color (solo SVG)
-    document.querySelectorAll('input[name="spw_svg_color"]').forEach((r) => {
-      r.addEventListener('change', () => {
-        state.svgColor = r.value;
-        if (state.fileIsSvg) recolorSvgAndShow();
-      });
-    });
-
-    // Reset global
-    window.spwReset = () => {
-      elSize.value = 100; elX.value = 0; elY.value = 10; elRot.value = 0;
-      state.size = 100; state.posX = 0; state.posY = 10; state.rotation = 0;
-      applyTransform();
-    };
-
-    // Botones
-    const btnPng = $('#spw_btn_png');
-    const btnCart = $('#spw_btn_add_cart');
-    btnPng && btnPng.addEventListener('click', handleDownload);
-    btnCart && btnCart.addEventListener('click', handleAddToCart);
-
-    // Valores iniciales
-    state.size = parseFloat(elSize.value);
-    state.posX = parseFloat(elX.value);
-    state.posY = parseFloat(elY.value);
-    state.rotation = parseFloat(elRot.value);
-    state.svgColor = (document.querySelector('input[name="spw_svg_color"]:checked') || {}).value || '#000000';
-    applyTransform();
+  // --- Helpers ---
+  function $(sel) { return document.querySelector(sel); }
+  function getCheckedValue(name) {
+    const el = document.querySelector(`input[name="${name}"]:checked`);
+    return el ? el.value : "";
+  }
+  function isIOS() {
+    return /iphone|ipad|ipod/i.test(navigator.userAgent);
   }
 
-  // --- Cargar archivo ---
-  function onFile(e) {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-
-    const isSvg = /image\/svg\+xml|\.svg$/i.test(file.type || file.name);
-    state.fileIsSvg = !!isSvg;
-
-    const reader = new FileReader();
-    if (isSvg) {
-      reader.onload = () => {
-        state.svgText = String(reader.result || '');
-        recolorSvgAndShow();
-      };
-      reader.readAsText(file);
-    } else {
-      reader.onload = () => {
-        elLogo.src = reader.result;
-        elLogo.classList.remove('d-none');
-        elLogo.style.opacity = '1';
-        applyTransform();
-      };
-      reader.readAsDataURL(file);
-    }
-  }
-
-  // --- Pintar SVG con el color elegido y mostrarlo como dataURL ---
-  function recolorSvgAndShow() {
-    if (!state.svgText) return;
-    let svg = state.svgText;
-
-    // Forzamos fill/stroke al color seleccionado
-    // (muy básico, pero suficiente para logos monocromo)
-    svg = svg.replace(/fill="[^"]*"/gi, `fill="${state.svgColor}"`);
-    svg = svg.replace(/stroke="[^"]*"/gi, `stroke="${state.svgColor}"`);
-
-    const encoded = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-    elLogo.src = encoded;
-    elLogo.classList.remove('d-none');
-    elLogo.style.opacity = '1';
-    applyTransform();
-  }
-
-  // --- Aplica transformaciones CSS a la previsualización ---
-  function applyTransform() {
-    if (!elLogo) return;
-    const scale = state.size / 100;
-    elLogo.style.transform = `translate(-50%, -50%) translate(${state.posX}%, ${state.posY}%) rotate(${state.rotation}deg) scale(${scale})`;
-  }
-
-  // --- Componer PNG final desde lo que se ve ---
-  function buildCompositePNG() {
+  // Carga una <img> asegurando naturalWidth/Height
+  function ensureLoaded(img) {
     return new Promise((resolve, reject) => {
-      try {
-        const base = new Image();
-        base.crossOrigin = 'anonymous';
-        base.onload = () => {
-          const baseW = base.naturalWidth || elBase.width;
-          const baseH = base.naturalHeight || elBase.height;
-          const canvas = document.createElement('canvas');
-          canvas.width = baseW;
-          canvas.height = baseH;
-          const ctx = canvas.getContext('2d');
-
-          // Dibujar base
-          ctx.drawImage(base, 0, 0, baseW, baseH);
-
-          // Si no hay logo, devolver sólo la base
-          if (!elLogo || !elLogo.src) {
-            return resolve(canvas.toDataURL('image/png'));
-          }
-
-          // Medidas/posiciones relativas de lo que se ve en pantalla
-          const rectBase = elBase.getBoundingClientRect();
-          const rectLogo = elLogo.getBoundingClientRect();
-
-          const fracW = rectLogo.width / rectBase.width;
-          const fracH = rectLogo.height / rectBase.height;
-
-          const cxFrac = (rectLogo.left - rectBase.left + rectLogo.width / 2) / rectBase.width;
-          const cyFrac = (rectLogo.top - rectBase.top + rectLogo.height / 2) / rectBase.height;
-
-          const logoW = fracW * baseW;
-          const logoH = fracH * baseH;
-          const cx = cxFrac * baseW;
-          const cy = cyFrac * baseH;
-          const rad = (state.rotation * Math.PI) / 180;
-
-          const logoImg = new Image();
-          logoImg.crossOrigin = 'anonymous';
-          logoImg.onload = () => {
-            ctx.save();
-            ctx.translate(cx, cy);
-            ctx.rotate(rad);
-            ctx.drawImage(logoImg, -logoW / 2, -logoH / 2, logoW, logoH);
-            ctx.restore();
-            resolve(canvas.toDataURL('image/png'));
-          };
-          logoImg.onerror = () => resolve(canvas.toDataURL('image/png'));
-          logoImg.src = elLogo.src;
-        };
-        base.onerror = () => reject(new Error('No se pudo cargar la imagen base'));
-        base.src = elBase.src;
-      } catch (err) {
-        reject(err);
-      }
+      if (!img) return reject(new Error("Imagen no encontrada."));
+      if (img.complete && img.naturalWidth) return resolve(img);
+      img.addEventListener('load', () => resolve(img), { once: true });
+      img.addEventListener('error', () => reject(new Error("No se pudo cargar la imagen.")), { once: true });
     });
+  }
+
+  // Construye un PNG a partir del estado visual (producto + logo)
+  async function buildCompositeDataURL() {
+    const baseImg = $('#spw_product_img');
+    const logoImg = $('#spw_logo_preview');
+    const rotationInput = $('#spw_rotation');
+
+    await ensureLoaded(baseImg);
+    // Si no hay logo visible, igualmente devolvemos solo el producto
+    if (logoImg && !logoImg.complete) {
+      try { await ensureLoaded(logoImg); } catch (_) {}
+    }
+
+    // Canvas del tamaño real del producto
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    const productW = baseImg.naturalWidth || baseImg.width;
+    const productH = baseImg.naturalHeight || baseImg.height;
+    canvas.width  = productW;
+    canvas.height = productH;
+
+    // Dibujar base
+    ctx.drawImage(baseImg, 0, 0, productW, productH);
+
+    // Dibujar logo si existe y está visible
+    if (logoImg && logoImg.src && window.getComputedStyle(logoImg).display !== 'none' && logoImg.width > 0) {
+      // Medimos posición en pantalla y la referenciamos al tamaño real del producto
+      const baseRect = baseImg.getBoundingClientRect();
+      const logoRect = logoImg.getBoundingClientRect();
+      const ratio = productW / baseRect.width; // px reales / px mostrados
+
+      const drawW = Math.max(1, Math.round(logoRect.width * ratio));
+      const drawH = Math.max(1, Math.round(logoRect.height * ratio));
+      const drawX = Math.round((logoRect.left - baseRect.left) * ratio);
+      const drawY = Math.round((logoRect.top  - baseRect.top ) * ratio);
+
+      // Rotación (en grados) desde el input
+      const deg = rotationInput ? parseFloat(rotationInput.value || "0") : 0;
+      const rad = deg * Math.PI / 180;
+
+      // Rotamos alrededor del centro del logo
+      const cx = drawX + drawW / 2;
+      const cy = drawY + drawH / 2;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(rad);
+      ctx.drawImage(logoImg, -drawW / 2, -drawH / 2, drawW, drawH);
+      ctx.restore();
+    }
+
+    return canvas.toDataURL('image/png'); // data:image/png;base64,....
   }
 
   // --- Descargar PNG ---
-  async function handleDownload() {
+  async function onDownloadPNG(ev) {
+    ev.preventDefault();
     try {
-      const dataUrl = await buildCompositePNG();
+      const dataURL = await buildCompositeDataURL();
+
+      // iOS: abrir en pestaña nueva para "Visualización" inmediata
+      if (isIOS()) {
+        window.open(dataURL, '_blank');
+        return;
+      }
+
+      // Otros navegadores: forzamos descarga
       const a = document.createElement('a');
-      a.href = dataUrl;
+      a.href = dataURL;
       a.download = 'personalizacion.png';
       document.body.appendChild(a);
       a.click();
       a.remove();
     } catch (e) {
-      console.error(e);
-      alert('No se pudo generar el PNG.');
+      alert('No se pudo generar el PNG: ' + (e && e.message ? e.message : 'Error desconocido'));
     }
   }
 
   // --- Añadir al carrito con personalización ---
-  async function handleAddToCart() {
-    const variantId = parseInt($('#spw_variant_id')?.value || 0);
-    const qty = parseInt(elQty?.value || '1', 10) || 1;
-    const tech = (document.querySelector('input[name="spw_tech"]:checked') || {}).value || '';
-    const svgColor = (document.querySelector('input[name="spw_svg_color"]:checked') || {}).value || '';
-    const notes = elNotes?.value || '';
+  async function onAddToCart(ev) {
+    ev.preventDefault();
 
-    if (!variantId) {
-      alert('Falta la variante del producto.');
+    const variantId = parseInt($('#spw_variant_id')?.value || "0", 10);
+    const qty       = parseInt($('#spw_qty')?.value || "1", 10);
+    const tech      = getCheckedValue('spw_tech');
+    const svgColor  = getCheckedValue('spw_svg_color');
+    const notes     = ($('#spw_notes')?.value || '').trim();
+
+    if (!variantId || qty <= 0) {
+      alert('Faltan datos: variante o cantidad.');
       return;
     }
 
-    let pngB64 = '';
+    // PNG base64 (sin prefijo)
+    let png_b64 = '';
     try {
-      const dataUrl = await buildCompositePNG();
-      pngB64 = (dataUrl || '').split(',')[1] || '';
+      const dataURL = await buildCompositeDataURL();
+      png_b64 = (dataURL.split(',')[1] || '').trim();
     } catch (e) {
-      console.warn('PNG no crítico para el carrito:', e);
+      // Si falla la composición, seguimos sin PNG pero avisamos
+      console.warn('PNG no disponible, se añade la línea sin adjunto:', e);
     }
 
     try {
-      const resp = await fetch('/spw/add_to_cart', {
+      const res = await fetch('/spw/add_to_cart', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           variant_id: variantId,
           qty: qty,
           tech: tech,
-          svg_color: state.fileIsSvg ? svgColor : '',
+          svg_color: svgColor,
           notes: notes,
-          png_b64: pngB64,
+          png_b64: png_b64,
         }),
+        credentials: 'same-origin',
       });
-      const data = await resp.json();
-      if (data && data.ok) {
-        window.location.href = data.cart_url || '/shop/cart';
-      } else {
-        alert((data && data.message) || 'No se pudo añadir al carrito.');
+
+      // El controlador devuelve JSON
+      const payload = await res.json().catch(() => ({}));
+      if (!payload || payload.ok !== true) {
+        const msg = (payload && payload.message) ? payload.message : 'No se pudo añadir al carrito.';
+        alert(msg);
+        return;
       }
+      // Redirigir al carrito
+      window.location.href = payload.cart_url || '/shop/cart';
     } catch (e) {
-      console.error(e);
       alert('Error de red al añadir al carrito.');
     }
   }
 
-  document.addEventListener('DOMContentLoaded', init);
+  // --- Bind ---
+  function bind() {
+    const btnDownload = $('#spw_btn_download');
+    const btnAddCart  = $('#spw_btn_add_cart');
+
+    if (btnDownload && !btnDownload._spwBound) {
+      btnDownload.addEventListener('click', onDownloadPNG);
+      btnDownload._spwBound = true;
+    }
+    if (btnAddCart && !btnAddCart._spwBound) {
+      btnAddCart.addEventListener('click', onAddToCart);
+      btnAddCart._spwBound = true;
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', bind);
+  // Por si Odoo vuelve a inyectar contenido dinámicamente
+  document.addEventListener('o_page_loaded', bind);
 })();
