@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+  <!-- Página del personalizador -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
+      <!-- Evita errores del Website editor -->
       <t t-set="pageName" t-value="'spw_customize_page'"/>
       <t t-set="main_object" t-value="template"/>
 
       <div class="container my-5 spw-customizer">
-        <!-- Hidden para JS -->
+        <!-- Datos invisibles para JS -->
         <input type="hidden" id="spw_template_id" t-att-value="template.id"/>
         <input type="hidden" id="spw_variant_id" t-att-value="variant_id or ''"/>
 
@@ -14,8 +16,15 @@
           <!-- Lienzo -->
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3">
-              <img id="spw_product_img" class="spw-base img-fluid rounded" t-att-src="img_src" alt="Producto"/>
-              <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
+              <img id="spw_product_img"
+                   class="spw-base img-fluid rounded"
+                   t-att-src="img_src"
+                   alt="Producto"/>
+
+              <!-- Overlay del logo -->
+              <img id="spw_logo_preview"
+                   class="spw-logo-preview d-none"
+                   alt="Logo preview"/>
             </div>
           </div>
 
@@ -25,10 +34,12 @@
               <div class="card-body">
                 <h5 class="card-title mb-3">Personalización</h5>
 
-                <!-- Subir logo -->
+                <!-- Subida logo -->
                 <div class="mb-3">
                   <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
-                  <input id="spw_logo_input" class="form-control" type="file" accept=".png,.jpg,.jpeg,.svg,.PNG,.JPG,.JPEG,.SVG"/>
+                  <input id="spw_logo_input" class="form-control"
+                         type="file"
+                         accept=".png,.jpg,.jpeg,.svg,.PNG,.JPG,.JPEG,.SVG"/>
                   <small class="text-muted">Máx. 10MB.</small>
                 </div>
 
@@ -51,7 +62,7 @@
                   </div>
                 </div>
 
-                <!-- Color (SVG) -->
+                <!-- Paleta de color (aplica solo a SVG) -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
                   <div class="spw-color-row">
@@ -105,33 +116,150 @@
 
                 <!-- Cantidad -->
                 <div class="mb-3">
-                  <label class="form-label" for="spw_qty">Cantidad</label>
-                  <input id="spw_qty" type="number" class="form-control" value="1" min="1" step="1"/>
+                  <label for="spw_qty" class="form-label">Cantidad</label>
+                  <input id="spw_qty" type="number" min="1" value="1" class="form-control"/>
                 </div>
 
                 <!-- Observaciones -->
                 <div class="mb-3">
-                  <label class="form-label" for="spw_notes">Observaciones</label>
+                  <label for="spw_notes" class="form-label">Observaciones</label>
                   <textarea id="spw_notes" class="form-control" rows="3" placeholder="Indica instrucciones para el taller..."></textarea>
                 </div>
 
-                <div class="d-flex align-items-center gap-2 mb-3">
-                  <!-- ¡IMPORTANTE!: los ampersands escapados -->
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <!-- Reset (ya funcionaba) -->
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
                      onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
-                  <a id="spw_btn_add_cart" class="btn btn-primary flex-grow-1" href="javascript:void(0)">Añadir al carrito con esta personalización</a>
-                </div>
 
-                <div class="d-flex align-items-center gap-3">
-                  <a id="spw_btn_png" class="btn btn-light" href="javascript:void(0)">Descargar PNG</a>
-                  <a class="btn btn-link ms-2" t-att-href="'/shop/product/%s' % template.id">&#8592; Volver al producto</a>
-                </div>
+                  <!-- AÑADIDO: onclicks explícitos -->
+                  <button id="spw_add_to_cart_btn" type="button" class="btn btn-primary flex-fill"
+                          onclick="window.spwAddToCart &amp;&amp; window.spwAddToCart();">
+                    Añadir al carrito con esta personalización
+                  </button>
 
+                  <button id="spw_download_png_btn" type="button" class="btn btn-light"
+                          onclick="window.spwDownloadPNG &amp;&amp; window.spwDownloadPNG();">
+                    Descargar PNG
+                  </button>
+
+                  <a class="btn btn-link ms-auto" t-att-href="'/shop/product/%s' % template.id">
+                    &#8592; Volver al producto
+                  </a>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </div>
+        </div> <!-- row -->
+      </div> <!-- container -->
+
+      <!-- === Script inline mínimo para no tocar otros archivos === -->
+      <script type="text/javascript">
+        (function () {
+          function $(id){ return document.getElementById(id); }
+
+          function buildCanvas() {
+            const stage = $('spw_canvas');
+            const base  = $('spw_product_img');
+            const logo  = $('spw_logo_preview');
+            if (!stage || !base) return null;
+
+            const dpr = window.devicePixelRatio || 1;
+            const stageRect = stage.getBoundingClientRect();
+            const baseRect  = base.getBoundingClientRect();
+
+            const canvas = document.createElement('canvas');
+            canvas.width  = Math.max(1, Math.round(stageRect.width * dpr));
+            canvas.height = Math.max(1, Math.round(stageRect.height * dpr));
+            const ctx = canvas.getContext('2d');
+            ctx.scale(dpr, dpr);
+
+            // Fondo blanco para impresión
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, stageRect.width, stageRect.height);
+
+            // Dibuja producto en la posición exacta visual
+            const bx = baseRect.left - stageRect.left;
+            const by = baseRect.top  - stageRect.top;
+            ctx.drawImage(base, bx, by, baseRect.width, baseRect.height);
+
+            // Dibuja logo si está visible
+            if (logo && !logo.classList.contains('d-none') && logo.src) {
+              const lr = logo.getBoundingClientRect();
+              const cx = (lr.left - stageRect.left) + lr.width/2;
+              const cy = (lr.top  - stageRect.top ) + lr.height/2;
+              const rotDeg = parseFloat(($('spw_rotation') && $('spw_rotation').value) || 0);
+              const rad = rotDeg * Math.PI / 180;
+              ctx.save();
+              ctx.translate(cx, cy);
+              ctx.rotate(rad);
+              ctx.drawImage(logo, -lr.width/2, -lr.height/2, lr.width, lr.height);
+              ctx.restore();
+            }
+            return canvas;
+          }
+
+          // Exponer funciones globales que invocan los botones
+          window.spwDownloadPNG = function () {
+            try {
+              const canvas = buildCanvas();
+              if (!canvas) return;
+              const url = canvas.toDataURL('image/png');
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'personalizacion.png';
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+            } catch (e) {
+              console.error('spwDownloadPNG error', e);
+              alert('No se pudo generar el PNG.');
+            }
+          };
+
+          window.spwAddToCart = async function () {
+            try {
+              const canvas = buildCanvas();
+              if (!canvas) return;
+              const dataUrl = canvas.toDataURL('image/png');
+              const png_b64 = dataUrl.split(',')[1] || '';
+
+              const variantId = $('spw_variant_id') && $('spw_variant_id').value;
+              const qty       = parseInt(($('spw_qty') && $('spw_qty').value) || '1', 10);
+
+              const techEl = document.querySelector('input[name="spw_tech"]:checked');
+              const svgEl  = document.querySelector('input[name="spw_svg_color"]:checked');
+              const tech = techEl ? techEl.value : '';
+              const svg_color = svgEl ? svgEl.value : '';
+              const notes = ($('spw_notes') && $('spw_notes').value) || '';
+
+              const payload = {
+                variant_id: parseInt(variantId || '0', 10),
+                qty: isNaN(qty) || qty < 1 ? 1 : qty,
+                tech: tech,
+                svg_color: svg_color,
+                notes: notes,
+                png_b64: png_b64,
+              };
+
+              const resp = await fetch('/spw/add_to_cart', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                credentials: 'same-origin',
+              });
+              const res = await resp.json();
+              if (res && res.ok) {
+                window.location.href = res.cart_url || '/shop/cart';
+              } else {
+                alert((res && res.message) || 'No se pudo añadir al carrito.');
+              }
+            } catch (e) {
+              console.error('spwAddToCart error', e);
+              alert('No se pudo añadir al carrito.');
+            }
+          };
+        })();
+      </script>
     </t>
   </template>
 </odoo>
