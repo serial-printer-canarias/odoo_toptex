@@ -127,16 +127,17 @@
                 </div>
 
                 <div class="d-flex flex-wrap align-items-center gap-2">
+                  <!-- IMPORTANTE: & escapado a &amp; -->
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset && window.spwReset();">Reset</a>
+                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
 
                   <button type="button" class="btn btn-primary"
-                          onclick="window.spwAddToCart && window.spwAddToCart();">
+                          onclick="window.spwAddToCart &amp;&amp; window.spwAddToCart();">
                     Añadir al carrito con esta personalización
                   </button>
 
                   <button type="button" class="btn btn-light"
-                          onclick="window.spwDownload && window.spwDownload();">
+                          onclick="window.spwDownload &amp;&amp; window.spwDownload();">
                     Descargar PNG
                   </button>
 
