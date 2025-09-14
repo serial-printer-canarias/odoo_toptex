@@ -1,257 +1,237 @@
-/** addons/serial_printer_custom_wizard/static/src/js/spw.js */
-(function () {
-  const byId = (id) => document.getElementById(id);
+// addons/serial_printer_custom_wizard/static/src/js/spw.js
+odoo.define('serial_printer_custom_wizard.spw', function (require) {
+    'use strict';
 
-  const $productImg   = byId('spw_product_img');
-  const $logoInput    = byId('spw_logo_input');
-  const $logoPreview  = byId('spw_logo_preview');
+    const publicRoot = require('web.core'); // asegura carga de assets
+    // No usamos ajax.jsonRpc para simplificar; enviamos fetch() a /spw/add_to_cart
 
-  const $size   = byId('spw_size');
-  const $posX   = byId('spw_pos_x');
-  const $posY   = byId('spw_pos_y');
-  const $rot    = byId('spw_rotation');
+    function byId(id){ return document.getElementById(id); }
 
-  const $notes  = byId('spw_notes');
-  const $addBtn = byId('spw_add_to_cart');
-  const $dlBtn  = byId('spw_download_png');
-
-  const $templateId = byId('spw_template_id');
-  const $variantId  = byId('spw_variant_id');
-  const $palette    = byId('spw_color_palette');
-
-  let rawSVGText = null;       // si el archivo subido es SVG
-  let isSVG = false;
-
-  /** Construye la paleta NS-300 si está disponible */
-  function buildPalette() {
-    if (!$palette || !window.NS300_COLORS) return;
-    $palette.innerHTML = '';
-    window.NS300_COLORS.forEach((c, idx) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'spw-color-dot';
-      btn.title = c.name;
-      btn.style.setProperty('--spw-dot', c.hex);
-      if (idx === 0) btn.classList.add('is-active');
-      btn.addEventListener('click', () => {
-        [...$palette.querySelectorAll('.spw-color-dot')].forEach(n => n.classList.remove('is-active'));
-        btn.classList.add('is-active');
-        if (isSVG && rawSVGText) recolorSVG(c.hex);
-      });
-      $palette.appendChild(btn);
-    });
-  }
-
-  /** Carga de logo y previsualización */
-  $logoInput && $logoInput.addEventListener('change', async (ev) => {
-    const f = ev.target.files && ev.target.files[0];
-    if (!f) return;
-
-    const url = URL.createObjectURL(f);
-
-    isSVG = (f.type === 'image/svg+xml') || /\.svg$/i.test(f.name);
-    rawSVGText = null;
-
-    if (isSVG) {
-      // Leer texto del SVG para poder recolorear
-      rawSVGText = await f.text();
-      $logoPreview.src = url; // vista rápida
-    } else {
-      $logoPreview.src = url;
+    function ready(fn){ 
+        if (document.readyState !== 'loading') { fn(); }
+        else { document.addEventListener('DOMContentLoaded', fn); }
     }
 
-    $logoPreview.classList.remove('d-none');
-    $logoPreview.style.opacity = '1';
-    applyTransforms();
-  });
+    ready(function () {
+        const elBase     = byId('spw_product_img');     // imagen producto
+        const elLogo     = byId('spw_logo_preview');    // overlay
+        const inputLogo  = byId('spw_logo_input');
+        const rSize      = byId('spw_size');
+        const rPosX      = byId('spw_pos_x');
+        const rPosY      = byId('spw_pos_y');
+        const rRot       = byId('spw_rotation');
+        const btnReset   = document.querySelector('[onclick*="spwReset"]');
+        const notesEl    = byId('spw_notes') || document.querySelector('textarea#spw_notes');
+        const techEls    = document.querySelectorAll('input[name="spw_tech"]');
+        const colorEls   = document.querySelectorAll('.spw-color-swatch input[type="radio"]');
+        const btnAdd     = byId('spw_add_to_cart');
+        const btnDownload= byId('spw_download_png');
 
-  /** Aplica transformaciones de sliders al overlay */
-  function applyTransforms() {
-    const scale = (parseInt($size.value, 10) || 100) / 100; // 1 = 100%
-    const x = parseInt($posX.value, 10) || 0;
-    const y = parseInt($posY.value, 10) || 0;
-    const r = parseInt($rot.value, 10) || 0;
+        const templateId = (byId('spw_template_id') && byId('spw_template_id').value) || '';
+        const variantId  = (byId('spw_variant_id')  && byId('spw_variant_id').value)  || '';
 
-    // Posición respecto al centro 50/60 ya seteados en CSS
-    $logoPreview.style.transform =
-      `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) rotate(${r}deg) scale(${scale})`;
-  }
+        let logoIsSVG = false;
+        let svgOriginalText = '';   // para recolorear
+        let svgCurrentColor = '';   // hex del botón seleccionado
+        let logoNatural = { w: 0, h: 0 }; // tamaño natural del raster/preview
 
-  [$size, $posX, $posY, $rot].forEach(el => {
-    el && el.addEventListener('input', applyTransforms);
-  });
+        // --- Utilidades de preview
+        function applyTransform(){
+            const scale = (parseInt(rSize.value || 100, 10) / 100);
+            const tx = parseInt(rPosX.value || 0, 10);
+            const ty = parseInt(rPosY.value || 0, 10);
+            const rot = parseInt(rRot.value || 0, 10);
 
-  /** Recolorear SVG subido con un hex dado */
-  function recolorSVG(hex) {
-    // Reemplazo simple de fill/stroke. Si tu SVG trae estilos embebidos más complejos,
-    // esto cubre la mayoría de casos.
-    let txt = rawSVGText || '';
-    // normalizamos (quita fills previos y aplica nuevo)
-    txt = txt
-      .replace(/fill\s*=\s*["']#[0-9A-Fa-f]{3,8}["']/g, '')
-      .replace(/stroke\s*=\s*["']#[0-9A-Fa-f]{3,8}["']/g, '');
-
-    // añade fill por defecto al primer <svg ...>
-    txt = txt.replace(/<svg([^>]*)>/i, (m, attrs) => `<svg${attrs} fill="${hex}" stroke="${hex}">`);
-
-    const blob = new Blob([txt], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-    $logoPreview.src = url;
-  }
-
-  /** Devuelve datos de la UI */
-  function readUI() {
-    const technique = (document.querySelector('input[name="spw_technique"]:checked') || {}).value || 'Serigrafía';
-    // color activo (si hay paleta)
-    let color = null;
-    const active = $palette && $palette.querySelector('.spw-color-dot.is-active');
-    if (active) color = getComputedStyle(active).getPropertyValue('--spw-dot').trim();
-
-    return {
-      technique,
-      color,
-      size: parseInt($size.value, 10) || 100,
-      pos_x: parseInt($posX.value, 10) || 0,
-      pos_y: parseInt($posY.value, 10) || 10,
-      rotation: parseInt($rot.value, 10) || 0,
-      notes: ($notes && $notes.value) || '',
-    };
-  }
-
-  /** Genera un PNG de la composición en un <canvas> */
-  async function renderCompositePNG() {
-    const baseURL = $productImg.src;
-    const logoURL = $logoPreview.src;
-
-    if (!baseURL) throw new Error('Falta imagen del producto');
-    if (!logoURL || $logoPreview.classList.contains('d-none')) throw new Error('Falta logo');
-
-    const baseImg = await loadImage(baseURL);
-    const logoImg = await loadImage(logoURL);
-
-    const canvas = document.createElement('canvas');
-    // Canvas del tamaño visual actual del producto (para que se vea igual que en pantalla)
-    const rect = $productImg.getBoundingClientRect();
-    const scaleRatio = baseImg.naturalWidth / rect.width; // para convertir px de UI a px reales de imagen
-
-    canvas.width = baseImg.naturalWidth;
-    canvas.height = baseImg.naturalHeight;
-
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height);
-
-    // Calcular posición absoluta del logo en píxeles de la imagen
-    const ui = readUI();
-    const baseCenterX = rect.width * 0.5;
-    const baseCenterY = rect.height * 0.60;
-
-    const posXpx = (ui.pos_x || 0);
-    const posYpx = (ui.pos_y || 0);
-    const scale = (ui.size || 100) / 100;
-
-    // tamaño del logo en proporción al ancho de la imagen del producto
-    const maxLogoW = rect.width * 0.8; // como en CSS
-    const drawW_UI = Math.min(logoImg.width, maxLogoW) * scale;
-    const drawH_UI = (logoImg.height * drawW_UI) / logoImg.width;
-
-    // centro en UI → a coords imagen
-    const drawX = (baseCenterX + posXpx - drawW_UI / 2) * scaleRatio;
-    const drawY = (baseCenterY + posYpx - drawH_UI / 2) * scaleRatio;
-    const drawW = drawW_UI * scaleRatio;
-    const drawH = drawH_UI * scaleRatio;
-
-    // rotación alrededor del centro del logo
-    ctx.save();
-    ctx.translate(drawX + drawW / 2, drawY + drawH / 2);
-    ctx.rotate((ui.rotation || 0) * Math.PI / 180);
-    ctx.drawImage(logoImg, -drawW / 2, -drawH / 2, drawW, drawH);
-    ctx.restore();
-
-    return canvas.toDataURL('image/png');
-  }
-
-  function loadImage(src) {
-    return new Promise((res, rej) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => res(img);
-      img.onerror = rej;
-      img.src = src;
-    });
-  }
-
-  /** Descargar PNG localmente */
-  $dlBtn && $dlBtn.addEventListener('click', async () => {
-    try {
-      const dataURL = await renderCompositePNG();
-      const a = document.createElement('a');
-      a.href = dataURL;
-      a.download = 'personalizacion.png';
-      a.click();
-    } catch (e) {
-      console.error(e);
-      alert('Sube un logo para descargar la previsualización.');
-    }
-  });
-
-  /** Añadir al carrito (guarda PNG + JSON como adjuntos) */
-  $addBtn && $addBtn.addEventListener('click', async () => {
-    try {
-      $addBtn.disabled = true;
-
-      const ui = readUI();
-      let composedPng = null;
-      try {
-        composedPng = await renderCompositePNG();
-      } catch (e) {
-        // si no hay logo, igualmente permitimos crear línea con notas
-        composedPng = null;
-      }
-
-      const payload = {
-        template_id: parseInt($templateId.value, 10),
-        variant_id: $variantId.value ? parseInt($variantId.value, 10) : null,
-        qty: 1,
-        customization: {
-          ...ui,
-          preview_png: composedPng,         // dataURL (si hay)
-          is_svg: !!isSVG
+            elLogo.style.transform =
+                `translate(-50%, -50%) translate(${tx}%, ${ty}%) rotate(${rot}deg) scale(${scale})`;
         }
-      };
 
-      const resp = await fetch('/spw/add_to_cart', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const data = await resp.json();
-      if (!resp.ok || !data || !data.ok) throw new Error('No se pudo añadir al carrito');
+        function setLogoSrcFromBlobURL(url){
+            elLogo.src = url;
+            elLogo.classList.remove('d-none');
+            elLogo.style.opacity = '1';
+            // obtener w/h naturales cuando cargue
+            elLogo.onload = () => {
+                logoNatural.w = elLogo.naturalWidth;
+                logoNatural.h = elLogo.naturalHeight;
+            };
+        }
 
-      // Ir al carrito
-      window.location.href = '/shop/cart';
-    } catch (e) {
-      console.error(e);
-      alert('No se pudo añadir al carrito. Revisa que hayas subido un logo.');
-    } finally {
-      $addBtn.disabled = false;
-    }
-  });
+        // Recolorear SVG inline (sustituyendo fills/strokes a un color)
+        function recolorSVGText(svgText, hex){
+            // reemplaza fill/stroke actuales por el color elegido
+            const clean = svgText
+                .replace(/fill="[^"]*"/gi, '')     // limpia fills
+                .replace(/stroke="[^"]*"/gi, '');  // limpia strokes
+            // Envolvemos con un <g> que aplica fill/stroke por CSS interno
+            return clean.replace(
+                /<svg([^>]*)>/i,
+                `<svg$1><style> * { fill: ${hex} !important; stroke: ${hex} !important; } </style>`
+            );
+        }
 
-  /** Reset público (lo usa el botón Reset) */
-  window.spwReset = function () {
-    if ($logoPreview) {
-      $logoPreview.classList.add('d-none');
-      $logoPreview.removeAttribute('src');
-    }
-    $size && ($size.value = 100);
-    $posX && ($posX.value = 0);
-    $posY && ($posY.value = 10);
-    $rot && ($rot.value = 0);
-    $notes && ($notes.value = '');
-    applyTransforms();
-  };
+        function updateSVGColor(hex){
+            if (!logoIsSVG || !svgOriginalText) return;
+            svgCurrentColor = hex;
+            const colored = recolorSVGText(svgOriginalText, hex);
+            const blob = new Blob([colored], {type: 'image/svg+xml'});
+            const url = URL.createObjectURL(blob);
+            setLogoSrcFromBlobURL(url);
+        }
 
-  // init
-  buildPalette();
-  applyTransforms();
-})();
+        // --- Carga del logo
+        if (inputLogo) {
+            inputLogo.addEventListener('change', function () {
+                const f = this.files && this.files[0];
+                if (!f) return;
+
+                logoIsSVG = f.type === 'image/svg+xml';
+
+                if (logoIsSVG) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        svgOriginalText = String(e.target.result || '');
+                        // si hay un color seleccionado, lo aplicamos; si no, tal cual
+                        if (svgCurrentColor) {
+                            updateSVGColor(svgCurrentColor);
+                        } else {
+                            const blob = new Blob([svgOriginalText], {type: 'image/svg+xml'});
+                            const url = URL.createObjectURL(blob);
+                            setLogoSrcFromBlobURL(url);
+                        }
+                    };
+                    reader.readAsText(f);
+                } else {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const url = e.target.result;
+                        setLogoSrcFromBlobURL(url);
+                    };
+                    reader.readAsDataURL(f);
+                }
+            });
+        }
+
+        // --- Sliders
+        [rSize, rPosX, rPosY, rRot].forEach(el => {
+            if (el) el.addEventListener('input', applyTransform);
+        });
+
+        // --- Colores (solo afectan a SVG)
+        colorEls.forEach(radio => {
+            radio.addEventListener('change', function(){
+                if (!this.checked) return;
+                const hex = this.value;
+                updateSVGColor(hex);
+            });
+        });
+
+        // --- Reset
+        window.spwReset = function(){
+            if (rSize) rSize.value = 100;
+            if (rPosX) rPosX.value = 0;
+            if (rPosY) rPosY.value = 10;
+            if (rRot)  rRot.value  = 0;
+            applyTransform();
+        };
+        if (btnReset) btnReset.addEventListener('click', window.spwReset);
+        applyTransform();
+
+        // --- Composición a PNG para descargar / enviar al carrito
+        async function composeToPNGDataURL(){
+            // asegurarnos de que la imagen base está cargada
+            if (!elBase || !elBase.complete) {
+                await new Promise((res)=> elBase.onload = res);
+            }
+            const baseW = elBase.naturalWidth || elBase.width;
+            const baseH = elBase.naturalHeight || elBase.height;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = baseW;
+            canvas.height = baseH;
+            const ctx = canvas.getContext('2d');
+
+            // dibuja base
+            ctx.drawImage(elBase, 0, 0, baseW, baseH);
+
+            if (elLogo && elLogo.src) {
+                // valores desde la UI
+                const scale = (parseInt(rSize.value || 100, 10) / 100);
+                const txPct = parseInt(rPosX.value || 0, 10);
+                const tyPct = parseInt(rPosY.value || 0, 10);
+                const rotDeg= parseInt(rRot.value || 0, 10);
+
+                // centro del overlay en px (la preview usa 50% 60% + slider)
+                const cx = baseW * (0.5 + txPct / 100);
+                const cy = baseH * (0.6 + tyPct / 100);
+
+                // tamaño destino (escala sobre tamaño natural del recurso)
+                const w = (logoNatural.w || elLogo.naturalWidth || 200) * scale;
+                const h = (logoNatural.h || elLogo.naturalHeight || 200) * scale;
+
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(rotDeg * Math.PI / 180);
+                ctx.drawImage(elLogo, -w/2, -h/2, w, h);
+                ctx.restore();
+            }
+
+            return canvas.toDataURL('image/png');
+        }
+
+        // Descargar PNG (ya lo tenías; lo mantenemos)
+        if (btnDownload) {
+            btnDownload.addEventListener('click', async function(){
+                const dataURL = await composeToPNGDataURL();
+                const a = document.createElement('a');
+                a.href = dataURL;
+                a.download = 'personalizacion.png';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            });
+        }
+
+        // Añadir al carrito con esta personalización
+        if (btnAdd) {
+            btnAdd.addEventListener('click', async function(){
+                try {
+                    const pngData = await composeToPNGDataURL();
+
+                    let technique = '';
+                    techEls.forEach(r => { if (r.checked) technique = r.value; });
+
+                    let svgColor = '';
+                    const selectedColor = document.querySelector('.spw-color-swatch input[type="radio"]:checked');
+                    if (selectedColor) svgColor = selectedColor.value;
+
+                    const payload = {
+                        template_id: templateId || '',
+                        variant_id:  variantId  || '',
+                        quantity: 1,
+                        technique: technique,
+                        svg_color: svgColor,
+                        notes: (notesEl && notesEl.value) || '',
+                        png_data: pngData,
+                    };
+
+                    const resp = await fetch('/spw/add_to_cart', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(payload),
+                        credentials: 'same-origin'
+                    });
+                    const json = await resp.json();
+                    if (json && json.ok) {
+                        window.location = json.cart_url || '/shop/cart';
+                    } else {
+                        alert('No se pudo añadir al carrito.\n' + (json && json.error ? json.error : ''));
+                    }
+                } catch (e) {
+                    console.error(e);
+                    alert('Error al preparar la personalización.');
+                }
+            });
+        }
+    });
+});
