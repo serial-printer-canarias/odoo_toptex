@@ -3,6 +3,7 @@
   <!-- Página del personalizador -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
+      <!-- Evita errores del editor Website -->
       <t t-set="pageName" t-value="'spw_customize_page'"/>
       <t t-set="main_object" t-value="template"/>
 
@@ -61,7 +62,7 @@
                   </div>
                 </div>
 
-                <!-- Paleta de color (solo SVG) -->
+                <!-- Paleta color (solo SVG) -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
                   <div class="spw-color-row">
@@ -115,29 +116,24 @@
 
                 <!-- Cantidad -->
                 <div class="mb-3">
-                  <label class="form-label" for="spw_qty">Cantidad</label>
-                  <input id="spw_qty" class="form-control" type="number" min="1" step="1" value="1"/>
+                  <label for="spw_qty" class="form-label">Cantidad</label>
+                  <input id="spw_qty" type="number" class="form-control" min="1" step="1" value="1"/>
                 </div>
 
                 <!-- Observaciones -->
                 <div class="mb-3">
-                  <label class="form-label" for="spw_notes">Observaciones</label>
-                  <textarea id="spw_notes" class="form-control" rows="3"
-                            placeholder="Indica instrucciones para el taller..."></textarea>
+                  <label for="spw_notes" class="form-label">Observaciones</label>
+                  <textarea id="spw_notes" class="form-control" rows="3" placeholder="Indica instrucciones para el taller…"></textarea>
                 </div>
 
-                <div class="d-flex flex-wrap align-items-center gap-2">
-                  <!-- IMPORTANTE: & escapado a &amp; -->
-                  <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <button id="spw_reset" type="button" class="btn btn-outline-secondary">Reset</button>
 
-                  <button type="button" class="btn btn-primary"
-                          onclick="window.spwAddToCart &amp;&amp; window.spwAddToCart();">
+                  <button id="spw_add_to_cart" type="button" class="btn btn-primary flex-fill">
                     Añadir al carrito con esta personalización
                   </button>
 
-                  <button type="button" class="btn btn-light"
-                          onclick="window.spwDownload &amp;&amp; window.spwDownload();">
+                  <button id="spw_download_png" type="button" class="btn btn-outline-secondary">
                     Descargar PNG
                   </button>
 
