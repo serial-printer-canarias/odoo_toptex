@@ -2,63 +2,69 @@
 (function () {
   "use strict";
 
-  function q(sel) { return document.querySelector(sel); }
-  function num(el, defVal) {
+  // Utilidades
+  const $ = (sel) => document.querySelector(sel);
+  const num = (el, defVal) => {
     const v = parseFloat((el && el.value) || defVal);
-    return isFinite(v) ? v : defVal;
-  }
+    return Number.isFinite(v) ? v : defVal;
+  };
 
-  // Componer un PNG con la base + el logo en posición/escala/rotación actual
+  // Componer PNG de la previsualización (NUNCA rechaza: siempre resuelve)
   function composeCanvas() {
     return new Promise(async (resolve) => {
       try {
-        const baseImg = q("#spw_product_img");
-        const logoImg = q("#spw_logo_preview");
+        const baseImg = $("#spw_product_img");
+        const logoImg = $("#spw_logo_preview");
         if (!baseImg) throw new Error("No se encuentra #spw_product_img");
 
         if (!baseImg.complete || !baseImg.naturalWidth) {
-          await new Promise(res => {
-            baseImg.addEventListener("load", res, { once: true });
-            baseImg.addEventListener("error", res, { once: true });
+          await new Promise((r) => {
+            baseImg.addEventListener("load", r, { once: true });
+            baseImg.addEventListener("error", r, { once: true });
           });
         }
 
-        const natW = baseImg.naturalWidth || baseImg.width;
-        const natH = baseImg.naturalHeight || baseImg.height;
+        const natW = baseImg.naturalWidth  || baseImg.width  || 1200;
+        const natH = baseImg.naturalHeight || baseImg.height || 1200;
+
         const canvas = document.createElement("canvas");
         canvas.width = natW;
         canvas.height = natH;
         const ctx = canvas.getContext("2d");
 
+        // Dibuja base
         ctx.drawImage(baseImg, 0, 0, natW, natH);
 
+        // Dibuja logo con posición/escala actuales
         if (logoImg && logoImg.src) {
           const baseRect = baseImg.getBoundingClientRect();
           const logoRect = logoImg.getBoundingClientRect();
-          const scale = natW / baseRect.width;
+          const scale = natW / (baseRect.width || 1);
 
           const x = (logoRect.left - baseRect.left) * scale;
           const y = (logoRect.top  - baseRect.top ) * scale;
-          const w = logoRect.width  * scale;
-          const h = logoRect.height * scale;
+          const w = (logoRect.width  || 0) * scale;
+          const h = (logoRect.height || 0) * scale;
 
-          const angle = num(q("#spw_rotation"), 0) * Math.PI / 180;
+          const angle = num($("#spw_rotation"), 0) * Math.PI / 180;
 
-          const temp = new Image();
-          temp.src = logoImg.src;
-          await new Promise(r => { if (temp.complete) r(); else { temp.onload = r; temp.onerror = r; }});
+          const tmp = new Image();
+          tmp.crossOrigin = "anonymous";
+          tmp.src = logoImg.src;
+          await new Promise((r) => { if (tmp.complete) r(); else { tmp.onload = r; tmp.onerror = r; } });
 
-          const cx = x + w/2, cy = y + h/2;
+          const cx = x + w / 2;
+          const cy = y + h / 2;
           ctx.save();
           ctx.translate(cx, cy);
           if (angle) ctx.rotate(angle);
-          ctx.drawImage(temp, -w/2, -h/2, w, h);
+          ctx.drawImage(tmp, -w / 2, -h / 2, w, h);
           ctx.restore();
         }
 
         resolve({ canvas, dataURL: canvas.toDataURL("image/png") });
       } catch (e) {
-        // Nunca rechazar: devolvemos canvas vacío para evitar uncaught
+        console.error(e);
         const c = document.createElement("canvas");
         c.width = 10; c.height = 10;
         resolve({ canvas: c, dataURL: c.toDataURL("image/png"), error: e });
@@ -66,83 +72,89 @@
     });
   }
 
-  // --- Botón: Descargar PNG ---
+  // --------- BOTÓN: DESCARGAR PNG ----------
   function spwDownload() {
-    composeCanvas().then(({ dataURL, error }) => {
-      if (error) console.error(error);
-      const a = document.createElement("a");
-      a.href = dataURL;
-      a.download = "personalizacion.png";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }).catch((e) => {
-      console.error(e);
-      alert("No se pudo generar el PNG.");
-    });
+    composeCanvas()
+      .then(({ dataURL }) => {
+        try {
+          const a = document.createElement("a");
+          a.href = dataURL;
+          a.download = "personalizacion.png";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        } catch (e) {
+          console.error(e);
+          alert("No se pudo iniciar la descarga del PNG.");
+        }
+      })
+      .catch((e) => {
+        // Nunca debería entrar aquí, pero por si acaso
+        console.error(e);
+      });
   }
 
-  // --- Botón: Añadir al carrito con esta personalización ---
+  // --------- BOTÓN: AÑADIR AL CARRITO ----------
   function spwAddToCart() {
-    const variantId = parseInt((q("#spw_variant_id") && q("#spw_variant_id").value) || "0", 10);
-    const templateId = parseInt((q("#spw_template_id") && q("#spw_template_id").value) || "0", 10);
-    const qty       = Math.max(1, parseInt((q("#spw_qty") && q("#spw_qty").value) || "1", 10));
+    // Lee valores del formulario
+    const variantId  = parseInt(($("#spw_variant_id") && $("#spw_variant_id").value) || "0", 10);
+    const templateId = parseInt(($("#spw_template_id") && $("#spw_template_id").value) || "0", 10);
+    const qty        = Math.max(1, parseInt(($("#spw_qty") && $("#spw_qty").value) || "1", 10));
 
     const tech      = (document.querySelector('input[name="spw_tech"]:checked') || {}).value || "";
     const svgColor  = (document.querySelector('input[name="spw_svg_color"]:checked') || {}).value || "";
-    const notes     = (q("#spw_notes") && q("#spw_notes").value) || "";
+    const notes     = ($("#spw_notes") && $("#spw_notes").value) || "";
 
-    const size      = num(q("#spw_size"), 100);
-    const posX      = num(q("#spw_pos_x"), 0);
-    const posY      = num(q("#spw_pos_y"), 10);
-    const rotation  = num(q("#spw_rotation"), 0);
+    const size     = num($("#spw_size"), 100);
+    const pos_x    = num($("#spw_pos_x"), 0);
+    const pos_y    = num($("#spw_pos_y"), 10);
+    const rotation = num($("#spw_rotation"), 0);
 
-    composeCanvas().then(({ dataURL }) => {
-      const payload = {
-        variant_id: variantId || false,
-        template_id: templateId || false,
-        qty: qty,
-        tech: tech,
-        svg_color: svgColor,
-        notes: notes,
-        size: size,
-        pos_x: posX,
-        pos_y: posY,
-        rotation: rotation,
-        image_dataurl: dataURL,
-      };
-
-      return fetch("/spw/add_to_cart", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify(payload),
+    composeCanvas()
+      .then(({ dataURL }) => {
+        const payload = {
+          variant_id: variantId || false,
+          template_id: templateId || false,
+          qty, tech, svg_color: svgColor, notes,
+          size, pos_x, pos_y, rotation,
+          image_dataurl: dataURL,
+        };
+        return fetch("/spw/add_to_cart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload),
+        });
+      })
+      .then((resp) => resp.json().catch(() => ({ ok: False, error: "Respuesta no JSON" })))
+      .then((json) => {
+        if (!json || json.ok !== true) {
+          console.error(json);
+          alert("No se pudo añadir al carrito.\n" + (json && json.error ? json.error : ""));
+          return;
+        }
+        window.location.href = "/shop/cart";
+      })
+      .catch((e) => {
+        console.error(e);
+        alert("Error añadiendo al carrito.");
       });
-    }).then((resp) => {
-      // Si el endpoint no existe (no importado en __init__), resp no será JSON
-      return resp.json().catch(() => ({ ok: false, error: "Respuesta no JSON (¿ruta no cargada?)" }));
-    }).then((json) => {
-      if (!json.ok) {
-        console.error(json);
-        alert("No se pudo añadir al carrito.\n" + (json.error || ""));
-        return;
-      }
-      window.location.href = "/shop/cart";
-    }).catch((e) => {
-      console.error(e);
-      alert("Ocurrió un problema al añadir al carrito.");
-    });
   }
 
-  // Exponer en global (para los onclick existentes)
+  // Exponer global para tus onclick existentes
   window.spwDownload = spwDownload;
   window.spwAddToCart = spwAddToCart;
 
-  // Y además, enganchar por ID si existen (no rompe nada)
-  document.addEventListener("DOMContentLoaded", () => {
-    const d = q("#spw_download_btn");
-    const a = q("#spw_add_to_cart_btn");
-    if (d) d.addEventListener("click", (ev) => { ev.preventDefault(); spwDownload(); });
-    if (a) a.addEventListener("click", (ev) => { ev.preventDefault(); spwAddToCart(); });
-  });
+  // Enganchar por ID (por si no usas onclick). Evita que href="#" navegue.
+  function bindButtons() {
+    const d = document.getElementById("spw_download_btn");
+    const a = document.getElementById("spw_add_to_cart_btn");
+    if (d) d.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); spwDownload(); });
+    if (a) a.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); spwAddToCart(); });
+  }
+
+  // Odoo carga dinámico → enganchamos en DOMContentLoaded y también con fallback
+  document.addEventListener("DOMContentLoaded", bindButtons);
+  window.addEventListener("load", bindButtons);
+  setTimeout(bindButtons, 800); // fallback por si el DOM se repinta
 })();
