@@ -1,14 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Página del personalizador -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
-      <!-- Evita errores del editor Website -->
       <t t-set="pageName" t-value="'spw_customize_page'"/>
       <t t-set="main_object" t-value="template"/>
 
       <div class="container my-5 spw-customizer">
-        <!-- Datos invisibles para JS -->
+        <!-- Hidden para JS -->
         <input type="hidden" id="spw_template_id" t-att-value="template.id"/>
         <input type="hidden" id="spw_variant_id" t-att-value="variant_id or ''"/>
 
@@ -16,15 +14,8 @@
           <!-- Lienzo -->
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3">
-              <img id="spw_product_img"
-                   class="spw-base img-fluid rounded"
-                   t-att-src="img_src"
-                   alt="Producto"/>
-
-              <!-- Overlay del logo -->
-              <img id="spw_logo_preview"
-                   class="spw-logo-preview d-none"
-                   alt="Logo preview"/>
+              <img id="spw_product_img" class="spw-base img-fluid rounded" t-att-src="img_src" alt="Producto"/>
+              <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
           </div>
 
@@ -34,12 +25,10 @@
               <div class="card-body">
                 <h5 class="card-title mb-3">Personalización</h5>
 
-                <!-- Subida logo -->
+                <!-- Subir logo -->
                 <div class="mb-3">
                   <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
-                  <input id="spw_logo_input" class="form-control"
-                         type="file"
-                         accept=".png,.jpg,.jpeg,.svg,.PNG,.JPG,.JPEG,.SVG"/>
+                  <input id="spw_logo_input" class="form-control" type="file" accept=".png,.jpg,.jpeg,.svg,.PNG,.JPG,.JPEG,.SVG"/>
                   <small class="text-muted">Máx. 10MB.</small>
                 </div>
 
@@ -62,7 +51,7 @@
                   </div>
                 </div>
 
-                <!-- Paleta color (solo SVG) -->
+                <!-- Color (SVG) -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
                   <div class="spw-color-row">
@@ -116,36 +105,31 @@
 
                 <!-- Cantidad -->
                 <div class="mb-3">
-                  <label for="spw_qty" class="form-label">Cantidad</label>
-                  <input id="spw_qty" type="number" class="form-control" min="1" step="1" value="1"/>
+                  <label class="form-label" for="spw_qty">Cantidad</label>
+                  <input id="spw_qty" type="number" class="form-control" value="1" min="1" step="1"/>
                 </div>
 
                 <!-- Observaciones -->
                 <div class="mb-3">
-                  <label for="spw_notes" class="form-label">Observaciones</label>
-                  <textarea id="spw_notes" class="form-control" rows="3" placeholder="Indica instrucciones para el taller…"></textarea>
+                  <label class="form-label" for="spw_notes">Observaciones</label>
+                  <textarea id="spw_notes" class="form-control" rows="3" placeholder="Indica instrucciones para el taller..."></textarea>
                 </div>
 
-                <div class="d-flex align-items-center gap-2 flex-wrap">
-                  <button id="spw_reset" type="button" class="btn btn-outline-secondary">Reset</button>
-
-                  <button id="spw_add_to_cart" type="button" class="btn btn-primary flex-fill">
-                    Añadir al carrito con esta personalización
-                  </button>
-
-                  <button id="spw_download_png" type="button" class="btn btn-outline-secondary">
-                    Descargar PNG
-                  </button>
-
-                  <a class="btn btn-link ms-auto" t-att-href="'/shop/product/%s' % template.id">
-                    &#8592; Volver al producto
-                  </a>
+                <div class="d-flex align-items-center gap-2 mb-3">
+                  <a class="btn btn-outline-secondary" href="javascript:void(0)" onclick="window.spwReset && window.spwReset();">Reset</a>
+                  <a id="spw_btn_add_cart" class="btn btn-primary flex-grow-1" href="javascript:void(0)">Añadir al carrito con esta personalización</a>
                 </div>
+
+                <div class="d-flex align-items-center gap-3">
+                  <a id="spw_btn_png" class="btn btn-light" href="javascript:void(0)">Descargar PNG</a>
+                  <a class="btn btn-link ms-2" t-att-href="'/shop/product/%s' % template.id">&#8592; Volver al producto</a>
+                </div>
+
               </div>
             </div>
           </div>
-        </div> <!-- row -->
-      </div> <!-- container -->
+        </div>
+      </div>
     </t>
   </template>
 </odoo>
