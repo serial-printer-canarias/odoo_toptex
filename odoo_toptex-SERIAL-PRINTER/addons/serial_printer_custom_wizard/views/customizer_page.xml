@@ -43,6 +43,41 @@
                   <small class="text-muted">Máx. 10MB.</small>
                 </div>
 
+                <!-- [AÑADIDO] Técnica -->
+                <div class="mb-3">
+                  <label class="form-label d-block">Técnica</label>
+
+                  <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="spw_technique"
+                           id="spw_tech_screen" value="serigrafia" checked="checked"/>
+                    <label class="form-check-label" for="spw_tech_screen">Serigrafía</label>
+                  </div>
+
+                  <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="spw_technique"
+                           id="spw_tech_dtf" value="dtf"/>
+                    <label class="form-check-label" for="spw_tech_dtf">DTF</label>
+                  </div>
+
+                  <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="spw_technique"
+                           id="spw_tech_emb" value="bordado"/>
+                    <label class="form-check-label" for="spw_tech_emb">Bordado</label>
+                  </div>
+                </div>
+
+                <!-- [AÑADIDO] Colores (para SVG) -->
+                <div class="mb-3">
+                  <label class="form-label d-block">Color (SVG)</label>
+                  <div class="d-flex align-items-center gap-2">
+                    <span class="spw-color" style="background:#000000" data-color="#000000"></span>
+                    <span class="spw-color" style="background:#ffffff" data-color="#ffffff"></span>
+                    <span class="spw-color" style="background:#e60012" data-color="#e60012"></span>
+                    <span class="spw-color" style="background:#1d4ed8" data-color="#1d4ed8"></span>
+                    <span class="spw-color" style="background:#16a34a" data-color="#16a34a"></span>
+                  </div>
+                </div>
+
                 <!-- Tamaño -->
                 <div class="mb-3">
                   <label for="spw_size" class="form-label">Tamaño</label>
@@ -66,6 +101,10 @@
                   <label for="spw_rotation" class="form-label">Rotación</label>
                   <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
                 </div>
+
+                <!-- [AÑADIDO] Estados ocultos para JS / carrito -->
+                <input type="hidden" id="spw_technique_val"/>
+                <input type="hidden" id="spw_color_val"/>
 
                 <div class="d-flex align-items-center gap-2">
                   <!-- OJO: & escapado a &amp; -->
