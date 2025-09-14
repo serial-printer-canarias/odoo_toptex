@@ -76,3 +76,102 @@
     initPreview();
   }
 })();
+
+// === SPW: DESCARGA PNG + AÑADIR AL CARRITO (Solo añade; no toca lo demás) ===
+(function () {
+  function $(id) { return document.getElementById(id); }
+
+  // Usa html2canvas (rápido con scale=2) y devuelve base64 (sin prefijo) para el servidor
+  async function spwCanvasToBase64() {
+    const node = $('spw_canvas');
+    if (!node) throw new Error('No se encontró el canvas');
+
+    const canvas = await html2canvas(node, {
+      backgroundColor: null,
+      scale: 2,
+      useCORS: true,
+      logging: false,
+    });
+    return canvas.toDataURL('image/png').split(',')[1];
+  }
+
+  // Descarga local (fuerza descarga en iOS/Android/desktop)
+  async function onDownloadPng(ev) {
+    ev.preventDefault();
+    const btn = ev.currentTarget;
+    btn.disabled = true;
+    try {
+      const node = $('spw_canvas');
+      const canvas = await html2canvas(node, { backgroundColor: null, scale: 2, useCORS: true });
+      const url = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'personalizacion.png';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (e) {
+      alert('No se pudo descargar el PNG.\n' + (e && e.message ? e.message : e));
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // Envío al carrito
+  async function onAddToCart(ev) {
+    ev.preventDefault();
+    const btn = ev.currentTarget;
+    btn.disabled = true;
+    try {
+      const variantId = parseInt(($('spw_variant_id') && $('spw_variant_id').value) || '0', 10);
+      const qty = parseInt(($('spw_qty') && $('spw_qty').value) || '1', 10);
+      const notes = ($('spw_notes') && $('spw_notes').value) || '';
+      const techEl = document.querySelector('input[name="spw_tech"]:checked');
+      const colorEl = document.querySelector('input[name="spw_svg_color"]:checked');
+      const tech = techEl ? techEl.value : '';
+      const svgColor = colorEl ? colorEl.value : '';
+
+      if (!variantId) {
+        alert('No se encontró la variante. Vuelve al producto y entra de nuevo.');
+        return;
+      }
+
+      const png_b64 = await spwCanvasToBase64();
+
+      const res = await fetch('/spw/add_to_cart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          variant_id: variantId,
+          qty: qty,
+          tech: tech,
+          svg_color: svgColor,
+          notes: notes,
+          png_b64: png_b64,
+        }),
+      });
+
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error('HTTP ' + res.status + ' ' + t);
+      }
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.message || 'Error desconocido');
+
+      window.location.href = data.cart_url || '/shop/cart';
+    } catch (e) {
+      alert('No se pudo añadir al carrito.\n' + (e && e.message ? e.message : e));
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // Enlazar botones sin romper nada de lo existente
+  window.addEventListener('DOMContentLoaded', function () {
+    const dl = $('spw_download_png');
+    if (dl && !dl.__spw_bound) { dl.addEventListener('click', onDownloadPng); dl.__spw_bound = true; }
+    const add = $('spw_add_to_cart');
+    if (add && !add.__spw_bound) { add.addEventListener('click', onAddToCart); add.__spw_bound = true; }
+  });
+})();
