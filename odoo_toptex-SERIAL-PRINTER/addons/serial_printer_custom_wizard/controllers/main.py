@@ -1,117 +1,120 @@
 # addons/serial_printer_custom_wizard/controllers/main.py
+# -*- coding: utf-8 -*-
+
+import base64
 from odoo import http
 from odoo.http import request
-import base64
-import json
 
-class SPWController(http.Controller):
+class SpwController(http.Controller):
 
-    @http.route(['/spw/customize/<int:variant_id>',
-                 '/spw/customize'], type='http', auth='public', website=True, sitemap=False)
-    def spw_customize(self, variant_id=None, **kw):
-        """Renderiza la página del personalizador con la imagen correcta de variante o plantilla."""
-        product_tmpl = None
-        product = None
-        if variant_id:
-            product = request.env['product.product'].sudo().browse(int(variant_id))
-            if product.exists():
-                product_tmpl = product.product_tmpl_id
-        if not product_tmpl and kw.get('template_id'):
-            product_tmpl = request.env['product.template'].sudo().browse(int(kw['template_id']))
-
-        if not product_tmpl:
+    # Página de personalización
+    @http.route('/spw/customize/<int:template_id>', auth='public', website=True)
+    def spw_customize(self, template_id, **kw):
+        """Muestra la página de personalización con la imagen correcta.
+        Prioriza imagen de la variante (variant_id) y, si no hay, usa la del template.
+        """
+        template = request.env['product.template'].sudo().browse(template_id)
+        if not template.exists():
             return request.not_found()
 
-        # Imagen principal según variante/plantilla
+        variant_id = kw.get('variant_id')
         img_src = None
-        if product and product.image_1920:
-            img_src = f"/web/image/product.product/{product.id}/image_1920"
-        elif product_tmpl.image_1920:
-            img_src = f"/web/image/product.template/{product_tmpl.id}/image_1920"
-        else:
-            img_src = "/web/static/img/placeholder.png"
+
+        # Imagen de la variante si viene y existe
+        if variant_id:
+            try:
+                variant_id_int = int(variant_id)
+            except Exception:
+                variant_id_int = False
+            if variant_id_int:
+                variant = request.env['product.product'].sudo().browse(variant_id_int)
+                if variant.exists():
+                    # Si la variante tiene imagen, úsala; si no, cae al template
+                    if variant.image_1920:
+                        img_src = f"/web/image/product.product/{variant.id}/image_1920"
+
+        # Imagen del template si no hay variante válida
+        if not img_src:
+            img_src = f"/web/image/product.template/{template.id}/image_1920"
 
         values = {
-            'template': product_tmpl,
-            'variant_id': product.id if product else '',
+            'template': template,
+            'variant_id': variant_id or '',
             'img_src': img_src,
         }
         return request.render('serial_printer_custom_wizard.spw_customize_page', values)
 
-    @http.route('/spw/add_to_cart', type='json', auth='public', website=True, csrf=False)
-    def spw_add_to_cart(self, **kwargs):
+    # Añadir al carrito con la personalización
+    @http.route('/spw/add_to_cart', type='http', auth='public', website=True, csrf=False, methods=['POST'])
+    def spw_add_to_cart(self, **post):
+        """Recibe un JSON (fetch) con:
+           - template_id, variant_id, quantity
+           - png_data (dataURL del montaje)
+           - technique, notes, svg_color
+        Crea línea en carrito, adjunta PNG a la línea y añade detalles a la descripción.
         """
-        Crea (o usa) el pedido web, añade la línea del producto
-        y guarda la personalización como adjuntos (PNG + JSON).
-        """
-        try:
-            template_id = int(kwargs.get('template_id') or 0)
-            variant_id = kwargs.get('variant_id')
-            variant_id = int(variant_id) if variant_id else 0
-            qty = int(kwargs.get('qty') or 1)
-            customization = kwargs.get('customization') or {}
+        payload = request.jsonrequest or {}
+        template_id = int(payload.get('template_id') or 0)
+        variant_id = int(payload.get('variant_id') or 0)
+        quantity = float(payload.get('quantity') or 1)
+        technique = (payload.get('technique') or '').strip()
+        notes = (payload.get('notes') or '').strip()
+        svg_color = (payload.get('svg_color') or '').strip()
+        png_data = payload.get('png_data') or ''
 
-            ProductProduct = request.env['product.product'].sudo()
-            ProductTemplate = request.env['product.template'].sudo()
+        env = request.env.sudo()
 
-            product = None
-            if variant_id:
-                product = ProductProduct.browse(variant_id)
-            elif template_id:
-                tmpl = ProductTemplate.browse(template_id)
+        # Producto/variante a añadir
+        product = None
+        if variant_id:
+            product = env['product.product'].browse(variant_id)
+            if not product.exists():
+                product = None
+        if not product and template_id:
+            tmpl = env['product.template'].browse(template_id)
+            if tmpl.exists():
                 product = tmpl.product_variant_id
 
-            if not product or not product.exists():
-                return {'ok': False, 'error': 'Producto no encontrado'}
+        if not product:
+            return request.make_json_response({'ok': False, 'error': 'Producto no encontrado'})
 
-            order = request.website.sale_get_order(force_create=True)
-            res = order._cart_update(product_id=product.id, add_qty=qty)
-            line_id = res.get('line_id')
-            line = request.env['sale.order.line'].sudo().browse(line_id) if line_id else None
+        # Obtener/crear pedido del sitio
+        order = request.website.sale_get_order(force_create=1)
 
-            # Añadir texto útil a la línea
-            if line and customization:
-                parts = []
-                if customization.get('technique'):
-                    parts.append(f"Técnica: {customization.get('technique')}")
-                if customization.get('color'):
-                    parts.append(f"Color: {customization.get('color')}")
-                if customization.get('notes'):
-                    parts.append(f"Obs.: {customization.get('notes')}")
-                if parts:
-                    line.name = (line.name or '') + " | " + " / ".join(parts)
+        # Añadir línea
+        res = order._cart_update(product_id=product.id, add_qty=quantity)
+        line = env['sale.order.line'].browse(res.get('line_id'))
 
-            # Guardar adjuntos en el pedido (y referenciar línea en el nombre)
-            if customization:
-                Attach = request.env['ir.attachment'].sudo()
+        # Guardar adjunto PNG si llega
+        if png_data.startswith('data:image/png;base64,'):
+            b64 = png_data.split(',', 1)[1]
+            try:
+                raw = base64.b64decode(b64)
+            except Exception:
+                raw = b64.encode()
+            env['ir.attachment'].create({
+                'name': f'personalizacion_{product.display_name}.png',
+                'type': 'binary',
+                'datas': base64.b64encode(raw),
+                'res_model': 'sale.order.line',
+                'res_id': line.id,
+                'mimetype': 'image/png',
+            })
 
-                # PNG de la previsualización
-                preview_png = customization.get('preview_png')
-                if preview_png and preview_png.startswith('data:image/png;base64,'):
-                    png_b64 = preview_png.split(',', 1)[1]
-                    Attach.create({
-                        'name': f'Personalizacion_{product.display_name}.png',
-                        'type': 'binary',
-                        'datas': png_b64,
-                        'res_model': 'sale.order',
-                        'res_id': order.id,
-                        'mimetype': 'image/png',
-                        'description': f'Vista previa vinculada a la línea {line.id if line else "-"}',
-                    })
+        # Enriquecer el nombre de la línea con los detalles
+        extra = []
+        if technique:
+            extra.append(f"Técnica: {technique}")
+        if svg_color:
+            extra.append(f"Color (SVG): {svg_color}")
+        if notes:
+            extra.append(f"Observaciones: {notes}")
+        if extra:
+            line.name = (line.name or product.display_name) + "\n" + "\n".join(extra)
 
-                # JSON con parámetros
-                Attach.create({
-                    'name': f'Personalizacion_{product.display_name}.json',
-                    'type': 'binary',
-                    'datas': base64.b64encode(json.dumps(customization, ensure_ascii=False).encode('utf-8')),
-                    'res_model': 'sale.order',
-                    'res_id': order.id,
-                    'mimetype': 'application/json',
-                    'description': f'Parámetros vinculados a la línea {line.id if line else "-"}',
-                })
-
-            return {'ok': True, 'order_id': order.id, 'line_id': line_id}
-        except Exception as e:
-            # Log y respuesta segura
-            request.env.cr.rollback()
-            return {'ok': False, 'error': str(e)}
+        return request.make_json_response({
+            'ok': True,
+            'order_id': order.id,
+            'line_id': line.id,
+            'cart_url': '/shop/cart',
+        })
