@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Cargar solo nuestro CSS + JS plano. Nada de módulos AMD. -->
+  <!-- Solo nuestro CSS + JS plano -->
   <template id="spw_assets_public_min" inherit_id="web.assets_frontend" name="SPW Assets (solo público)">
     <xpath expr="." position="inside">
       <link rel="stylesheet" href="/serial_printer_custom_wizard/static/src/css/spw.css"/>
@@ -8,8 +8,7 @@
     </xpath>
   </template>
 
-  <!-- (Opcional pero recomendado) Limpieza: si en alguna compilación quedaron
-       referencias a los antiguos scripts de este mismo módulo, las quitamos. -->
+  <!-- Limpieza silenciosa de referencias viejas de ESTE módulo -->
   <template id="spw_assets_cleanup" inherit_id="web.assets_frontend" name="SPW Assets Cleanup">
     <xpath expr="//script[contains(@src,'/serial_printer_custom_wizard/static/src/js/spw_options.js')]" position="replace"/>
     <xpath expr="//script[contains(@src,'/serial_printer_custom_wizard/static/src/js/ns300_colors.js')]" position="replace"/>
