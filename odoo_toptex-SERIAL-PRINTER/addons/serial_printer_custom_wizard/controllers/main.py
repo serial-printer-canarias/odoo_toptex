@@ -37,10 +37,10 @@ class SpwCustomizer(http.Controller):
         }
         return request.render('serial_printer_custom_wizard.spw_customize_page', values)
 
-    # Añadir al carrito con la personalización (JSON)
-    @http.route('/spw/add_to_cart', type='json', auth='public', website=True,
+    # ===== Paso 1: crear línea y guardar metadatos (sin PNG) =====
+    @http.route('/spw/add_to_cart_meta', type='json', auth='public', website=True,
                 csrf=False, methods=['POST'])
-    def spw_add_to_cart(self, **kw):
+    def spw_add_to_cart_meta(self, **kw):
         data = request.jsonrequest or {}
         try:
             variant_id = int(data.get('variant_id') or 0)
@@ -51,7 +51,6 @@ class SpwCustomizer(http.Controller):
         tech = data.get('tech') or ''
         svg_color = data.get('svg_color') or ''
         notes = data.get('notes') or ''
-        png_b64 = data.get('png_b64') or ''
 
         if not variant_id or qty <= 0:
             return {'ok': False, 'message': 'Parámetros inválidos.'}
@@ -64,56 +63,72 @@ class SpwCustomizer(http.Controller):
         order = request.website.sale_get_order(force_create=True)
         order._cart_update(product_id=variant.id, add_qty=qty)
 
-        # última línea de ese producto
         line = order.order_line.filtered(lambda l: l.product_id.id == variant.id)
         line = line.sorted('id')[-1] if line else False
 
-        if line:
-            # texto con parámetros
-            extras = []
-            if tech:
-                extras.append(f"Técnica: {tech}")
-            if svg_color:
-                extras.append(f"Color SVG: {svg_color}")
-            if notes:
-                extras.append(f"Obs: {notes}")
-            if extras:
-                base_name = line.name or variant.get_product_multiline_description_sale() or variant.display_name
-                line.sudo().write({'name': base_name + "\n" + " | ".join(extras)})
+        if not line:
+            return {'ok': False, 'message': 'No se pudo crear la línea.'}
 
-            Att = request.env['ir.attachment'].sudo()
+        # Texto con parámetros en el nombre de la línea
+        extras = []
+        if tech:
+            extras.append(f"Técnica: {tech}")
+        if svg_color:
+            extras.append(f"Color SVG: {svg_color}")
+        if notes:
+            extras.append(f"Obs: {notes}")
+        if extras:
+            base_name = line.name or variant.get_product_multiline_description_sale() or variant.display_name
+            line.sudo().write({'name': base_name + "\n" + " | ".join(extras)})
 
-            # PNG adjunto (si viene)
-            if png_b64:
-                Att.create({
-                    'name': f'personalizacion_{line.id}.png',
-                    'datas': png_b64,              # ya es base64 sin prefijo
-                    'type': 'binary',
-                    'mimetype': 'image/png',
-                    'res_model': 'sale.order.line',
-                    'res_id': line.id,
-                })
+        # JSON con configuración para el taller
+        cfg = {
+            'variant_id': variant.id,
+            'qty': qty,
+            'tech': tech,
+            'svg_color': svg_color,
+            'notes': notes,
+        }
+        request.env['ir.attachment'].sudo().create({
+            'name': f'personalizacion_{line.id}.json',
+            'datas': base64.b64encode(json.dumps(cfg, ensure_ascii=False).encode('utf-8')),
+            'type': 'binary',
+            'mimetype': 'application/json',
+            'res_model': 'sale.order.line',
+            'res_id': line.id,
+        })
 
-            # JSON con configuración para el taller
-            cfg = {
-                'variant_id': variant.id,
-                'qty': qty,
-                'tech': tech,
-                'svg_color': svg_color,
-                'notes': notes,
-            }
-            Att.create({
-                'name': f'personalizacion_{line.id}.json',
-                'datas': base64.b64encode(json.dumps(cfg, ensure_ascii=False).encode('utf-8')),
-                'type': 'binary',
-                'mimetype': 'application/json',
-                'res_model': 'sale.order.line',
-                'res_id': line.id,
-            })
+        return {'ok': True, 'cart_url': '/shop/cart', 'line_id': line.id}
 
-        return {'ok': True, 'cart_url': '/shop/cart'}
+    # ===== Paso 2: adjuntar PNG pesado a la línea =====
+    @http.route('/spw/attach_png', type='json', auth='public', website=True,
+                csrf=False, methods=['POST'])
+    def spw_attach_png(self, **kw):
+        data = request.jsonrequest or {}
+        try:
+            line_id = int(data.get('line_id') or 0)
+        except Exception:
+            return {'ok': False, 'message': 'Parámetros inválidos.'}
+        png_b64 = data.get('png_b64') or ''
 
-    # (Opcional) Endpoint para que un JS muestre previews en el carrito
+        if not line_id or not png_b64:
+            return {'ok': False, 'message': 'Falta PNG o línea.'}
+
+        line = request.env['sale.order.line'].sudo().browse(line_id)
+        if not line.exists():
+            return {'ok': False, 'message': 'Línea no encontrada.'}
+
+        request.env['ir.attachment'].sudo().create({
+            'name': f'personalizacion_{line.id}.png',
+            'datas': png_b64,  # base64 sin prefijo
+            'type': 'binary',
+            'mimetype': 'image/png',
+            'res_model': 'sale.order.line',
+            'res_id': line.id,
+        })
+        return {'ok': True}
+
+    # (Opcional) Endpoint para listar previews en el carrito (no obligatorio)
     @http.route('/spw/cart_previews', type='json', auth='public', website=True, csrf=False)
     def spw_cart_previews(self):
         order = request.website.sale_get_order()
