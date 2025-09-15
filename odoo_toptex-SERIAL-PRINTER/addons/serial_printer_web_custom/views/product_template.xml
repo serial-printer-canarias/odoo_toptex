@@ -14,7 +14,7 @@
       </t>
     </xpath>
 
-    <!-- ✅ Stock rápido bajo el precio (de la variante seleccionada por Odoo) -->
+    <!-- ✅ Stock rápido bajo el precio (de la variante principal) -->
     <xpath expr="//div[contains(@class, 'product_price')]" position="after">
       <t t-if="product.product_variant.qty_available &gt; 0">
         <p class="text-success mt-3">
@@ -33,11 +33,9 @@
       <t t-if="color_attribute">
         <div class="d-flex flex-wrap my-2">
           <t t-foreach="color_attribute.value_ids" t-as="color">
-            <label class="mx-1" title="<t t-esc='color.name'/>">
+            <label class="mx-1" t-att-title="color.name">
               <input type="radio" name="color" t-att-value="color.id"/>
-              <span t-attf-style="display:inline-block;width:24px;height:24px;border-radius:50%;
-                                  background-color:{{ color.html_color or '#ccc' }};
-                                  border:1px solid #000"></span>
+              <span t-att-style="'display:inline-block;width:24px;height:24px;border-radius:50%%;background-color:%s;border:1px solid #000' % (color.html_color or '#ccc')"></span>
             </label>
           </t>
         </div>
@@ -73,7 +71,6 @@
                'price': (variant.website_price or variant.list_price),
                'html_color': html_color
              }"/>
-          <!-- setdefault + append sin imprimir nada -->
           <t t-set="__void" t-value="grouped_variants.setdefault(color_name, [])"/>
           <t t-set="__void" t-value="grouped_variants[color_name].append(line)"/>
         </t>
@@ -83,13 +80,11 @@
       <t t-if="grouped_variants">
         <t t-foreach="grouped_variants.items()" t-as="pair">
           <t t-set="color_name" t-value="pair[0]"/>
-          <t t-set="rows"       t-value="sorted(pair[1], key=lambda r: r['talla'])"/>
+          <t t-set="rows"       t-value="pair[1]"/>
 
           <div class="border rounded p-3 mb-4">
             <h5 class="mb-3 d-flex align-items-center">
-              <span t-attf-style="display:inline-block;width:20px;height:20px;border-radius:50%;
-                                  background-color:{{ rows[0]['html_color'] if rows else '#ccc' }};
-                                  border:1px solid #000;margin-right:8px;"></span>
+              <span t-att-style="'display:inline-block;width:20px;height:20px;border-radius:50%%;background-color:%s;border:1px solid #000;margin-right:8px;' % (((rows and rows[0]['html_color']) or '#ccc'))"></span>
               <t t-esc="color_name"/>
             </h5>
 
@@ -107,12 +102,12 @@
                   <t t-foreach="rows" t-as="r">
                     <tr>
                       <td><t t-esc="r['talla']"/></td>
-                      <td><t t-esc="int(r['stock'])"/> uds</td>
+                      <td><t t-esc="r['stock']"/> uds</td>
                       <td><t t-esc="r['price']"/> €</td>
                       <td>
                         <input type="number"
                                class="form-control form-control-sm qty-input"
-                               t-att-name="'qty_' + str(r['id'])"
+                               t-att-name="'qty_%s' % r['id']"
                                t-att-data-variant-id="r['id']"
                                t-att-data-sku="r['sku']"
                                min="0" value="0"/>
