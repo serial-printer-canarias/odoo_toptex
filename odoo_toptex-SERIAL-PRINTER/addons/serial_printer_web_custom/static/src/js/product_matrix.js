@@ -5,9 +5,7 @@ odoo.define('serial_printer_web_custom.product_matrix', function (require) {
 
     publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
         selector: '.o_wsale_product_page',
-        events: {
-            'click .add-to-cart-btn': '_onAddToCartColor',
-        },
+        events: { 'click .add-to-cart-btn': '_onAddToCartColor' },
         _onAddToCartColor: function (ev) {
             ev.preventDefault();
             const $btn = $(ev.currentTarget);
@@ -17,27 +15,17 @@ odoo.define('serial_printer_web_custom.product_matrix', function (require) {
             $inputs.each(function () {
                 const $inp = $(this);
                 const qty = parseFloat($inp.val());
-                const variantId = parseInt($inp.data('variant-id'), 10);
-                if (qty > 0 && variantId) {
+                const product_id = parseInt($inp.data('variant-id'), 10);
+                if (qty > 0 && product_id) {
                     calls.push(ajax.jsonRpc('/shop/cart/update_json', 'call', {
-                        product_id: variantId,
-                        add_qty: qty,
-                        display: false,
+                        product_id, add_qty: qty, display: false,
                     }));
                 }
             });
-            if (!calls.length) {
-                $btn.addClass('btn-outline-secondary');
-                setTimeout(() => $btn.removeClass('btn-outline-secondary'), 800);
-                return;
-            }
-            Promise.all(calls).then(() => {
-                window.location.reload();
-            }).catch(() => {
-                $btn.removeClass('btn-primary').addClass('btn-danger');
-                setTimeout(() => $btn.removeClass('btn-danger').addClass('btn-primary'), 2000);
-            });
+            if (!calls.length) return;
+            Promise.all(calls).then(() => window.location.reload());
         },
     });
+
     return publicWidget.registry.SerialPrinterMatrix;
 });
