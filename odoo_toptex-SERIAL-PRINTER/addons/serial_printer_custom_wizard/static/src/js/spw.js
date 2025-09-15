@@ -1,12 +1,13 @@
-/** addons/serial_printer_custom_wizard/static/src/js/spw.js **/
 odoo.define('serial_printer_custom_wizard.spw', function (require) {
     'use strict';
 
     const ajax = require('web.ajax');
 
-    let gLogoB64 = '';     // DataURL del archivo original subido (con prefijo)
+    let gLogoB64 = '';      // DataURL del archivo original (con prefijo)
     let gLogoName = '';
     let gLogoMime = '';
+    let gIsSvg = false;
+    let gSvgOriginal = '';  // texto SVG original para recolorear
 
     function $(sel) { return document.querySelector(sel); }
 
@@ -19,12 +20,11 @@ odoo.define('serial_printer_custom_wizard.spw', function (require) {
         return el ? el.value : '';
     }
 
-    // Aplica transformaciones al logo
     function applyTransforms() {
-        const size = parseInt($('#spw_size').value, 10);
-        const posX = parseInt($('#spw_pos_x').value, 10);
-        const posY = parseInt($('#spw_pos_y').value, 10);
-        const rot  = parseInt($('#spw_rotation').value, 10);
+        const size = parseInt($('#spw_size').value || '100', 10);
+        const posX = parseInt($('#spw_pos_x').value || '0', 10);
+        const posY = parseInt($('#spw_pos_y').value || '10', 10);
+        const rot  = parseInt($('#spw_rotation').value || '0', 10);
 
         const logo = $('#spw_logo_preview');
         const scale = size / 100.0;
@@ -41,27 +41,54 @@ odoo.define('serial_printer_custom_wizard.spw', function (require) {
         applyTransforms();
     }
 
-    // Cargar archivo y previsualizar (guarda DataURL para adjuntarlo)
+    function recolorSvgAndShow() {
+        if (!gIsSvg || !gSvgOriginal) return;
+        const color = currentSvgColor() || '#000000';
+        // reemplaza fill/stroke que no sean 'none'
+        let svgTxt = gSvgOriginal
+            .replace(/fill="(?!none)[^"]*"/gi, `fill="${color}"`)
+            .replace(/stroke="(?!none)[^"]*"/gi, `stroke="${color}"`);
+        const blob = new Blob([svgTxt], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
+        const img = $('#spw_logo_preview');
+        img.onload = () => { URL.revokeObjectURL(url); applyTransforms(); };
+        img.src = url;
+        img.classList.remove('d-none');
+        img.style.opacity = '1';
+    }
+
     function handleFileInput(ev) {
         const file = ev.target.files && ev.target.files[0];
         if (!file) return;
+
         gLogoName = file.name || 'logo_original';
         gLogoMime = file.type || 'application/octet-stream';
+        gIsSvg = (file.type === 'image/svg+xml');
+        gSvgOriginal = '';
 
-        const reader = new FileReader();
-        reader.onload = function (e) {
-            const dataUrl = e.target.result; // con prefijo data:
-            gLogoB64 = dataUrl;
-            const img = $('#spw_logo_preview');
-            img.src = dataUrl;
-            img.onload = applyTransforms;
-            img.classList.remove('d-none');
-            img.style.opacity = '1';
-        };
-        reader.readAsDataURL(file);
+        if (gIsSvg) {
+            // guardamos DataURL y también el texto para recolor
+            const r1 = new FileReader();
+            r1.onload = e => { gLogoB64 = e.target.result; };
+            r1.readAsDataURL(file);
+
+            const r2 = new FileReader();
+            r2.onload = e => { gSvgOriginal = e.target.result || ''; recolorSvgAndShow(); };
+            r2.readAsText(file);
+        } else {
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                gLogoB64 = e.target.result; // data:
+                const img = $('#spw_logo_preview');
+                img.src = gLogoB64;
+                img.onload = applyTransforms;
+                img.classList.remove('d-none');
+                img.style.opacity = '1';
+            };
+            reader.readAsDataURL(file);
+        }
     }
 
-    // Screenshot del canvas -> base64 (sólo datos, sin prefijo)
     function makeCanvasPngBase64() {
         const node = $('#spw_canvas');
         return html2canvas(node, {
@@ -70,13 +97,9 @@ odoo.define('serial_printer_custom_wizard.spw', function (require) {
             backgroundColor: null,
             scale: window.devicePixelRatio > 1 ? 2 : 1,
             imageTimeout: 0,
-        }).then(canvas => {
-            const dataUrl = canvas.toDataURL('image/png');
-            return dataUrl.replace(/^data:image\/png;base64,/, '');
-        });
+        }).then(canvas => canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, ''));
     }
 
-    // Descargar PNG robusto (iOS incluido)
     function downloadPNG() {
         const node = $('#spw_canvas');
         html2canvas(node, {
@@ -87,20 +110,16 @@ odoo.define('serial_printer_custom_wizard.spw', function (require) {
             imageTimeout: 0,
         }).then(canvas => {
             if (canvas.toBlob) {
-                canvas.toBlob(function (blob) {
+                canvas.toBlob(blob => {
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
                     a.download = 'personalizacion.png';
                     document.body.appendChild(a);
                     a.click();
-                    setTimeout(function () {
-                        URL.revokeObjectURL(url);
-                        a.remove();
-                    }, 1000);
+                    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 800);
                 }, 'image/png');
             } else {
-                // fallback
                 const a = document.createElement('a');
                 a.href = canvas.toDataURL('image/png');
                 a.download = 'personalizacion.png';
@@ -111,7 +130,6 @@ odoo.define('serial_printer_custom_wizard.spw', function (require) {
         });
     }
 
-    // Enviar al carrito
     async function addToCart() {
         try {
             const variantId = parseInt($('#spw_variant_id').value || '0', 10);
@@ -120,10 +138,7 @@ odoo.define('serial_printer_custom_wizard.spw', function (require) {
             const svgColor = currentSvgColor();
             const notes = ($('#spw_notes').value || '').trim();
 
-            if (!variantId) {
-                alert('No se ha podido identificar la variante.');
-                return;
-            }
+            if (!variantId) { alert('No se ha podido identificar la variante.'); return; }
 
             const png_b64 = await makeCanvasPngBase64();
 
@@ -133,12 +148,10 @@ odoo.define('serial_printer_custom_wizard.spw', function (require) {
                 tech: tech,
                 svg_color: svgColor,
                 notes: notes,
-                png_b64: png_b64,               // sólo datos base64
+                png_b64: png_b64,
             };
-
-            // Adjuntar archivo original si hay
             if (gLogoB64) {
-                payload.logo_b64 = gLogoB64;   // puede ir con prefijo; el servidor lo admite
+                payload.logo_b64 = gLogoB64;
                 payload.logo_name = gLogoName || 'logo_original';
                 payload.logo_mime = gLogoMime || 'application/octet-stream';
             }
@@ -147,7 +160,7 @@ odoo.define('serial_printer_custom_wizard.spw', function (require) {
             if (resp && resp.ok) {
                 window.location = resp.cart_url || '/shop/cart';
             } else {
-                alert(resp && resp.message ? resp.message : 'Error añadiendo al carrito.');
+                alert((resp && resp.message) || 'Error añadiendo al carrito.');
             }
         } catch (err) {
             console.error('spw add_to_cart error', err);
@@ -155,26 +168,19 @@ odoo.define('serial_printer_custom_wizard.spw', function (require) {
         }
     }
 
-    // Bindings al cargar
     document.addEventListener('DOMContentLoaded', function () {
-        const f = $('#spw_logo_input');
-        if (f) f.addEventListener('change', handleFileInput);
-
-        ['#spw_size', '#spw_pos_x', '#spw_pos_y', '#spw_rotation'].forEach(sel => {
-            const el = $(sel);
-            if (el) el.addEventListener('input', applyTransforms);
+        const f = $('#spw_logo_input'); if (f) f.addEventListener('change', handleFileInput);
+        ['#spw_size','#spw_pos_x','#spw_pos_y','#spw_rotation'].forEach(sel=>{
+            const el = $(sel); if (el) el.addEventListener('input', applyTransforms);
+        });
+        document.querySelectorAll('input[name="spw_svg_color"]').forEach(el=>{
+            el.addEventListener('change', recolorSvgAndShow);
         });
 
-        const btnReset = $('#spw_reset_btn');
-        if (btnReset) btnReset.addEventListener('click', resetAll);
+        const btnReset = $('#spw_reset_btn'); if (btnReset) btnReset.addEventListener('click', resetAll);
+        const btnDl = $('#spw_download_btn'); if (btnDl) btnDl.addEventListener('click', downloadPNG);
+        const btnCart = $('#spw_add_to_cart_btn'); if (btnCart) btnCart.addEventListener('click', addToCart);
 
-        const btnDl = $('#spw_download_btn');
-        if (btnDl) btnDl.addEventListener('click', downloadPNG);
-
-        const btnCart = $('#spw_add_to_cart_btn');
-        if (btnCart) btnCart.addEventListener('click', addToCart);
-
-        // primera aplicación de transformaciones
         applyTransforms();
     });
 });
