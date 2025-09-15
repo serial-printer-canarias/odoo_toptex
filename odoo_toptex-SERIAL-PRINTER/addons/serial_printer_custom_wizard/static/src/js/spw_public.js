@@ -1,6 +1,13 @@
 // addons/serial_printer_custom_wizard/static/src/js/spw_public.js
 (function () {
   "use strict";
+  console.log("[SPW] spw_public.js cargado");
+  // ... (tu mismo contenido a partir de aquí, sin cambios)
+})();
+
+// addons/serial_printer_custom_wizard/static/src/js/spw_public.js
+(function () {
+  "use strict";
 
   // Helpers DOM
   function $(sel, root) { return (root || document).querySelector(sel); }
