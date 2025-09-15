@@ -135,16 +135,16 @@
       (function () {
         "use strict";
 
+        // ---------- Helpers ----------
         function $(sel, root){return (root||document).querySelector(sel);}
         function $val(id, d){ var el=$("#"+id); return el?el.value:d; }
 
-        // Sin crossOrigin (evita canvas tainted en iOS/Safari)
-        async function loadImage(src){
+        function loadImage(src){
           return new Promise(function(resolve, reject){
             var im=new Image();
             im.onload=function(){ resolve(im); };
-            im.onerror=function(e){ reject(e); };
-            im.src=src;
+            im.onerror=reject;
+            im.src=src; // mismo origen -> OK en iOS
           });
         }
         function readAsDataURL(file){
@@ -155,12 +155,20 @@
             r.readAsDataURL(file);
           });
         }
-        function dataURLtoBase64(u){
-          var i=u.indexOf(','); return i!==-1?u.slice(i+1):u;
+        function readAsText(file){
+          return new Promise(function(resolve, reject){
+            var r=new FileReader();
+            r.onload=function(){ resolve(r.result); };
+            r.onerror=reject;
+            r.readAsText(file);
+          });
         }
+        function dataURLtoBase64(u){ var i=u.indexOf(','); return i!==-1?u.slice(i+1):u; }
 
-        var S={ logoDataURL:"", isSVG:false };
+        // ---------- Estado ----------
+        var S={ logoDataURL:"", isSVG:false, svgText:"" };
 
+        // ---------- Transform ----------
         function applyTransform(){
           var logo=$("#spw_logo_preview"); if(!logo) return;
           var size=parseInt($val("spw_size","100"),10);
@@ -172,10 +180,33 @@
           logo.style.width=size+"px";
         }
 
+        // ---------- Color para SVG subido ----------
+        function applySVGColor(){
+          if(!S.isSVG || !S.svgText) return;
+          var color=( ($("input[name='spw_svg_color']:checked")||{}).value )||"#000000";
+          var svg=S.svgText;
+          if(!/xmlns=/.test(svg)){
+            svg = svg.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"');
+          }
+          var style='<style><![CDATA[*{fill:'+color+' !important; stroke:'+color+' !important;}]]></style>';
+          svg = svg.replace(/<\/svg>\s*$/i, style + '</svg>');
+
+          var dataURL='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+          S.logoDataURL=dataURL;
+          var logoEl=$("#spw_logo_preview");
+          if(logoEl){
+            logoEl.src=dataURL;
+            logoEl.classList.remove("d-none");
+            logoEl.style.opacity="1";
+          }
+        }
+
+        // ---------- Render PNG ----------
         async function renderPNGDataURL(){
           var baseSrc=$val("spw_img_src","") || ($("#spw_product_img")||{}).getAttribute("src");
           if(!baseSrc) throw new Error("Sin imagen base.");
           var baseIm=await loadImage(baseSrc);
+
           var canvas=document.createElement("canvas");
           var ctx=canvas.getContext("2d");
           canvas.width=baseIm.naturalWidth||baseIm.width;
@@ -202,6 +233,7 @@
           return canvas.toDataURL("image/png");
         }
 
+        // ---------- Añadir al carrito (JSON + fallback HTTP) ----------
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
@@ -210,66 +242,81 @@
           var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
-          var pngB64="";
-          try{ pngB64 = dataURLtoBase64(await renderPNGDataURL()); }catch(e){ /* seguimos sin PNG */ }
+          var pngB64=""; try{ pngB64=dataURLtoBase64(await renderPNGDataURL()); }catch(e){}
 
           var payload={ variant_id:parseInt(variantId,10), qty:qty, tech:tech, svg_color:svgColor, notes:notes, png_b64:pngB64 };
 
           async function tryPost(url){
-            var resp = await fetch(url,{
+            var resp=await fetch(url,{
               method:"POST",
               headers:{ "Content-Type":"application/json", "X-Requested-With":"XMLHttpRequest" },
               body: JSON.stringify(payload),
               credentials:"same-origin"
             });
-            var txt = await resp.text();
-            var json;
-            try{ json = JSON.parse(txt); }catch(e){ json=null; }
-            return {ok: resp.ok && json && (json.ok===true || json.ok==="true"), data: json, raw: txt, status: resp.status};
+            var txt=await resp.text(); var json=null;
+            try{ json=JSON.parse(txt); }catch(_){}
+            return {ok: resp.ok && json && (json.ok===true || json.ok==="true"), data: json};
           }
 
-          // 1º JSON, 2º HTTP fallback
-          var r = await tryPost("/spw/add_to_cart");
-          if(!(r.ok)){
-            r = await tryPost("/spw/add_to_cart_http");
-          }
-          if(r.ok && r.data){
-            window.location.href = r.data.cart_url || "/shop/cart";
-          }else{
-            alert("No se pudo añadir al carrito.");
-          }
+          var r=await tryPost("/spw/add_to_cart");
+          if(!r.ok) r=await tryPost("/spw/add_to_cart_http");
+
+          if(r.ok && r.data){ window.location.href=r.data.cart_url || "/shop/cart"; }
+          else{ alert("No se pudo añadir al carrito."); }
         }
 
+        // ---------- Init ----------
         function init(){
           var logoInput=$("#spw_logo_input");
           var logoEl=$("#spw_logo_preview");
+
           if(logoInput){
             logoInput.addEventListener("change", async function(ev){
-              var f = ev.target.files && ev.target.files[0]; if(!f) return;
+              var f=ev.target.files && ev.target.files[0]; if(!f) return;
               var name=(f.name||"").toLowerCase();
               S.isSVG = name.endsWith(".svg");
-              var dataURL = await readAsDataURL(f);
-              S.logoDataURL = dataURL;
-              logoEl.src = dataURL;
-              logoEl.classList.remove("d-none");
-              logoEl.style.opacity = "1";
+              if(S.isSVG){
+                S.svgText = await readAsText(f);
+                applySVGColor();
+              }else{
+                S.logoDataURL = await readAsDataURL(f);
+                logoEl.src = S.logoDataURL;
+                logoEl.classList.remove("d-none");
+                logoEl.style.opacity = "1";
+              }
               applyTransform();
             });
           }
+
+          Array.prototype.forEach.call(document.querySelectorAll("input[name='spw_svg_color']"), function(el){
+            el.addEventListener("change", applySVGColor);
+          });
+
           ["spw_size","spw_pos_x","spw_pos_y","spw_rotation"].forEach(function(id){
             var el=$("#"+id); if(el) el.addEventListener("input", applyTransform);
           });
-          window.spwReset=function(){ $("#spw_size").value=100; $("#spw_pos_x").value=0; $("#spw_pos_y").value=10; $("#spw_rotation").value=0; applyTransform(); };
 
-          var dl=$("#spw_download_png"); if(dl){ dl.addEventListener("click", async function(){
-            try{
-              var url = await renderPNGDataURL();
-              var a = document.createElement("a"); a.href=url; a.download="personalizacion.png";
-              document.body.appendChild(a); a.click(); a.remove();
-            }catch(e){ alert("No se pudo generar el PNG."); }
-          });}
+          window.spwReset=function(){
+            $("#spw_size").value=100; $("#spw_pos_x").value=0; $("#spw_pos_y").value=10; $("#spw_rotation").value=0;
+            applyTransform();
+          };
 
-          var add=$("#spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
+          var dl=$("#spw_download_png");
+          if(dl){
+            dl.addEventListener("click", async function(){
+              try{
+                var url=await renderPNGDataURL();
+                var a=document.createElement("a");
+                a.href=url; a.download="personalizacion.png";
+                document.body.appendChild(a); a.click(); a.remove();
+                // Fallback iOS/Safari (abre visor nativo)
+                setTimeout(function(){ window.open(url,"_blank"); },150);
+              }catch(e){ alert("No se pudo generar el PNG."); }
+            });
+          }
+
+          var add=$("#spw_add_to_cart");
+          if(add){ add.addEventListener("click", addToCart); }
 
           applyTransform();
         }
