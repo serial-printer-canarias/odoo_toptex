@@ -11,7 +11,7 @@
         <input type="hidden" id="spw_template_id" t-att-value="template.id"/>
         <input type="hidden" id="spw_variant_id" t-att-value="variant_id or ''"/>
         <input type="hidden" id="spw_img_src" t-att-value="img_src"/>
-        <!-- CSRF para POST en website -->
+        <!-- CSRF para POST -->
         <input type="hidden" id="spw_csrf_token" t-att-value="request.csrf_token()"/>
 
         <div class="row g-4">
@@ -113,7 +113,7 @@
 
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
+                     onclick="window.spwReset && window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -162,12 +162,6 @@
           });
         }
         function dataURLtoBase64(u){ var i=u.indexOf(','); return i!==-1?u.slice(i+1):u; }
-        function dataURLtoBlob(dataURL){
-          var arr = dataURL.split(','), mime = arr[0].match(/:(.*?);/)[1],
-              bstr = atob(arr[1]), n = bstr.length, u8 = new Uint8Array(n);
-          while(n--){ u8[n] = bstr.charCodeAt(n); }
-          return new Blob([u8], {type: mime});
-        }
 
         var S={ logoDataURL:"", isSVG:false };
 
@@ -198,10 +192,12 @@
           if(!baseSrc) throw new Error("Sin imagen base.");
 
           var baseIm = await loadImage(baseSrc);
+
           var canvas = document.createElement("canvas");
           var ctx = canvas.getContext("2d");
           canvas.width  = baseIm.naturalWidth  || baseIm.width;
           canvas.height = baseIm.naturalHeight || baseIm.height;
+
           ctx.drawImage(baseIm, 0, 0, canvas.width, canvas.height);
 
           var logoEl = $("#spw_logo_preview");
@@ -229,6 +225,7 @@
             ctx.drawImage(logoIm, -drawW/2, -drawH/2, drawW, drawH);
             ctx.restore();
           }
+
           return canvas.toDataURL("image/png");
         }
 
@@ -236,12 +233,8 @@
           try{
             var resp = await fetch(url,{
               method:"POST",
-              headers:{
-                "Content-Type":"application/json",
-                "X-Requested-With":"XMLHttpRequest",
-                "Accept":"application/json",
-                "X-CSRFToken": $val("spw_csrf_token","")
-              },
+              headers:{ "Content-Type":"application/json", "X-Requested-With":"XMLHttpRequest",
+                        "Accept":"application/json", "X-CSRFToken": $val("spw_csrf_token","") },
               credentials:"same-origin",
               body: JSON.stringify(payload),
             });
@@ -263,11 +256,11 @@
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
 
-        function submitFullForm(url, payload){
-          // POST clásico (se usa en iOS para máxima compatibilidad y adjuntar PNG en la misma petición)
+        function submitFullForm(url, payload, targetBlank){
           var form = document.createElement("form");
           form.method = "POST";
           form.action = url;
+          if (targetBlank) form.target = "_blank";
           function addField(n,v){
             var inp = document.createElement("input");
             inp.type = "hidden"; inp.name = n; inp.value = v;
@@ -276,7 +269,8 @@
           Object.keys(payload||{}).forEach(function(k){ addField(k, payload[k]); });
           addField("csrf_token", $val("spw_csrf_token",""));
           document.body.appendChild(form);
-          form.submit(); // el servidor debe redirigir a /shop/cart
+          form.submit();
+          form.remove();
         }
 
         async function addToCart(){
@@ -287,40 +281,32 @@
           var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
-          // iOS: UNA SOLA PETICIÓN POST CLÁSICA + PNG en el mismo request
-          if (isIOS()){
+          if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)){
             try{
               var pngUrl = await renderPNGDataURL();
-              var payloadIOS = {
-                variant_id: variantId,
-                qty: qty, tech: tech, svg_color: svgColor, notes: notes,
-                png_b64: dataURLtoBase64(pngUrl)
-              };
-              submitFullForm("/spw/add_to_cart_meta_http", payloadIOS);
+              submitFullForm("/spw/add_to_cart_meta_http", {
+                variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes,
+                png_b64: (pngUrl ? pngUrl.split(',')[1] : '')
+              }, false);
               return;
             }catch(e){
-              // aun sin PNG, añade meta
               submitFullForm("/spw/add_to_cart_meta_http", {
                 variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
-              });
+              }, false);
               return;
             }
           }
 
-          // Escritorio: como ya te funcionaba
           var r1 = await postJSON("/spw/add_to_cart_meta", {
             variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
           });
           if(!r1.ok){ r1 = await postForm("/spw/add_to_cart_meta_http", {
             variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
           }); }
-          if(!r1.ok){
-            alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito.");
-            return;
-          }
+          if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
           try{
-            var pngB64 = dataURLtoBase64(await renderPNGDataURL());
+            var pngB64 = (await renderPNGDataURL()).split(',')[1];
             var okPNG = (await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 })).ok;
             if(!okPNG){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
           }catch(_){}
@@ -337,7 +323,6 @@
               var name=(f.name||"").toLowerCase();
               S.isSVG = name.endsWith(".svg");
               var dataURL = await readAsDataURL(f);
-              S.logoDataURL = dataURL;
               logoEl.src = dataURL;
               applyTransform();
             });
@@ -358,10 +343,10 @@
                 a.href = url; a.download = "personalizacion.png";
                 document.body.appendChild(a); a.click(); a.remove();
               }else{
-                // iOS: usa Blob + window.open para evitar about:blank
-                var blobUrl = URL.createObjectURL(dataURLtoBlob(url));
-                var w = window.open(blobUrl, "_blank");
-                if(!w){ window.location.href = blobUrl; } // último recurso
+                // iOS: descarga vía servidor (archivo real)
+                submitFullForm("/spw/download_png", {
+                  png_b64: url.split(',')[1]
+                }, true); // target _blank
               }
             }catch(e){ alert("No se pudo generar el PNG."); }
           });}
@@ -377,14 +362,13 @@
     </t>
   </template>
 
-  <!-- ============ ASSET: PREVIEW EN CARRITO SIN HEREDAR PLANTILLAS ============ -->
-  <template id="spw_cart_assets" inherit_id="website.assets_frontend" name="SPW Cart Preview Assets">
+  <!-- ============ ASSET: PREVIEW EN CARRITO (sin heredar website.*) ============ -->
+  <template id="spw_cart_assets" inherit_id="web.assets_frontend" name="SPW Cart Preview Assets">
     <xpath expr="." position="inside">
       <script type="text/javascript">
         (function(){
           function inject(){
             if (!/\/shop\/cart/.test(window.location.pathname)) return;
-            // Para la mayoría de themes de Odoo (div o tr con data-line-id)
             document.querySelectorAll('[data-line-id]').forEach(function(el){
               var id = el.getAttribute('data-line-id');
               if(!id || el.querySelector('.spw-preview')) return;
@@ -399,7 +383,7 @@
           }
           document.addEventListener('DOMContentLoaded', function(){
             inject();
-            setTimeout(inject, 600); // por si el DOM se rellena tarde
+            setTimeout(inject, 600);
           });
         })();
       </script>
