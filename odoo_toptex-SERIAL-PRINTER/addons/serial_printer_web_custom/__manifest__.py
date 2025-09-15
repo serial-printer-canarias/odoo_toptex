@@ -1,8 +1,8 @@
 {
     "name": "Serial Printer Web Custom",
-    "version": "18.0.1.0.3",  # ⬅️ subido para forzar upgrade
+    "version": "18.0.1.0.4",  # <- subir versión obliga a actualizar
     "category": "Website/eCommerce",
-    "summary": "Matriz color × talla con stock, precio e inputs; botón de añadir por color",
+    "summary": "Matriz color × talla con stock y cantidades; botón Añadir por color",
     "author": "Serial Printer",
     "website": "https://serial-printer.com",
     "license": "LGPL-3",
