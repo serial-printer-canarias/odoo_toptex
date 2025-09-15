@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 from odoo import http
 from odoo.http import request
+import base64
 import json
 
 class SpwCustomizer(http.Controller):
 
-    # RUTA que acepta /spw/customize/4 y también /spw/customize?template_id=4
-    @http.route(['/spw/customize/<int:template_id>', '/spw/customize'], 
-                type='http', auth='public', website=True, sitemap=False)
+    # Página de personalización (acepta /spw/customize/<id> y querystring)
+    @http.route(['/spw/customize/<int:template_id>', '/spw/customize'], type='http',
+                auth='public', website=True, sitemap=False)
     def spw_customize(self, template_id=None, variant_id=None, **kw):
-        # Aceptar querystring si viene así
         if template_id is None:
             tid = kw.get('template_id') or request.params.get('template_id')
             template_id = int(tid) if tid else None
@@ -33,49 +33,56 @@ class SpwCustomizer(http.Controller):
             'variant_id': variant.id if variant.exists() else "",
             'img_src': img_src,
         }
-        # IMPORTANTE: este ID debe existir en views/customizer_page.xml
         return request.render('serial_printer_custom_wizard.spw_customize_page', values)
 
-    # Añadir al carrito (sin cambiar nada más del sistema)
-    @http.route('/spw/add_to_cart', type='http', auth='public', website=True, csrf=False, methods=['POST'])
+    # JSON (principal)
+    @http.route('/spw/add_to_cart', type='json', auth='public', website=True,
+                csrf=False, methods=['POST'])
     def spw_add_to_cart(self, **kw):
-        """ Recibe JSON y devuelve JSON siempre (aunque sea type='http'). """
-        def _json(payload, status=200):
-            return request.make_json_response(payload, status=status)
+        data = request.jsonrequest or {}
+        return self._do_add_to_cart(data)
 
+    # HTTP (fallback robusto para cuando el JSON da guerra)
+    @http.route('/spw/add_to_cart_http', type='http', auth='public', website=True,
+                csrf=False, methods=['POST'])
+    def spw_add_to_cart_http(self, **post):
         try:
-            raw = request.httprequest.data or b''
-            data = json.loads(raw.decode('utf-8') or '{}')
+            raw = request.httprequest.get_data(cache=False, as_text=True) or ''
+            data = json.loads(raw) if raw else post
         except Exception:
-            return _json({'ok': False, 'message': 'JSON inválido.'}, status=400)
+            data = post
+        res = self._do_add_to_cart(data)
+        body = json.dumps(res)
+        return request.make_response(body, headers=[('Content-Type', 'application/json')])
 
+    # Lógica compartida
+    def _do_add_to_cart(self, data):
         try:
             variant_id = int(data.get('variant_id') or 0)
             qty = int(data.get('qty') or 1)
         except Exception:
-            return _json({'ok': False, 'message': 'Parámetros inválidos.'}, status=400)
-
-        if not variant_id or qty <= 0:
-            return _json({'ok': False, 'message': 'Parámetros inválidos.'}, status=400)
+            return {'ok': False, 'message': 'Parámetros inválidos.'}
 
         tech = data.get('tech') or ''
         svg_color = data.get('svg_color') or ''
         notes = data.get('notes') or ''
         png_b64 = data.get('png_b64') or ''
 
+        if not variant_id or qty <= 0:
+            return {'ok': False, 'message': 'Parámetros inválidos.'}
+
         Product = request.env['product.product'].sudo()
         variant = Product.browse(variant_id)
         if not variant.exists():
-            return _json({'ok': False, 'message': 'Variante no encontrada.'}, status=404)
+            return {'ok': False, 'message': 'Variante no encontrada.'}
 
         order = request.website.sale_get_order(force_create=True)
+        order._cart_update(product_id=variant.id, add_qty=qty)
 
-        # Más fiable: usar la línea devuelta por _cart_update
-        res = order._cart_update(product_id=variant.id, add_qty=qty) or {}
-        line_id = res.get('line_id')
-        line = request.env['sale.order.line'].sudo().browse(line_id) if line_id else False
+        line = order.order_line.filtered(lambda l: l.product_id.id == variant.id)
+        line = line.sorted('id')[-1] if line else False
 
-        if line and line.exists():
+        if line:
             extras = []
             if tech:
                 extras.append(f"Técnica: {tech}")
@@ -90,11 +97,11 @@ class SpwCustomizer(http.Controller):
             if png_b64:
                 request.env['ir.attachment'].sudo().create({
                     'name': 'personalizacion.png',
-                    'datas': png_b64,    # base64 sin prefijo
+                    'datas': png_b64,
                     'type': 'binary',
                     'mimetype': 'image/png',
                     'res_model': 'sale.order.line',
                     'res_id': line.id,
                 })
 
-        return _json({'ok': True, 'cart_url': '/shop/cart'})
+        return {'ok': True, 'cart_url': '/shop/cart'}
