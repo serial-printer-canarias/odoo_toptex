@@ -137,7 +137,7 @@
         function $(sel, root){return (root||document).querySelector(sel);}
         function $val(id, d){ var el=$("#"+id); return el?el.value:d; }
 
-        // Carga de imagen (sin crossOrigin para evitar canvas tainted en iOS)
+        // Sin crossOrigin (evita canvas tainted en iOS)
         async function loadImage(src){
           return new Promise(function(resolve, reject){
             var im=new Image();
@@ -154,13 +154,10 @@
             r.readAsDataURL(file);
           });
         }
-        function dataURLtoBase64(u){
-          var i=u.indexOf(','); return i!==-1?u.slice(i+1):u;
-        }
+        function dataURLtoBase64(u){ var i=u.indexOf(','); return i!==-1?u.slice(i+1):u; }
 
         var S={ logoDataURL:"", isSVG:false };
 
-        // Overlay fiel a lo visto
         function applyTransform(){
           var logo = $("#spw_logo_preview"); if(!logo) return;
           var base = $("#spw_product_img");  if(!base) return;
@@ -174,7 +171,7 @@
           var leftPx = bw*(0.5 + posX/100);
           var topPx  = bh*(0.6 + posY/100);
 
-          logo.style.position = "absolute";
+          logo.style.position="absolute";
           logo.style.left = leftPx + "px";
           logo.style.top  = topPx  + "px";
           logo.style.transform = "translate(-50%, -50%) rotate("+rot+"deg)";
@@ -183,7 +180,6 @@
           logo.style.opacity = "1";
         }
 
-        // Render a PNG 1:1 con la vista
         async function renderPNGDataURL(){
           var baseSrc = $val("spw_img_src","") || ($("#spw_product_img")||{}).getAttribute("src");
           if(!baseSrc) throw new Error("Sin imagen base.");
@@ -218,9 +214,7 @@
 
             var rot = (parseInt($val("spw_rotation","0"),10) * Math.PI)/180;
 
-            ctx.save();
-            ctx.translate(cx, cy);
-            ctx.rotate(rot);
+            ctx.save(); ctx.translate(cx, cy); ctx.rotate(rot);
             ctx.drawImage(logoIm, -drawW/2, -drawH/2, drawW, drawH);
             ctx.restore();
           }
@@ -228,20 +222,32 @@
           return canvas.toDataURL("image/png");
         }
 
-        // POST JSON helper
         async function postJSON(url, payload){
-          var resp = await fetch(url,{
-            method:"POST",
-            headers:{ "Content-Type":"application/json", "X-Requested-With":"XMLHttpRequest" },
-            credentials:"same-origin",
-            body: JSON.stringify(payload),
-          });
-          var txt = await resp.text();
-          var data = null; try{ data = JSON.parse(txt); }catch(e){}
-          return {ok: !!(data && (data.ok===true || data.ok==="true")), data:data, status:resp.status, raw:txt};
+          try{
+            var resp = await fetch(url,{
+              method:"POST",
+              headers:{ "Content-Type":"application/json", "X-Requested-With":"XMLHttpRequest" },
+              credentials:"same-origin",
+              body: JSON.stringify(payload),
+            });
+            var txt = await resp.text();
+            var data=null; try{ data = JSON.parse(txt); }catch(e){}
+            return {ok: !!(data && (data.ok===true || data.ok==="true")), data:data, status:resp.status, raw:txt};
+          }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
 
-        // ===== flujo 2 pasos: meta -> png =====
+        async function postForm(url, payload){
+          try{
+            var fd = new FormData();
+            Object.keys(payload||{}).forEach(function(k){ fd.append(k, payload[k]); });
+            var resp = await fetch(url, { method: "POST", body: fd, credentials:"same-origin" });
+            var txt = await resp.text();
+            var data=null; try{ data = JSON.parse(txt); }catch(e){}
+            // si no hay JSON devolvemos ok por 2xx
+            return {ok: resp.ok && (!!data ? (data.ok===true || data.ok==="true") : true), data:data||{}, status:resp.status, raw:txt};
+          }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
+        }
+
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
@@ -250,30 +256,21 @@
           var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
-          // Intentamos generar PNG, pero no bloquea el paso 1 si falla
-          var pngB64="";
-          try{ pngB64 = dataURLtoBase64(await renderPNGDataURL()); }catch(e){}
+          var pngB64=""; try{ pngB64 = dataURLtoBase64(await renderPNGDataURL()); }catch(e){}
 
-          // Paso 1: crear línea y guardar metadatos (ligero)
+          // 1) meta JSON -> fallback HTTP
           var r1 = await postJSON("/spw/add_to_cart_meta", {
-            variant_id: parseInt(variantId,10),
-            qty: qty,
-            tech: tech,
-            svg_color: svgColor,
-            notes: notes
+            variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
           });
+          if(!r1.ok){ r1 = await postForm("/spw/add_to_cart_meta_http", {
+            variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
+          }); }
+          if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
-          if(!r1.ok){
-            alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito.");
-            return;
-          }
-
-          // Paso 2: adjuntar PNG (si existe)
+          // 2) PNG JSON -> fallback HTTP (no bloquea salida al carrito)
           if(pngB64){
-            await postJSON("/spw/attach_png", {
-              line_id: r1.data.line_id,
-              png_b64: pngB64
-            });
+            var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
+            if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
           }
 
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
@@ -293,11 +290,9 @@
               applyTransform();
             });
           }
-
           ["spw_size","spw_pos_x","spw_pos_y","spw_rotation"].forEach(function(id){
             var el=$("#"+id); if(el) el.addEventListener("input", applyTransform);
           });
-
           window.spwReset=function(){
             $("#spw_size").value=100; $("#spw_pos_x").value=0; $("#spw_pos_y").value=10; $("#spw_rotation").value=0;
             applyTransform();
@@ -306,8 +301,15 @@
           var dl=$("#spw_download_png"); if(dl){ dl.addEventListener("click", async function(){
             try{
               var url = await renderPNGDataURL();
-              var a = document.createElement("a"); a.href=url; a.download="personalizacion.png";
+              // iOS fallback: abrir en pestaña si no descarga
+              var a = document.createElement("a");
+              a.href = url; a.download = "personalizacion.png";
               document.body.appendChild(a); a.click(); a.remove();
+
+              // fallback adicional para Safari si no guarda
+              if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+                setTimeout(function(){ window.open(url, "_blank"); }, 150);
+              }
             }catch(e){ alert("No se pudo generar el PNG."); }
           });}
 
