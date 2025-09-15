@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+
+  <!-- === Página del personalizador === -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
@@ -123,12 +125,6 @@
                     &#8592; Volver al producto
                   </a>
                 </div>
-
-                <!-- Formulario oculto para descarga fiable en iOS -->
-                <form id="spw_dl_form" action="/spw/download_png" method="POST" target="_blank" style="display:none">
-                  <input type="hidden" name="png_b64" id="spw_dl_png_b64"/>
-                </form>
-
               </div>
             </div>
           </div>
@@ -267,14 +263,12 @@
           var r1 = await postJSON("/spw/add_to_cart_meta", {
             variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
           });
-          if(!r1.ok){
-            r1 = await postForm("/spw/add_to_cart_meta_http", {
-              variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
-            });
-          }
+          if(!r1.ok){ r1 = await postForm("/spw/add_to_cart_meta_http", {
+            variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
+          }); }
           if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
-          // 2) adjuntar PNG (esperar antes de redirigir para que el carrito tenga la miniatura)
+          // 2) PNG JSON -> fallback HTTP (no bloquea salida al carrito)
           if(pngB64){
             var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
@@ -305,18 +299,20 @@
             applyTransform();
           };
 
-          // Descarga robusta (POST -> servidor -> attachment)
           var dl=$("#spw_download_png"); if(dl){ dl.addEventListener("click", async function(){
             try{
               var url = await renderPNGDataURL();
-              var b64 = url.split(",")[1] || url;
-              var form = $("#spw_dl_form");
-              $("#spw_dl_png_b64").value = b64;
-              form.submit();
+              var a = document.createElement("a");
+              a.href = url; a.download = "personalizacion.png";
+              document.body.appendChild(a); a.click(); a.remove();
+              if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+                setTimeout(function(){ window.open(url, "_blank"); }, 150);
+              }
             }catch(e){ alert("No se pudo generar el PNG."); }
           });}
 
           var add=$("#spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
+
           applyTransform();
         }
 
@@ -326,14 +322,21 @@
     </t>
   </template>
 
-  <!-- ===== Miniatura de personalización en carrito ===== -->
-  <template id="spw_cart_line_preview" inherit_id="website_sale.cart_lines" name="SPW Cart Line Preview">
-    <xpath expr="//div[contains(@class,'o_wsale_product_information')]" position="inside">
+  <!-- === Miniatura de personalización en carrito (robusta a cambios de tema/versión) === -->
+  <template id="spw_cart_line_preview" inherit_id="website_sale.cart_lines" name="SPW Cart Line Preview" priority="99">
+    <xpath expr="//div[contains(@class,'o_wsale_product_information')]
+                 | //div[contains(@class,'o_wsale_cart_item_info')]
+                 | //div[contains(@class,'o_cart_product_information')]
+                 | //div[contains(@class,'o_wsale_product_info')]" position="inside">
       <t t-set="spw_preview_url" t-value="'/spw/line_preview/%s.png' % (line.id)"/>
-      <div class="mt-1" t-if="spw_preview_url">
-        <img t-att-src="spw_preview_url" alt="Personalización"
-             style="max-width:120px; border:1px solid #e5e7eb; border-radius:6px"/>
-      </div>
+      <t t-if="spw_preview_url">
+        <div class="mt-1">
+          <img t-att-src="spw_preview_url"
+               alt="Personalización"
+               style="max-width:120px;border:1px solid #e5e7eb;border-radius:6px"/>
+        </div>
+      </t>
     </xpath>
   </template>
+
 </odoo>
