@@ -12,7 +12,7 @@
         <input type="hidden" id="spw_variant_id" t-att-value="variant_id or ''"/>
         <input type="hidden" id="spw_img_src" t-att-value="img_src"/>
         <!-- CSRF para POST en website -->
-        <input type="hidden" id="spw_csrf_token" t-att-value="request.csrf_token"/>
+        <input type="hidden" id="spw_csrf_token" t-att-value="request.csrf_token()"/>
 
         <div class="row g-4">
           <div class="col-12 col-lg-7">
@@ -113,7 +113,7 @@
 
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset && window.spwReset();">Reset</a>
+                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -249,7 +249,6 @@
           try{
             var fd = new FormData();
             Object.keys(payload||{}).forEach(function(k){ fd.append(k, payload[k]); });
-            // CSRF también en form
             fd.append("csrf_token", $val("spw_csrf_token",""));
             var resp = await fetch(url, { method: "POST", body: fd, credentials:"same-origin" });
             var txt = await resp.text();
@@ -259,7 +258,6 @@
         }
 
         function postFormHidden(url, payload){
-          // Fallback “clásico” compatible iOS: formulario + iframe
           var iframe = document.createElement("iframe");
           iframe.name = "spw_iframe";
           iframe.style.display = "none";
@@ -281,7 +279,6 @@
           document.body.appendChild(form);
           form.submit();
 
-          // damos por “ok” y redirigimos al carrito
           setTimeout(function(){
             try{ document.body.removeChild(form); document.body.removeChild(iframe);}catch(_){}
             window.location.href = "/shop/cart";
@@ -301,20 +298,16 @@
             qty: qty, tech: tech, svg_color: svgColor, notes: notes
           };
 
-          // 1) JSON
           var r1 = await postJSON("/spw/add_to_cart_meta", payloadMeta);
-          // 2) FormData
           if(!r1.ok){ r1 = await postForm("/spw/add_to_cart_meta_http", payloadMeta); }
-          // 3) Fallback iOS: POST clásico
           if(!r1.ok && isIOS()){ postFormHidden("/spw/add_to_cart_meta_http", payloadMeta); return; }
           if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
-          // PNG en background (JSON -> FormData)
           try{
             var pngB64 = dataURLtoBase64(await renderPNGDataURL());
             var okPNG = (await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 })).ok;
             if(!okPNG){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
-          }catch(_){ /* no bloquea */ }
+          }catch(_){}
 
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
@@ -344,14 +337,12 @@
           var dl=$("#spw_download_png"); if(dl){ dl.addEventListener("click", async function(){
             try{
               var url = await renderPNGDataURL();
-
               if (!isIOS()){
                 var a = document.createElement("a");
                 a.href = url; a.download = "personalizacion.png";
                 document.body.appendChild(a); a.click(); a.remove();
               }else{
-                // iOS: abrir la imagen directamente en la misma pestaña
-                window.location.href = url;
+                window.location.href = url; // iOS abre imagen y el usuario la guarda
               }
             }catch(e){ alert("No se pudo generar el PNG."); }
           });}
