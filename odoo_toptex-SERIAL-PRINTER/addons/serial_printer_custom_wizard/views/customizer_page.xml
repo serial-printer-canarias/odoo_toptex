@@ -123,6 +123,12 @@
                     &#8592; Volver al producto
                   </a>
                 </div>
+
+                <!-- Formulario oculto para descarga fiable en iOS -->
+                <form id="spw_dl_form" action="/spw/download_png" method="POST" target="_blank" style="display:none">
+                  <input type="hidden" name="png_b64" id="spw_dl_png_b64"/>
+                </form>
+
               </div>
             </div>
           </div>
@@ -243,7 +249,6 @@
             var resp = await fetch(url, { method: "POST", body: fd, credentials:"same-origin" });
             var txt = await resp.text();
             var data=null; try{ data = JSON.parse(txt); }catch(e){}
-            // si no hay JSON devolvemos ok por 2xx
             return {ok: resp.ok && (!!data ? (data.ok===true || data.ok==="true") : true), data:data||{}, status:resp.status, raw:txt};
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
@@ -262,12 +267,14 @@
           var r1 = await postJSON("/spw/add_to_cart_meta", {
             variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
           });
-          if(!r1.ok){ r1 = await postForm("/spw/add_to_cart_meta_http", {
-            variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
-          }); }
+          if(!r1.ok){
+            r1 = await postForm("/spw/add_to_cart_meta_http", {
+              variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
+            });
+          }
           if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
-          // 2) PNG JSON -> fallback HTTP (no bloquea salida al carrito)
+          // 2) adjuntar PNG (esperar antes de redirigir para que el carrito tenga la miniatura)
           if(pngB64){
             var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
@@ -298,23 +305,18 @@
             applyTransform();
           };
 
+          // Descarga robusta (POST -> servidor -> attachment)
           var dl=$("#spw_download_png"); if(dl){ dl.addEventListener("click", async function(){
             try{
               var url = await renderPNGDataURL();
-              // iOS fallback: abrir en pestaña si no descarga
-              var a = document.createElement("a");
-              a.href = url; a.download = "personalizacion.png";
-              document.body.appendChild(a); a.click(); a.remove();
-
-              // fallback adicional para Safari si no guarda
-              if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-                setTimeout(function(){ window.open(url, "_blank"); }, 150);
-              }
+              var b64 = url.split(",")[1] || url;
+              var form = $("#spw_dl_form");
+              $("#spw_dl_png_b64").value = b64;
+              form.submit();
             }catch(e){ alert("No se pudo generar el PNG."); }
           });}
 
           var add=$("#spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
-
           applyTransform();
         }
 
@@ -322,5 +324,16 @@
       })();
       ]]></script>
     </t>
+  </template>
+
+  <!-- ===== Miniatura de personalización en carrito ===== -->
+  <template id="spw_cart_line_preview" inherit_id="website_sale.cart_lines" name="SPW Cart Line Preview">
+    <xpath expr="//div[contains(@class,'o_wsale_product_information')]" position="inside">
+      <t t-set="spw_preview_url" t-value="'/spw/line_preview/%s.png' % (line.id)"/>
+      <div class="mt-1" t-if="spw_preview_url">
+        <img t-att-src="spw_preview_url" alt="Personalización"
+             style="max-width:120px; border:1px solid #e5e7eb; border-radius:6px"/>
+      </div>
+    </xpath>
   </template>
 </odoo>
