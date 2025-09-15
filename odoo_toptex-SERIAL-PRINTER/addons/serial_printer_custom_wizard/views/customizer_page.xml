@@ -1,31 +1,45 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+  <!-- Página del personalizador -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
       <t t-set="main_object" t-value="template"/>
 
       <div class="container my-5 spw-customizer">
+        <!-- Hidden para JS -->
         <input type="hidden" id="spw_template_id" t-att-value="template.id"/>
         <input type="hidden" id="spw_variant_id" t-att-value="variant_id or ''"/>
 
         <div class="row g-4">
+          <!-- Lienzo -->
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3">
-              <img id="spw_product_img" class="spw-base img-fluid rounded" t-att-src="img_src" alt="Producto"/>
-              <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
+              <img id="spw_product_img"
+                   class="spw-base img-fluid rounded"
+                   t-att-src="img_src"
+                   alt="Producto"
+                   crossorigin="anonymous"/>
+
+              <!-- Overlay del logo -->
+              <img id="spw_logo_preview"
+                   class="spw-logo-preview d-none"
+                   alt="Logo preview"
+                   crossorigin="anonymous"/>
             </div>
           </div>
 
+          <!-- Controles -->
           <div class="col-12 col-lg-5">
             <div class="card h-100">
               <div class="card-body">
                 <h5 class="card-title mb-3">Personalización</h5>
 
-                <!-- Subir logo -->
+                <!-- Subida logo -->
                 <div class="mb-3">
                   <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
-                  <input id="spw_logo_input" class="form-control" type="file"
+                  <input id="spw_logo_input" class="form-control"
+                         type="file"
                          accept=".png,.jpg,.jpeg,.svg,.PNG,.JPG,.JPEG,.SVG"/>
                   <small class="text-muted">Máx. 10MB.</small>
                 </div>
@@ -49,7 +63,7 @@
                   </div>
                 </div>
 
-                <!-- Paleta color (solo SVG) -->
+                <!-- Paleta de color (aplica a SVG) -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
                   <div class="spw-color-row">
@@ -77,224 +91,59 @@
                   <div class="spw-help mt-1">Se aplica solo a logos SVG.</div>
                 </div>
 
-                <!-- Sliders -->
+                <!-- Tamaño -->
                 <div class="mb-3">
-                  <label class="form-label" for="spw_size">Tamaño</label>
+                  <label for="spw_size" class="form-label">Tamaño</label>
                   <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
                 </div>
+
+                <!-- Posición X -->
                 <div class="mb-3">
-                  <label class="form-label" for="spw_pos_x">Posición X</label>
+                  <label for="spw_pos_x" class="form-label">Posición X</label>
                   <input id="spw_pos_x" class="form-range" type="range" min="-50" max="50" value="0"/>
                 </div>
+
+                <!-- Posición Y -->
                 <div class="mb-3">
-                  <label class="form-label" for="spw_pos_y">Posición Y</label>
+                  <label for="spw_pos_y" class="form-label">Posición Y</label>
                   <input id="spw_pos_y" class="form-range" type="range" min="-50" max="50" value="10"/>
                 </div>
+
+                <!-- Rotación -->
                 <div class="mb-3">
-                  <label class="form-label" for="spw_rotation">Rotación</label>
+                  <label for="spw_rotation" class="form-label">Rotación</label>
                   <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
                 </div>
 
-                <!-- Cantidad + Observaciones -->
+                <!-- Cantidad -->
                 <div class="mb-3">
-                  <label class="form-label" for="spw_qty">Cantidad</label>
-                  <input id="spw_qty" type="number" min="1" value="1" class="form-control"/>
+                  <label for="spw_qty" class="form-label">Cantidad</label>
+                  <input id="spw_qty" type="number" class="form-control" min="1" step="1" value="1"/>
                 </div>
+
+                <!-- Observaciones -->
                 <div class="mb-3">
-                  <label class="form-label" for="spw_notes">Observaciones</label>
+                  <label for="spw_notes" class="form-label">Observaciones</label>
                   <textarea id="spw_notes" class="form-control" rows="3" placeholder="Indica instrucciones para el taller..."></textarea>
                 </div>
 
                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                  <a class="btn btn-outline-secondary" href="javascript:void(0)" id="spw_reset_btn">Reset</a>
+                  <button id="spw_reset_btn" type="button" class="btn btn-outline-secondary">Reset</button>
 
-                  <button id="spw_add_to_cart_btn" type="button" class="btn btn-primary flex-fill">
+                  <button id="spw_add_to_cart_btn" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
                   </button>
+                </div>
 
-                  <button id="spw_download_png_btn" type="button" class="btn btn-light">
-                    Descargar PNG
-                  </button>
-
-                  <a class="btn btn-link ms-auto" t-att-href="'/shop/product/%s' % template.id">
-                    &#8592; Volver al producto
-                  </a>
+                <div class="d-flex align-items-center gap-3 mt-3 flex-wrap">
+                  <button id="spw_download_btn" type="button" class="btn btn-light">Descargar PNG</button>
+                  <a class="btn btn-link ms-2" t-att-href="'/shop/product/%s' % template.id">&#8592; Volver al producto</a>
                 </div>
               </div>
             </div>
           </div>
         </div> <!-- row -->
       </div> <!-- container -->
-
-      <!-- JS (solo lo necesario) -->
-      <script type="text/javascript"><![CDATA[
-        (function () {
-          function $(id){ return document.getElementById(id); }
-          function on(el, ev, cb){ if (el) el.addEventListener(ev, cb); }
-          function whenLoaded(img){
-            return new Promise(resolve=>{
-              if (!img) return resolve();
-              if (img.complete && img.naturalWidth) return resolve();
-              img.addEventListener('load', ()=>resolve(), {once:true});
-            });
-          }
-
-          async function buildCanvas() {
-            const stage = $('spw_canvas');
-            const base  = $('spw_product_img');
-            const logo  = $('spw_logo_preview');
-            if (!stage || !base) return null;
-
-            await whenLoaded(base);
-            if (logo && !logo.classList.contains('d-none') && logo.src) {
-              await whenLoaded(logo);
-            }
-
-            const dpr = window.devicePixelRatio || 1;
-            const stageRect = stage.getBoundingClientRect();
-            const baseRect  = base.getBoundingClientRect();
-
-            const canvas = document.createElement('canvas');
-            canvas.width  = Math.max(1, Math.round(stageRect.width * dpr));
-            canvas.height = Math.max(1, Math.round(stageRect.height * dpr));
-            const ctx = canvas.getContext('2d');
-            ctx.scale(dpr, dpr);
-
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, stageRect.width, stageRect.height);
-
-            const bx = baseRect.left - stageRect.left;
-            const by = baseRect.top  - stageRect.top;
-            ctx.drawImage(base, bx, by, baseRect.width, baseRect.height);
-
-            if (logo && !logo.classList.contains('d-none') && logo.src) {
-              const lr = logo.getBoundingClientRect();
-              const cx = (lr.left - stageRect.left) + lr.width/2;
-              const cy = (lr.top  - stageRect.top ) + lr.height/2;
-              const deg = parseFloat(($('spw_rotation') && $('spw_rotation').value) || 0);
-              ctx.save();
-              ctx.translate(cx, cy);
-              ctx.rotate(deg * Math.PI / 180);
-              ctx.drawImage(logo, -lr.width/2, -lr.height/2, lr.width, lr.height);
-              ctx.restore();
-            }
-            return canvas;
-          }
-
-          window.spwReset = function () {
-            const logo = $('spw_logo_preview');
-            if (logo) { logo.classList.add('d-none'); logo.removeAttribute('src'); }
-            const s = $('spw_size');      if (s) s.value = 100;
-            const x = $('spw_pos_x');     if (x) x.value = 0;
-            const y = $('spw_pos_y');     if (y) y.value = 10;
-            const r = $('spw_rotation');  if (r) r.value = 0;
-          };
-
-          async function downloadPNG() {
-            try {
-              const canvas = await buildCanvas();
-              if (!canvas) return alert('No se pudo preparar la imagen.');
-
-              // iOS safe: toBlob + ObjectURL
-              if (canvas.toBlob) {
-                canvas.toBlob(function(blob){
-                  if (!blob) { alert('No se pudo generar el PNG.'); return; }
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = 'personalizacion.png';
-                  document.body.appendChild(a);
-                  a.click();
-                  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 0);
-                }, 'image/png');
-              } else {
-                const url = canvas.toDataURL('image/png');
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'personalizacion.png';
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-              }
-            } catch (e) {
-              console.error('Descargar PNG', e);
-              alert('No se pudo generar el PNG.');
-            }
-          }
-
-          function pick(name, obj, fallback){
-            return (obj && typeof obj[name] === 'string') ? obj[name] : fallback;
-          }
-
-          async function addToCart() {
-            try {
-              const variantId = parseInt((($('spw_variant_id')||{}).value)||'0', 10);
-              const qty       = Math.max(1, parseInt((($('spw_qty')||{}).value)||'1', 10));
-              if (!variantId) { alert('Variante no válida.'); return; }
-
-              const canvas = await buildCanvas();
-              if (!canvas) { alert('No se pudo preparar la imagen.'); return; }
-              const dataUrl = canvas.toDataURL('image/png');
-              const png_b64 = (dataUrl.split(',')[1]||'');
-
-              const techEl = document.querySelector('input[name="spw_tech"]:checked');
-              const svgEl  = document.querySelector('input[name="spw_svg_color"]:checked');
-
-              const payload = {
-                variant_id: variantId,
-                qty: qty,
-                tech: techEl ? techEl.value : '',
-                svg_color: svgEl ? svgEl.value : '',
-                notes: (($('spw_notes')||{}).value)||'',
-                png_b64: png_b64,
-              };
-
-              const resp = await fetch('/spw/add_to_cart', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'X-Requested-With': 'XMLHttpRequest'
-                },
-                body: JSON.stringify(payload),
-                credentials: 'same-origin',
-              });
-
-              const text = await resp.text();
-              let data = null;
-              try { data = JSON.parse(text); } catch(_) {}
-
-              if (resp.ok && data && data.ok) {
-                window.location.assign(data.cart_url || '/shop/cart');
-                return;
-              }
-
-              // Mostrar mensaje útil
-              let msg =
-                pick('message', data, '') ||
-                (data && data.error && (data.error.data && data.error.data.message)) ||
-                text || 'No se pudo añadir al carrito.';
-              alert(typeof msg === 'string' ? msg : 'No se pudo añadir al carrito.');
-              console.error('add_to_cart response', resp.status, data || text);
-
-            } catch (e) {
-              console.error('Añadir carrito', e);
-              alert('No se pudo añadir al carrito.');
-            }
-          }
-
-          function init(){
-            on($('spw_download_png_btn'), 'click', downloadPNG);
-            on($('spw_add_to_cart_btn'), 'click', addToCart);
-            on($('spw_reset_btn'), 'click', function(e){ e.preventDefault(); window.spwReset(); });
-          }
-
-          if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', init);
-          } else {
-            init();
-          }
-        })();
-      ]]></script>
     </t>
   </template>
 </odoo>
