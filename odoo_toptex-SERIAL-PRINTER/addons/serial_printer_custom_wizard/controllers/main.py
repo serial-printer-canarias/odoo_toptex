@@ -1,18 +1,13 @@
 # -*- coding: utf-8 -*-
 from odoo import http
 from odoo.http import request
-import json
 
 class SpwCustomizer(http.Controller):
 
-    # === Página de personalización ===
-    # Dejamos dos rutas para soportar: /spw/customize/<id> y /spw/customize?template_id=...&variant_id=...
-    @http.route(
-        ['/spw/customize/<int:template_id>', '/spw/customize'],
-        type='http', auth='public', website=True, sitemap=False
-    )
+    # Ruta de personalización (mantiene compatibilidad con ?variant_id=)
+    @http.route(['/spw/customize/<int:template_id>', '/spw/customize'], type='http', auth='public', website=True, sitemap=False)
     def spw_customize(self, template_id=None, variant_id=None, **kw):
-        # Soportar parámetros por querystring también
+        # aceptar también querystring ?template_id= y ?variant_id=
         if template_id is None:
             tid = kw.get('template_id') or request.params.get('template_id')
             template_id = int(tid) if tid else None
@@ -25,7 +20,6 @@ class SpwCustomizer(http.Controller):
         template = ProductTmpl.browse(template_id) if template_id else ProductTmpl.browse()
         variant = Product.browse(variant_id) if variant_id else Product.browse()
 
-        # URL de imagen de la variante (o la del template si no hay)
         img_src = ""
         if variant and variant.exists():
             img_src = f"/web/image/product.product/{variant.id}/image_1920"
@@ -39,73 +33,52 @@ class SpwCustomizer(http.Controller):
         }
         return request.render('serial_printer_custom_wizard.spw_customize_page', values)
 
-    # === Añadir al carrito con personalización (robusto) ===
-    # IMPORTANTE: type='http' (no json) para no depender de jsonrpc; aceptamos JSON en el body.
-    @http.route(
-        '/spw/add_to_cart', type='http', auth='public', website=True, csrf=False, methods=['POST']
-    )
+    # Añadir al carrito con personalización (JSON)
+    @http.route('/spw/add_to_cart', type='json', auth='public', website=True, csrf=False, methods=['POST'])
     def spw_add_to_cart(self, **kw):
         """
-        Espera en el body JSON con:
-          {
+        Espera JSON:
+        {
             "variant_id": int,
             "qty": int,
             "tech": "Serigrafía|DTF|Bordado",
             "svg_color": "#RRGGBB" (opcional),
             "notes": "texto",
-            "png_b64": "..."  # base64 del PNG sin prefijo data:
-          }
-        La respuesta es JSON: {"ok": True, "cart_url": "/shop/cart"}
+            "png_b64": "..." (base64 SÓLO datos, sin 'data:image/...'),
+            "logo_b64": "..." (opcional, base64 del archivo original subido; acepta con o sin prefijo),
+            "logo_name": "nombre.ext" (opcional),
+            "logo_mime": "image/png|image/jpeg|image/svg+xml" (opcional)
+        }
         """
-        # 1) Leer body JSON venga como venga
-        data = {}
-        try:
-            # a) JSON directo (fetch con Content-Type: application/json)
-            data = request.httprequest.get_json(force=True, silent=True) or {}
-        except Exception:
-            data = {}
-        if not data:
-            # b) Raw body → intentar json.loads
-            raw = request.httprequest.data
-            if raw:
-                if isinstance(raw, bytes):
-                    raw = raw.decode('utf-8', errors='ignore')
-                try:
-                    data = json.loads(raw) if raw else {}
-                except Exception:
-                    data = {}
-
-        # 2) Validación
+        data = request.jsonrequest or {}
         try:
             variant_id = int(data.get('variant_id') or 0)
             qty = int(data.get('qty') or 1)
         except Exception:
-            resp = {'ok': False, 'message': 'Parámetros inválidos.'}
-            return request.make_response(json.dumps(resp), headers=[('Content-Type', 'application/json')])
+            return {'ok': False, 'message': 'Parámetros inválidos.'}
+
+        tech = (data.get('tech') or '').strip()
+        svg_color = (data.get('svg_color') or '').strip()
+        notes = (data.get('notes') or '').strip()
+        png_b64 = (data.get('png_b64') or '').strip()
 
         if not variant_id or qty <= 0:
-            resp = {'ok': False, 'message': 'Parámetros inválidos.'}
-            return request.make_response(json.dumps(resp), headers=[('Content-Type', 'application/json')])
+            return {'ok': False, 'message': 'Parámetros inválidos.'}
 
-        tech = data.get('tech') or ''
-        svg_color = data.get('svg_color') or ''
-        notes = data.get('notes') or ''
-        png_b64 = data.get('png_b64') or ''
-
-        # 3) Producto y pedido web
         Product = request.env['product.product'].sudo()
         variant = Product.browse(variant_id)
         if not variant.exists():
-            resp = {'ok': False, 'message': 'Variante no encontrada.'}
-            return request.make_response(json.dumps(resp), headers=[('Content-Type', 'application/json')])
+            return {'ok': False, 'message': 'Variante no encontrada.'}
 
         order = request.website.sale_get_order(force_create=True)
-        res = order.sudo()._cart_update(product_id=variant.id, add_qty=qty) or {}
-        line_id = res.get('line_id')
-        line = request.env['sale.order.line'].sudo().browse(line_id) if line_id else False
+        order._cart_update(product_id=variant.id, add_qty=qty)
 
-        # 4) Extras + adjunto PNG
-        if line and line.exists():
+        # Última línea de ese producto
+        line = order.order_line.filtered(lambda l: l.product_id.id == variant.id)
+        line = line.sorted('id')[-1] if line else False
+
+        if line:
+            # texto extra en el nombre
             extras = []
             if tech:
                 extras.append(f"Técnica: {tech}")
@@ -115,16 +88,34 @@ class SpwCustomizer(http.Controller):
                 extras.append(f"Obs: {notes}")
             if extras:
                 base_name = line.name or variant.get_product_multiline_description_sale() or variant.display_name
-                line.write({'name': base_name + "\n" + " | ".join(extras)})
+                line.sudo().write({'name': base_name + "\n" + " | ".join(extras)})
+
+            # Adjuntar PNG de la previsualización
             if png_b64:
                 request.env['ir.attachment'].sudo().create({
                     'name': 'personalizacion.png',
+                    'datas': png_b64,  # ya viene sin prefijo
                     'type': 'binary',
-                    'datas': png_b64,              # base64 ya limpio (sin 'data:')
                     'mimetype': 'image/png',
                     'res_model': 'sale.order.line',
                     'res_id': line.id,
                 })
 
-        resp = {'ok': True, 'cart_url': '/shop/cart'}
-        return request.make_response(json.dumps(resp), headers=[('Content-Type', 'application/json')])
+            # Adjuntar archivo original subido por el usuario (si existe)
+            logo_b64 = (data.get('logo_b64') or '').strip()
+            logo_name = (data.get('logo_name') or 'logo_original').strip() or 'logo_original'
+            logo_mime = (data.get('logo_mime') or '').strip() or 'application/octet-stream'
+            if logo_b64:
+                # admitir que venga con prefijo data:
+                if ',' in logo_b64:
+                    logo_b64 = logo_b64.split(',', 1)[1]
+                request.env['ir.attachment'].sudo().create({
+                    'name': logo_name,
+                    'datas': logo_b64,
+                    'type': 'binary',
+                    'mimetype': logo_mime,
+                    'res_model': 'sale.order.line',
+                    'res_id': line.id,
+                })
+
+        return {'ok': True, 'cart_url': '/shop/cart'}
