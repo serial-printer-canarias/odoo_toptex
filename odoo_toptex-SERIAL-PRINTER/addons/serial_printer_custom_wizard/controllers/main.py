@@ -4,10 +4,8 @@ from odoo.http import request
 
 class SpwCustomizer(http.Controller):
 
-    # Ruta de personalización (mantiene compatibilidad con ?variant_id=)
     @http.route(['/spw/customize/<int:template_id>', '/spw/customize'], type='http', auth='public', website=True, sitemap=False)
     def spw_customize(self, template_id=None, variant_id=None, **kw):
-        # aceptar también querystring ?template_id= y ?variant_id=
         if template_id is None:
             tid = kw.get('template_id') or request.params.get('template_id')
             template_id = int(tid) if tid else None
@@ -33,23 +31,8 @@ class SpwCustomizer(http.Controller):
         }
         return request.render('serial_printer_custom_wizard.spw_customize_page', values)
 
-    # Añadir al carrito con personalización (JSON)
     @http.route('/spw/add_to_cart', type='json', auth='public', website=True, csrf=False, methods=['POST'])
     def spw_add_to_cart(self, **kw):
-        """
-        Espera JSON:
-        {
-            "variant_id": int,
-            "qty": int,
-            "tech": "Serigrafía|DTF|Bordado",
-            "svg_color": "#RRGGBB" (opcional),
-            "notes": "texto",
-            "png_b64": "..." (base64 SÓLO datos, sin 'data:image/...'),
-            "logo_b64": "..." (opcional, base64 del archivo original subido; acepta con o sin prefijo),
-            "logo_name": "nombre.ext" (opcional),
-            "logo_mime": "image/png|image/jpeg|image/svg+xml" (opcional)
-        }
-        """
         data = request.jsonrequest or {}
         try:
             variant_id = int(data.get('variant_id') or 0)
@@ -73,40 +56,32 @@ class SpwCustomizer(http.Controller):
         order = request.website.sale_get_order(force_create=True)
         order._cart_update(product_id=variant.id, add_qty=qty)
 
-        # Última línea de ese producto
         line = order.order_line.filtered(lambda l: l.product_id.id == variant.id)
         line = line.sorted('id')[-1] if line else False
 
         if line:
-            # texto extra en el nombre
             extras = []
-            if tech:
-                extras.append(f"Técnica: {tech}")
-            if svg_color:
-                extras.append(f"Color SVG: {svg_color}")
-            if notes:
-                extras.append(f"Obs: {notes}")
+            if tech: extras.append(f"Técnica: {tech}")
+            if svg_color: extras.append(f"Color SVG: {svg_color}")
+            if notes: extras.append(f"Obs: {notes}")
             if extras:
                 base_name = line.name or variant.get_product_multiline_description_sale() or variant.display_name
                 line.sudo().write({'name': base_name + "\n" + " | ".join(extras)})
 
-            # Adjuntar PNG de la previsualización
             if png_b64:
                 request.env['ir.attachment'].sudo().create({
                     'name': 'personalizacion.png',
-                    'datas': png_b64,  # ya viene sin prefijo
+                    'datas': png_b64,
                     'type': 'binary',
                     'mimetype': 'image/png',
                     'res_model': 'sale.order.line',
                     'res_id': line.id,
                 })
 
-            # Adjuntar archivo original subido por el usuario (si existe)
             logo_b64 = (data.get('logo_b64') or '').strip()
             logo_name = (data.get('logo_name') or 'logo_original').strip() or 'logo_original'
             logo_mime = (data.get('logo_mime') or '').strip() or 'application/octet-stream'
             if logo_b64:
-                # admitir que venga con prefijo data:
                 if ',' in logo_b64:
                     logo_b64 = logo_b64.split(',', 1)[1]
                 request.env['ir.attachment'].sudo().create({
