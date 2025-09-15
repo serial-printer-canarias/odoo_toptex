@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Serial Printer: vista de producto personalizada tipo TopTex -->
+  <!-- Serial Printer: vista de producto personalizada tipo TopTex (robusta Odoo 18) -->
   <template id="serial_printer_product_stock"
             inherit_id="website_sale.product"
             name="Serial Printer Product View">
 
-    <!-- ✅ Descripción del producto (editable desde Website) -->
+    <!-- Descripción web -->
     <xpath expr="//div[@id='product_details']" position="inside">
       <t t-if="product.website_description">
         <div class="oe_structure mt-4">
@@ -14,7 +14,7 @@
       </t>
     </xpath>
 
-    <!-- ✅ BLOQUE ÚNICO: stock rápido + swatches + matriz color×talla -->
+    <!-- BLOQUE ÚNICO debajo de product_details -->
     <xpath expr="//div[@id='product_details']" position="after">
 
       <!-- Stock rápido de la variante principal -->
@@ -29,64 +29,41 @@
         </t>
       </div>
 
-      <!-- Swatches de color (html_color) -->
-      <t t-set="color_attribute"
-         t-value="product.attribute_line_ids.filtered(lambda l: l.attribute_id.name and l.attribute_id.name.lower() in ['color','colour','couleur','farbe','colore'])"/>
-      <t t-if="color_attribute">
+      <!-- Obtenemos la línea de atributo Color en el template -->
+      <t t-set="color_line"
+         t-value="product.attribute_line_ids.filtered(
+           lambda l: l.attribute_id.name and l.attribute_id.name.lower() in ['color','colour','couleur','farbe','colore']
+         )"/>
+
+      <!-- Swatches de color (opcional, solo visual) -->
+      <t t-if="color_line">
         <div class="d-flex flex-wrap my-2">
-          <t t-foreach="color_attribute.value_ids" t-as="color">
-            <label class="mx-1" t-att-title="color.name">
-              <input type="radio" name="sp_color_sw" t-att-value="color.id"/>
-              <span t-att-style="'display:inline-block;width:24px;height:24px;border-radius:50%;background-color:' + (color.html_color or '#ccc') + ';border:1px solid #000'"></span>
+          <t t-foreach="color_line.value_ids" t-as="color_val">
+            <label class="mx-1" t-att-title="color_val.name">
+              <input type="radio" name="sp_color_sw" t-att-value="color_val.id"/>
+              <span t-att-style="'display:inline-block;width:24px;height:24px;border-radius:50%;background-color:' + (color_val.html_color or '#ccc') + ';border:1px solid #000'"></span>
             </label>
           </t>
         </div>
       </t>
 
-      <!-- 🔁 AGRUPACIÓN CORRECTA (Odoo 18): usar PTAV en product.product -->
-      <t t-set="grouped_variants" t-value="dict()"/>
-      <t t-foreach="product.product_variant_ids" t-as="variant">
-        <!-- PTAV de color -->
-        <t t-set="ptav_color"
-           t-value="variant.product_template_attribute_value_ids.filtered(
-             lambda v: v.attribute_id.name and v.attribute_id.name.lower() in ['color','colour','couleur','farbe','colore']
-           )"/>
-        <!-- PTAV de talla -->
-        <t t-set="ptav_size"
-           t-value="variant.product_template_attribute_value_ids.filtered(
-             lambda v: v.attribute_id.name and v.attribute_id.name.lower() in ['talla','size','taille','größe','groesse','taglia']
-           )"/>
+      <!-- MATRIZ por CADA COLOR (sin dicts, sin setdefault) -->
+      <t t-if="color_line">
+        <t t-foreach="color_line.value_ids" t-as="color_val">
 
-        <t t-if="ptav_color and ptav_size">
-          <t t-set="color_name"  t-value="ptav_color[0].product_attribute_value_id.name"/>
-          <t t-set="html_color"  t-value="ptav_color[0].product_attribute_value_id.html_color or '#ccc'"/>
-          <t t-set="talla_name"  t-value="ptav_size[0].product_attribute_value_id.name"/>
-
-          <t t-set="line"
-             t-value="{
-               'id': variant.id,
-               'sku': variant.default_code,
-               'talla': talla_name,
-               'stock': variant.qty_available,
-               'price': (variant.website_price or variant.list_price),
-               'html_color': html_color
-             }"/>
-
-          <t t-set="__void" t-value="grouped_variants.setdefault(color_name, [])"/>
-          <t t-set="__void" t-value="grouped_variants[color_name].append(line)"/>
-        </t>
-      </t>
-
-      <!-- Pintado de tarjetas por color -->
-      <t t-if="grouped_variants">
-        <t t-foreach="grouped_variants.items()" t-as="pair">
-          <t t-set="color_name" t-value="pair[0]"/>
-          <t t-set="rows"       t-value="pair[1]"/>
+          <!-- Variantes que tienen este color -->
+          <t t-set="rows"
+             t-value="product.product_variant_ids.filtered(
+               lambda v: v.product_template_attribute_value_ids.filtered(
+                 lambda ptav: ptav.attribute_id.name and ptav.attribute_id.name.lower() in ['color','colour','couleur','farbe','colore']
+                 and ptav.product_attribute_value_id.id == color_val.id
+               )
+             )"/>
 
           <div class="border rounded p-3 mb-4">
             <h5 class="mb-3 d-flex align-items-center">
-              <span t-att-style="'display:inline-block;width:20px;height:20px;border-radius:50%;background-color:' + (((rows and rows[0]['html_color']) or '#ccc')) + ';border:1px solid #000;margin-right:8px;'"></span>
-              <t t-esc="color_name"/>
+              <span t-att-style="'display:inline-block;width:20px;height:20px;border-radius:50%;background-color:' + (color_val.html_color or '#ccc') + ';border:1px solid #000;margin-right:8px;'"></span>
+              <t t-esc="color_val.name"/>
             </h5>
 
             <div class="table-responsive">
@@ -100,17 +77,24 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <t t-foreach="rows" t-as="r">
+                  <t t-foreach="rows" t-as="variant">
+                    <!-- PTAV de talla para esta variante -->
+                    <t t-set="ptav_size"
+                       t-value="variant.product_template_attribute_value_ids.filtered(
+                         lambda ptav: ptav.attribute_id.name and ptav.attribute_id.name.lower() in ['talla','size','taille','größe','groesse','taglia']
+                       )"/>
                     <tr>
-                      <td><t t-esc="r['talla']"/></td>
-                      <td><t t-esc="r['stock']"/> uds</td>
-                      <td><t t-esc="r['price']"/> €</td>
+                      <td>
+                        <t t-esc="(ptav_size and ptav_size[0].product_attribute_value_id.name) or ''"/>
+                      </td>
+                      <td><t t-esc="variant.qty_available"/> uds</td>
+                      <td><t t-esc="(variant.website_price or variant.list_price)"/> €</td>
                       <td>
                         <input type="number"
                                class="form-control form-control-sm qty-input"
-                               t-att-name="'qty_' + str(r['id'])"
-                               t-att-data-variant-id="r['id']"
-                               t-att-data-sku="r['sku']"
+                               t-att-name="'qty_' + str(variant.id)"
+                               t-att-data-variant-id="variant.id"
+                               t-att-data-sku="variant.default_code"
                                min="0" value="0"/>
                       </td>
                     </tr>
@@ -121,16 +105,17 @@
 
             <button type="button"
                     class="btn btn-primary add-to-cart-btn"
-                    t-att-data-color="color_name">
-              Añadir al carrito (color <t t-esc="color_name"/>)
+                    t-att-data-color="color_val.name">
+              Añadir al carrito (color <t t-esc="color_val.name"/>)
             </button>
           </div>
+
         </t>
       </t>
 
       <t t-else="">
         <p class="alert alert-warning mt-3">
-          No hay variantes configuradas para mostrar la matriz de tallas.
+          No hay atributo de Color configurado para este producto.
         </p>
       </t>
 
