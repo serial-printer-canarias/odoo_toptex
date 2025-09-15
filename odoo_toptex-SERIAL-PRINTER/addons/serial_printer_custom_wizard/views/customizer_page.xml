@@ -12,7 +12,6 @@
 
         <div class="row g-4">
           <div class="col-12 col-lg-7">
-            <!-- posición relativa para ubicar el overlay absoluto -->
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
@@ -161,7 +160,7 @@
 
         var S={ logoDataURL:"", isSVG:false };
 
-        // ====== NUEVO: overlay fiel a pantalla ======
+        // Overlay fiel a lo visto
         function applyTransform(){
           var logo = $("#spw_logo_preview"); if(!logo) return;
           var base = $("#spw_product_img");  if(!base) return;
@@ -184,7 +183,7 @@
           logo.style.opacity = "1";
         }
 
-        // ====== NUEVO: render a PNG 1:1 con lo visto ======
+        // Render a PNG 1:1 con la vista
         async function renderPNGDataURL(){
           var baseSrc = $val("spw_img_src","") || ($("#spw_product_img")||{}).getAttribute("src");
           if(!baseSrc) throw new Error("Sin imagen base.");
@@ -229,6 +228,20 @@
           return canvas.toDataURL("image/png");
         }
 
+        // POST JSON helper
+        async function postJSON(url, payload){
+          var resp = await fetch(url,{
+            method:"POST",
+            headers:{ "Content-Type":"application/json", "X-Requested-With":"XMLHttpRequest" },
+            credentials:"same-origin",
+            body: JSON.stringify(payload),
+          });
+          var txt = await resp.text();
+          var data = null; try{ data = JSON.parse(txt); }catch(e){}
+          return {ok: !!(data && (data.ok===true || data.ok==="true")), data:data, status:resp.status, raw:txt};
+        }
+
+        // ===== flujo 2 pasos: meta -> png =====
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
@@ -237,27 +250,33 @@
           var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
+          // Intentamos generar PNG, pero no bloquea el paso 1 si falla
           var pngB64="";
-          try{ pngB64 = dataURLtoBase64(await renderPNGDataURL()); }catch(e){ /* seguimos sin PNG */ }
+          try{ pngB64 = dataURLtoBase64(await renderPNGDataURL()); }catch(e){}
 
-          var payload={ variant_id:parseInt(variantId,10), qty:qty, tech:tech, svg_color:svgColor, notes:notes, png_b64:pngB64 };
+          // Paso 1: crear línea y guardar metadatos (ligero)
+          var r1 = await postJSON("/spw/add_to_cart_meta", {
+            variant_id: parseInt(variantId,10),
+            qty: qty,
+            tech: tech,
+            svg_color: svgColor,
+            notes: notes
+          });
 
-          try{
-            var resp = await fetch("/spw/add_to_cart",{
-              method:"POST",
-              headers:{ "Content-Type":"application/json", "X-Requested-With":"XMLHttpRequest" },
-              body: JSON.stringify(payload),
-              credentials:"same-origin"
-            });
-            var data = await resp.json();
-            if (data && (data.ok===true || data.ok==="true")) {
-              window.location.href = data.cart_url || "/shop/cart";
-            } else {
-              alert((data && data.message) ? data.message : "No se pudo añadir al carrito.");
-            }
-          }catch(e){
-            alert("No se pudo añadir al carrito.");
+          if(!r1.ok){
+            alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito.");
+            return;
           }
+
+          // Paso 2: adjuntar PNG (si existe)
+          if(pngB64){
+            await postJSON("/spw/attach_png", {
+              line_id: r1.data.line_id,
+              png_b64: pngB64
+            });
+          }
+
+          window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
 
         function init(){
