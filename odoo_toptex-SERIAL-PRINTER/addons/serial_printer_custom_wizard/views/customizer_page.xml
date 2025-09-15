@@ -26,6 +26,7 @@
               <div class="card-body">
                 <h5 class="card-title mb-3">Personalización</h5>
 
+                <!-- Subida logo -->
                 <div class="mb-3">
                   <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
                   <input id="spw_logo_input" class="form-control" type="file"
@@ -33,6 +34,7 @@
                   <small class="text-muted">Máx. 10MB.</small>
                 </div>
 
+                <!-- Técnica -->
                 <div class="mb-3">
                   <label class="form-label">Técnica</label>
                   <div class="d-flex gap-3 flex-wrap">
@@ -51,6 +53,7 @@
                   </div>
                 </div>
 
+                <!-- Paleta SVG -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
                   <div class="spw-color-row">
@@ -78,37 +81,36 @@
                   <div class="spw-help mt-1">Se aplica solo a logos SVG.</div>
                 </div>
 
+                <!-- Controles -->
                 <div class="mb-3">
                   <label for="spw_size" class="form-label">Tamaño</label>
                   <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
                 </div>
-
                 <div class="mb-3">
                   <label for="spw_pos_x" class="form-label">Posición X</label>
                   <input id="spw_pos_x" class="form-range" type="range" min="-50" max="50" value="0"/>
                 </div>
-
                 <div class="mb-3">
                   <label for="spw_pos_y" class="form-label">Posición Y</label>
                   <input id="spw_pos_y" class="form-range" type="range" min="-50" max="50" value="10"/>
                 </div>
-
                 <div class="mb-3">
                   <label for="spw_rotation" class="form-label">Rotación</label>
                   <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
                 </div>
 
+                <!-- Cantidad / Observaciones -->
                 <div class="mb-3">
                   <label for="spw_qty" class="form-label">Cantidad</label>
                   <input id="spw_qty" class="form-control" type="number" min="1" value="1"/>
                 </div>
-
                 <div class="mb-3">
                   <label for="spw_notes" class="form-label">Observaciones</label>
                   <textarea id="spw_notes" class="form-control" rows="3"
                             placeholder="Indica instrucciones para el taller..."></textarea>
                 </div>
 
+                <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
                      onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
@@ -131,7 +133,7 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE ====== -->
+      <!-- ====== JS INLINE (manteniendo tu lógica) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -139,7 +141,7 @@
         function $(sel, root){return (root||document).querySelector(sel);}
         function $val(id, d){ var el=$("#"+id); return el?el.value:d; }
 
-        // Sin crossOrigin (evita canvas tainted en iOS)
+        // Carga IMG sin crossOrigin (iOS seguro)
         async function loadImage(src){
           return new Promise(function(resolve, reject){
             var im=new Image();
@@ -277,7 +279,7 @@
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
 
-        // Descarga compatible con iOS (usa POST a /spw/download_png)
+        // Descarga compatible con iOS (requiere /spw/download_png en servidor)
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
@@ -285,7 +287,6 @@
             var isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 
             if (isIOS && isSafari) {
-              // En iOS Safari forzamos descarga real desde servidor
               var form = document.createElement("form");
               form.method = "POST";
               form.action = "/spw/download_png";
@@ -299,7 +300,6 @@
               form.submit();
               setTimeout(function(){ form.remove(); }, 1500);
             } else {
-              // Desktop y otros navegadores
               var a = document.createElement("a");
               a.href = dataUrl;
               a.download = "personalizacion.png";
@@ -346,20 +346,42 @@
     </t>
   </template>
 
-  <!-- ============ MINIATURA EN CADA LÍNEA DEL CARRITO ============ -->
-  <template id="spw_cart_line_preview_line"
-            inherit_id="website_sale.cart_line"
-            name="SPW Cart Line Preview (per line)"
-            priority="99">
-    <xpath expr="//div[contains(@class,'o_wsale_cart_line')]" position="inside">
-      <t t-set="spw_preview_url" t-value="'/spw/line_preview/%s.png' % (line.id)"/>
-      <t t-if="spw_preview_url">
-        <div class="mt-1">
-          <img t-att-src="spw_preview_url"
-               alt="Personalización"
-               style="max-width:120px;border:1px solid #e5e7eb;border-radius:6px"/>
-        </div>
-      </t>
+  <!-- ============ INYECCIÓN DE MINIATURA EN CARRITO (SIN HEREDAR website_sale.cart_line) ============ -->
+  <!-- Importante: heredar web.assets_frontend (existe siempre). No requiere tocar manifest. -->
+  <template id="spw_cart_preview_assets" name="SPW Cart Preview Assets" inherit_id="web.assets_frontend" priority="99">
+    <xpath expr="." position="inside">
+      <script type="text/javascript">
+        //<![CDATA[
+        (function(){
+          function inject(){
+            try {
+              if (!/\/shop\/cart/.test(window.location.pathname)) return;
+              // Soporta distintos themes: busca contenedor por data-line-id
+              document.querySelectorAll('[data-line-id]').forEach(function(el){
+                var id = el.getAttribute('data-line-id');
+                if(!id || el.querySelector('.spw-preview')) return;
+                var url = '/spw/line_preview/' + id + '.png';
+                var img = document.createElement('img');
+                img.src = url;
+                img.alt = 'Personalización';
+                img.className = 'spw-preview';
+                img.style.maxWidth='120px';
+                img.style.border='1px solid #e5e7eb';
+                img.style.borderRadius='6px';
+                img.style.marginLeft='8px';
+                var target = el.querySelector('.o_wsale_product_information, .o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_info, .o_wsale_product_img') || el;
+                target.appendChild(img);
+              });
+            } catch(_e) {}
+          }
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function(){ inject(); setTimeout(inject, 600); });
+          } else {
+            inject(); setTimeout(inject, 600);
+          }
+        })();
+        //]]>
+      </script>
     </xpath>
   </template>
 
