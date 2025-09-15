@@ -1,50 +1,39 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Página del personalizador -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
       <t t-set="main_object" t-value="template"/>
 
+      <!-- CARGA EXPLÍCITA DEL BUNDLE DEL CUSTOMIZADOR -->
+      <t t-call-assets="serial_printer_custom_wizard.assets_spw" t-js="true"/>
+
       <div class="container my-5 spw-customizer">
-        <!-- Hidden para JS -->
         <input type="hidden" id="spw_template_id" t-att-value="template.id"/>
         <input type="hidden" id="spw_variant_id" t-att-value="variant_id or ''"/>
 
         <div class="row g-4">
-          <!-- Lienzo -->
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3">
-              <img id="spw_product_img"
-                   class="spw-base img-fluid rounded"
-                   t-att-src="img_src"
-                   alt="Producto"
-                   crossorigin="anonymous"/>
-
-              <!-- Overlay del logo -->
-              <img id="spw_logo_preview"
-                   class="spw-logo-preview d-none"
-                   alt="Logo preview"
-                   crossorigin="anonymous"/>
+              <img id="spw_product_img" class="spw-base img-fluid rounded"
+                   t-att-src="img_src" alt="Producto" crossorigin="anonymous"/>
+              <img id="spw_logo_preview" class="spw-logo-preview d-none"
+                   alt="Logo preview" crossorigin="anonymous"/>
             </div>
           </div>
 
-          <!-- Controles -->
           <div class="col-12 col-lg-5">
             <div class="card h-100">
               <div class="card-body">
                 <h5 class="card-title mb-3">Personalización</h5>
 
-                <!-- Subida logo -->
                 <div class="mb-3">
                   <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
-                  <input id="spw_logo_input" class="form-control"
-                         type="file"
+                  <input id="spw_logo_input" class="form-control" type="file"
                          accept=".png,.jpg,.jpeg,.svg,.PNG,.JPG,.JPEG,.SVG"/>
                   <small class="text-muted">Máx. 10MB.</small>
                 </div>
 
-                <!-- Técnica -->
                 <div class="mb-3">
                   <label class="form-label">Técnica</label>
                   <div class="d-flex gap-3 flex-wrap">
@@ -63,7 +52,6 @@
                   </div>
                 </div>
 
-                <!-- Paleta de color (aplica a SVG) -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
                   <div class="spw-color-row">
@@ -91,37 +79,28 @@
                   <div class="spw-help mt-1">Se aplica solo a logos SVG.</div>
                 </div>
 
-                <!-- Tamaño -->
                 <div class="mb-3">
                   <label for="spw_size" class="form-label">Tamaño</label>
                   <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
                 </div>
-
-                <!-- Posición X -->
                 <div class="mb-3">
                   <label for="spw_pos_x" class="form-label">Posición X</label>
                   <input id="spw_pos_x" class="form-range" type="range" min="-50" max="50" value="0"/>
                 </div>
-
-                <!-- Posición Y -->
                 <div class="mb-3">
                   <label for="spw_pos_y" class="form-label">Posición Y</label>
                   <input id="spw_pos_y" class="form-range" type="range" min="-50" max="50" value="10"/>
                 </div>
-
-                <!-- Rotación -->
                 <div class="mb-3">
                   <label for="spw_rotation" class="form-label">Rotación</label>
                   <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
                 </div>
 
-                <!-- Cantidad -->
                 <div class="mb-3">
                   <label for="spw_qty" class="form-label">Cantidad</label>
                   <input id="spw_qty" type="number" class="form-control" min="1" step="1" value="1"/>
                 </div>
 
-                <!-- Observaciones -->
                 <div class="mb-3">
                   <label for="spw_notes" class="form-label">Observaciones</label>
                   <textarea id="spw_notes" class="form-control" rows="3" placeholder="Indica instrucciones para el taller..."></textarea>
@@ -129,7 +108,6 @@
 
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <button id="spw_reset_btn" type="button" class="btn btn-outline-secondary">Reset</button>
-
                   <button id="spw_add_to_cart_btn" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
                   </button>
@@ -142,8 +120,8 @@
               </div>
             </div>
           </div>
-        </div> <!-- row -->
-      </div> <!-- container -->
+        </div>
+      </div>
     </t>
   </template>
 </odoo>
