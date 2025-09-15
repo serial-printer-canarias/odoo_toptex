@@ -1,19 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+  <!-- Serial Printer: Matriz color × talla con t-jquery (robusto para cualquier tema) -->
   <template id="serial_printer_product_stock"
             inherit_id="website_sale.product"
-            name="Serial Printer Product View"
+            name="Serial Printer Product View (t-jquery)"
             priority="9999">
 
-    <!-- Anclamos dentro del contenedor principal de la ficha -->
-    <xpath expr="//div[contains(@class,'o_wsale_product_page')]" position="inside">
+    <!-- Añadimos nuestra UI al final del contenedor principal de la ficha -->
+    <t t-jquery="div.o_wsale_product_page" t-operation="append">
 
-      <!-- Marcador para comprobar que la vista se aplica -->
+      <!-- Marcador visible para verificar que la vista entra -->
       <div class="alert alert-info my-3 sp-matrix-marker" role="alert">
         Matriz Serial Printer <strong>activa</strong>.
       </div>
 
-      <!-- Stock rápido variante principal -->
+      <!-- Stock rápido de la variante principal -->
       <div class="mt-2">
         <t t-if="product.product_variant_id and product.product_variant_id.qty_available &gt; 0">
           <p class="text-success mb-2">
@@ -25,17 +26,17 @@
         </t>
       </div>
 
-      <!-- Línea Color del template -->
+      <!-- Línea Color -->
       <t t-set="color_line"
          t-value="product.attribute_line_ids.filtered(
            lambda l: l.attribute_id.name and l.attribute_id.name.lower() in ['color','colour','couleur','farbe','colore']
          )"/>
 
-      <!-- Matriz por cada color (usando PTAV) -->
+      <!-- Matriz por cada color (usando PTAV en product.product) -->
       <t t-if="color_line and color_line.value_ids">
         <t t-foreach="color_line.value_ids" t-as="color_val">
 
-          <!-- Variantes que tienen ese color -->
+          <!-- Variantes con ese color -->
           <t t-set="rows"
              t-value="product.product_variant_ids.filtered(
                lambda v: v.product_template_attribute_value_ids.filtered(
@@ -100,6 +101,7 @@
           No hay atributo de Color configurado para este producto.
         </p>
       </t>
-    </xpath>
+
+    </t>
   </template>
 </odoo>
