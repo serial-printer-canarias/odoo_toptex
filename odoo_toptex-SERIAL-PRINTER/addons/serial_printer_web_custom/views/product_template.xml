@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <template id="serial_printer_product_stock" inherit_id="website_sale.product" name="Serial Printer Product View">
+  <!-- Serial Printer: vista de producto personalizada tipo TopTex -->
+  <template id="serial_printer_product_stock"
+            inherit_id="website_sale.product"
+            name="Serial Printer Product View">
 
-    <!-- ✅ Mostrar descripción editable -->
+    <!-- ✅ Descripción del producto (editable desde Website) -->
     <xpath expr="//div[@id='product_details']" position="inside">
       <t t-if="product.website_description">
         <div class="oe_structure mt-4">
@@ -11,7 +14,7 @@
       </t>
     </xpath>
 
-    <!-- ✅ Mostrar stock justo debajo del botón de compra -->
+    <!-- ✅ Stock rápido bajo el precio (de la variante seleccionada por Odoo) -->
     <xpath expr="//div[contains(@class, 'product_price')]" position="after">
       <t t-if="product.product_variant.qty_available &gt; 0">
         <p class="text-success mt-3">
@@ -23,20 +26,121 @@
       </t>
     </xpath>
 
-    <!-- ✅ Botones con color real (html_color) -->
+    <!-- ✅ Swatches con color real (html_color) -->
     <xpath expr="//div[@class='js_add_cart_variants']" position="inside">
-      <t t-set="color_attribute" t-value="product.attribute_line_ids.filtered(lambda l: l.attribute_id.name.lower() == 'color')"/>
+      <t t-set="color_attribute"
+         t-value="product.attribute_line_ids.filtered(lambda l: l.attribute_id.name.lower() == 'color')"/>
       <t t-if="color_attribute">
         <div class="d-flex flex-wrap my-2">
           <t t-foreach="color_attribute.value_ids" t-as="color">
-            <label class="mx-1">
+            <label class="mx-1" title="<t t-esc='color.name'/>">
               <input type="radio" name="color" t-att-value="color.id"/>
-              <span t-attf-style="display:inline-block;width:24px;height:24px;border-radius:50%;background-color:{{color.html_color or '#ccc'}};border:1px solid #000"></span>
+              <span t-attf-style="display:inline-block;width:24px;height:24px;border-radius:50%;
+                                  background-color:{{ color.html_color or '#ccc' }};
+                                  border:1px solid #000"></span>
             </label>
           </t>
         </div>
       </t>
     </xpath>
+
+    <!-- ✅ MATRIZ estilo TopTex: Color → Tallas con stock/precio/qty -->
+    <xpath expr="//div[@id='product_details']" position="after">
+
+      <!-- Agrupar variantes por COLOR -->
+      <t t-set="grouped_variants" t-value="dict()"/>
+      <t t-foreach="product.product_variant_ids" t-as="variant">
+        <!-- Detectar atributos Color / Talla (multilenguaje) -->
+        <t t-set="color_vals"
+           t-value="variant.attribute_value_ids.filtered(
+             lambda a: a.attribute_id.name.lower() in ['color','colour','couleur','farbe','colore']
+           )"/>
+        <t t-set="size_vals"
+           t-value="variant.attribute_value_ids.filtered(
+             lambda a: a.attribute_id.name.lower() in ['talla','size','taille','größe','groesse','taglia']
+           )"/>
+
+        <t t-if="color_vals and size_vals">
+          <t t-set="color_name"  t-value="color_vals[0].name"/>
+          <t t-set="html_color"  t-value="color_vals[0].html_color or '#ccc'"/>
+          <t t-set="talla_name"  t-value="size_vals[0].name"/>
+          <t t-set="line"
+             t-value="{
+               'id': variant.id,
+               'sku': variant.default_code,
+               'talla': talla_name,
+               'stock': variant.qty_available,
+               'price': (variant.website_price or variant.list_price),
+               'html_color': html_color
+             }"/>
+          <!-- setdefault + append sin imprimir nada -->
+          <t t-set="__void" t-value="grouped_variants.setdefault(color_name, [])"/>
+          <t t-set="__void" t-value="grouped_variants[color_name].append(line)"/>
+        </t>
+      </t>
+
+      <!-- Pintar una tarjeta por COLOR con la tabla de TALLAS -->
+      <t t-if="grouped_variants">
+        <t t-foreach="grouped_variants.items()" t-as="pair">
+          <t t-set="color_name" t-value="pair[0]"/>
+          <t t-set="rows"       t-value="sorted(pair[1], key=lambda r: r['talla'])"/>
+
+          <div class="border rounded p-3 mb-4">
+            <h5 class="mb-3 d-flex align-items-center">
+              <span t-attf-style="display:inline-block;width:20px;height:20px;border-radius:50%;
+                                  background-color:{{ rows[0]['html_color'] if rows else '#ccc' }};
+                                  border:1px solid #000;margin-right:8px;"></span>
+              <t t-esc="color_name"/>
+            </h5>
+
+            <div class="table-responsive">
+              <table class="table table-sm table-bordered text-center align-middle mb-2">
+                <thead class="table-light">
+                  <tr>
+                    <th style="min-width:72px;">Talla</th>
+                    <th>Stock</th>
+                    <th>Precio</th>
+                    <th style="width:120px;">Cantidad</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <t t-foreach="rows" t-as="r">
+                    <tr>
+                      <td><t t-esc="r['talla']"/></td>
+                      <td><t t-esc="int(r['stock'])"/> uds</td>
+                      <td><t t-esc="r['price']"/> €</td>
+                      <td>
+                        <input type="number"
+                               class="form-control form-control-sm qty-input"
+                               t-att-name="'qty_' + str(r['id'])"
+                               t-att-data-variant-id="r['id']"
+                               t-att-data-sku="r['sku']"
+                               min="0" value="0"/>
+                      </td>
+                    </tr>
+                  </t>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Botón por color: se usará desde JS para añadir todas sus tallas -->
+            <button type="button"
+                    class="btn btn-primary add-to-cart-btn"
+                    t-att-data-color="color_name">
+              Añadir al carrito (color <t t-esc="color_name"/>)
+            </button>
+          </div>
+        </t>
+      </t>
+
+      <t t-else="">
+        <p class="alert alert-warning mt-3">
+          No hay variantes configuradas para mostrar la matriz de tallas.
+        </p>
+      </t>
+
+    </xpath>
+    <!-- /MATRIZ -->
 
   </template>
 </odoo>
