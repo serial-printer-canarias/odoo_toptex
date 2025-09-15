@@ -1,6 +1,6 @@
 {
     "name": "Serial Printer Web Custom",
-    "version": "18.0.1.0.4",  # <- subir versión obliga a actualizar
+    "version": "18.0.1.0.5",  # <-- subir para forzar actualización
     "category": "Website/eCommerce",
     "summary": "Matriz color × talla con stock y cantidades; botón Añadir por color",
     "author": "Serial Printer",
