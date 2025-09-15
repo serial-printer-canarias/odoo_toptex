@@ -131,7 +131,7 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (sin cambios de tu lógica base) ====== -->
+      <!-- ====== JS INLINE (solo cambios en descarga y carrito) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -139,7 +139,6 @@
         function $(sel, root){return (root||document).querySelector(sel);}
         function $val(id, d){ var el=$("#"+id); return el?el.value:d; }
 
-        // Sin crossOrigin (evita canvas tainted en iOS)
         async function loadImage(src){
           return new Promise(function(resolve, reject){
             var im=new Image();
@@ -249,6 +248,34 @@
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
 
+        // ===== DESCARGA: compatible iOS (abrir ventana ANTES de async) =====
+        async function handleDownload(){
+          try{
+            var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+            var preWin = null;
+            if (isIOS) {
+              // abrir inmediatamente por gesto del usuario
+              preWin = window.open('', '_blank');
+            }
+            var url = await renderPNGDataURL();
+
+            if (isIOS) {
+              if (preWin) {
+                preWin.location.href = url; // se abre la imagen y el usuario guarda
+              } else {
+                window.open(url, '_blank');
+              }
+            } else {
+              var a = document.createElement("a");
+              a.href = url; a.download = "personalizacion.png";
+              document.body.appendChild(a); a.click(); a.remove();
+            }
+          }catch(e){
+            alert("No se pudo generar el PNG.");
+          }
+        }
+
+        // ===== CARRITO: esperar subida PNG ANTES de redirigir (móvil fiable) =====
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
@@ -257,21 +284,30 @@
           var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
-          var pngB64=""; try{ pngB64 = dataURLtoBase64(await renderPNGDataURL()); }catch(e){}
-
-          // 1) meta JSON -> fallback HTTP
+          // 1) crear línea y guardar metadatos
           var r1 = await postJSON("/spw/add_to_cart_meta", {
             variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
           });
-          if(!r1.ok){ r1 = await postForm("/spw/add_to_cart_meta_http", {
-            variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
-          }); }
-          if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
+          if(!r1.ok){
+            r1 = await postForm("/spw/add_to_cart_meta_http", {
+              variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
+            });
+          }
+          if(!(r1.ok && r1.data && r1.data.line_id)){
+            alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito.");
+            return;
+          }
 
-          // 2) PNG JSON -> fallback HTTP (no bloquea la redirección)
-          if(pngB64){
+          // 2) render y subir PNG (esperamos SIEMPRE antes de redirigir)
+          try{
+            var dataURL = await renderPNGDataURL();
+            var pngB64 = dataURLtoBase64(dataURL);
             var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
-            if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
+            if(!r2.ok){
+              await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 });
+            }
+          }catch(e){
+            // si falla la imagen, aún así continuamos a carrito (línea está creada)
           }
 
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
@@ -299,18 +335,7 @@
             applyTransform();
           };
 
-          var dl=$("#spw_download_png"); if(dl){ dl.addEventListener("click", async function(){
-            try{
-              var url = await renderPNGDataURL();
-              var a = document.createElement("a");
-              a.href = url; a.download = "personalizacion.png";
-              document.body.appendChild(a); a.click(); a.remove();
-              if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-                setTimeout(function(){ window.open(url, "_blank"); }, 150);
-              }
-            }catch(e){ alert("No se pudo generar el PNG."); }
-          });}
-
+          var dl=$("#spw_download_png"); if(dl){ dl.addEventListener("click", handleDownload); }
           var add=$("#spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
 
           applyTransform();
@@ -323,12 +348,10 @@
   </template>
 
   <!-- ============ MINIATURA EN CADA LÍNEA DEL CARRITO ============ -->
-  <!-- SOLO AÑADIDO: heredar el template correcto y meter la miniatura por cada 'line' -->
   <template id="spw_cart_line_preview"
             name="SPW Cart Line Preview (per line)"
             inherit_id="website_sale.cart_lines"
             priority="99">
-    <!-- Nos metemos dentro del foreach de las líneas para tener la variable 'line' disponible -->
     <xpath expr="//*[@t-foreach and contains(@t-foreach,'website_order_line')]" position="inside">
       <t t-set="spw_preview_url" t-value="'/spw/line_preview/%s.png' % (line.id)"/>
       <t t-if="spw_preview_url">
