@@ -1,5 +1,5 @@
-/**  serial_printer_web_custom / product_matrix.js
- *   Añade al carrito todas las tallas con cantidad > 0 del color pulsado.
+/** serial_printer_web_custom - product_matrix.js
+ *  Añade al carrito todas las tallas con cantidad > 0 del bloque del color pulsado.
  */
 odoo.define('serial_printer_web_custom.product_matrix', function (require) {
     'use strict';
@@ -13,11 +13,6 @@ odoo.define('serial_printer_web_custom.product_matrix', function (require) {
             'click .add-to-cart-btn': '_onAddToCartColor',
         },
 
-        /**
-         * Cuando se pulsa el botón de un color:
-         * - Lee los inputs .qty-input dentro de esa tarjeta
-         * - Hace una llamada /shop/cart/update_json por variante
-         */
         _onAddToCartColor: function (ev) {
             ev.preventDefault();
             const $btn = $(ev.currentTarget);
@@ -41,17 +36,14 @@ odoo.define('serial_printer_web_custom.product_matrix', function (require) {
             });
 
             if (!calls.length) {
-                // Nada que añadir: pequeño feedback visual
                 $btn.addClass('btn-outline-secondary');
                 setTimeout(() => $btn.removeClass('btn-outline-secondary'), 800);
                 return;
             }
 
             Promise.all(calls).then(() => {
-                // Refrescamos para ver carrito y cantidades actualizadas
-                window.location.reload();
+                window.location.reload(); // refresca cantidades y mini-carrito
             }).catch(() => {
-                // En caso de error mostramos un feedback básico
                 $btn.removeClass('btn-primary').addClass('btn-danger');
                 setTimeout(() => $btn.removeClass('btn-danger').addClass('btn-primary'), 2000);
             });
