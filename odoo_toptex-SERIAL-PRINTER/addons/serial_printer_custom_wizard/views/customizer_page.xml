@@ -9,8 +9,9 @@
 
       <div class="container my-5 spw-customizer">
         <!-- Datos invisibles para JS -->
-        <input type="hidden" id="spw_template_id" t-att-value="template.id"/>
+        <input type="hidden" id="spw_template_id" t-att-value="template and template.id or ''"/>
         <input type="hidden" id="spw_variant_id" t-att-value="variant_id or ''"/>
+        <input type="hidden" id="spw_img_src" t-att-value="img_src or ''"/>
 
         <div class="row g-4">
           <!-- Lienzo -->
@@ -62,7 +63,7 @@
                   </div>
                 </div>
 
-                <!-- Paleta de color (aplica a SVG) -->
+                <!-- Paleta de color (aplica solo a SVG) -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
                   <div class="spw-color-row">
@@ -116,14 +117,15 @@
 
                 <!-- Cantidad -->
                 <div class="mb-3">
-                  <label for="spw_qty" class="form-label">Cantidad</label>
-                  <input id="spw_qty" type="number" min="1" value="1" class="form-control"/>
+                  <label class="form-label">Cantidad</label>
+                  <input id="spw_qty" type="number" class="form-control" min="1" value="10"/>
                 </div>
 
                 <!-- Observaciones -->
                 <div class="mb-3">
-                  <label for="spw_notes" class="form-label">Observaciones</label>
-                  <textarea id="spw_notes" rows="3" class="form-control" placeholder="Indica instrucciones para el taller..."></textarea>
+                  <label class="form-label">Observaciones</label>
+                  <textarea id="spw_notes" class="form-control" rows="3"
+                            placeholder="Indica instrucciones para el taller..."></textarea>
                 </div>
 
                 <div class="d-flex align-items-center gap-3 flex-wrap">
@@ -131,24 +133,24 @@
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
                      onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
 
-                  <a id="spw_add_to_cart_btn" class="btn btn-primary flex-fill" href="#">
+                  <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
-                  </a>
+                  </button>
+                </div>
 
-                  <a id="spw_download_png" class="btn btn-light" href="#">Descargar PNG</a>
+                <div class="d-flex align-items-center gap-3 flex-wrap mt-3">
+                  <button id="spw_download_png" class="btn btn-light" type="button">Descargar PNG</button>
 
-                  <a class="btn btn-link ms-auto" t-att-href="'/shop/product/%s' % template.id">
+                  <a class="btn btn-link ms-2" t-att-href="'/shop/product/%s' % template.id">
                     &#8592; Volver al producto
                   </a>
                 </div>
+
               </div>
             </div>
           </div>
         </div> <!-- row -->
       </div> <!-- container -->
-
-      <!-- Cargar el JS plano solo en esta página -->
-      <script type="text/javascript" src="/serial_printer_custom_wizard/static/src/js/spw_public.js"/>
     </t>
   </template>
 </odoo>
