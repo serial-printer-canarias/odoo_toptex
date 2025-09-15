@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- === Página del personalizador === -->
+  <!-- ============ PÁGINA DEL PERSONALIZADOR ============ -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
@@ -131,7 +131,7 @@
         </div>
       </div>
 
-      <!-- JS INLINE -->
+      <!-- ====== JS INLINE (sin cambios de tu lógica base) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -268,7 +268,7 @@
           }); }
           if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
-          // 2) PNG JSON -> fallback HTTP (no bloquea salida al carrito)
+          // 2) PNG JSON -> fallback HTTP (no bloquea la redirección)
           if(pngB64){
             var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
@@ -322,12 +322,11 @@
     </t>
   </template>
 
-  <!-- === Miniatura de personalización en carrito (robusta a cambios de tema/versión) === -->
-  <template id="spw_cart_line_preview" inherit_id="website_sale.cart_lines" name="SPW Cart Line Preview" priority="99">
-    <xpath expr="//div[contains(@class,'o_wsale_product_information')]
-                 | //div[contains(@class,'o_wsale_cart_item_info')]
-                 | //div[contains(@class,'o_cart_product_information')]
-                 | //div[contains(@class,'o_wsale_product_info')]" position="inside">
+  <!-- ============ MINIATURA EN CADA LÍNEA DEL CARRITO ============ -->
+  <!-- Importante: heredar website_sale.cart_line (no cart_lines) para evitar ParseError -->
+  <template id="spw_cart_line_preview_line" inherit_id="website_sale.cart_line" name="SPW Cart Line Preview (per line)" priority="99">
+    <!-- contenedor de cada línea del carrito, muy estable en V16/V17 -->
+    <xpath expr="//div[contains(@class,'o_wsale_cart_line')]" position="inside">
       <t t-set="spw_preview_url" t-value="'/spw/line_preview/%s.png' % (line.id)"/>
       <t t-if="spw_preview_url">
         <div class="mt-1">
