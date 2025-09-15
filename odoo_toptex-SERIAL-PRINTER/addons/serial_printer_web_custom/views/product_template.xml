@@ -14,20 +14,8 @@
       </t>
     </xpath>
 
-    <!-- ✅ Stock rápido bajo el precio (de la variante principal) -->
-    <xpath expr="//div[contains(@class, 'product_price')]" position="after">
-      <t t-if="product.product_variant.qty_available &gt; 0">
-        <p class="text-success mt-3">
-          ✅ Stock disponible: <t t-esc="product.product_variant.qty_available"/> uds
-        </p>
-      </t>
-      <t t-else="">
-        <p class="text-danger mt-3">❌ Sin stock</p>
-      </t>
-    </xpath>
-
     <!-- ✅ Swatches con color real (html_color) -->
-    <xpath expr="//div[@class='js_add_cart_variants']" position="inside">
+    <xpath expr="//div[contains(@class,'js_add_cart_variants')]" position="inside">
       <t t-set="color_attribute"
          t-value="product.attribute_line_ids.filtered(lambda l: l.attribute_id.name.lower() == 'color')"/>
       <t t-if="color_attribute">
@@ -40,6 +28,20 @@
           </t>
         </div>
       </t>
+    </xpath>
+
+    <!-- ✅ Bloque de stock rápido (anclado de forma robusta) -->
+    <xpath expr="//div[@id='product_details']" position="after">
+      <div class="mt-3">
+        <t t-if="product.product_variant.qty_available &gt; 0">
+          <p class="text-success">
+            ✅ Stock disponible: <t t-esc="product.product_variant.qty_available"/> uds
+          </p>
+        </t>
+        <t t-else="">
+          <p class="text-danger">❌ Sin stock</p>
+        </t>
+      </div>
     </xpath>
 
     <!-- ✅ MATRIZ estilo TopTex: Color → Tallas con stock/precio/qty -->
