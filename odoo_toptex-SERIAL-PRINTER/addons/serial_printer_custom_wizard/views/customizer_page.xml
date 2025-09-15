@@ -144,7 +144,7 @@
           return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
         }
 
-        // Sin crossOrigin (evita canvas tainted en iOS)
+        // Helpers
         async function loadImage(src){
           return new Promise(function(resolve, reject){
             var im=new Image();
@@ -162,6 +162,12 @@
           });
         }
         function dataURLtoBase64(u){ var i=u.indexOf(','); return i!==-1?u.slice(i+1):u; }
+        function dataURLtoBlob(dataURL){
+          var arr = dataURL.split(','), mime = arr[0].match(/:(.*?);/)[1],
+              bstr = atob(arr[1]), n = bstr.length, u8 = new Uint8Array(n);
+          while(n--){ u8[n] = bstr.charCodeAt(n); }
+          return new Blob([u8], {type: mime});
+        }
 
         var S={ logoDataURL:"", isSVG:false };
 
@@ -257,17 +263,11 @@
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
 
-        function postFormHidden(url, payload){
-          var iframe = document.createElement("iframe");
-          iframe.name = "spw_iframe";
-          iframe.style.display = "none";
-          document.body.appendChild(iframe);
-
+        function submitFullForm(url, payload){
+          // POST clásico (se usa en iOS para máxima compatibilidad y adjuntar PNG en la misma petición)
           var form = document.createElement("form");
           form.method = "POST";
           form.action = url;
-          form.target = "spw_iframe";
-
           function addField(n,v){
             var inp = document.createElement("input");
             inp.type = "hidden"; inp.name = n; inp.value = v;
@@ -275,14 +275,8 @@
           }
           Object.keys(payload||{}).forEach(function(k){ addField(k, payload[k]); });
           addField("csrf_token", $val("spw_csrf_token",""));
-
           document.body.appendChild(form);
-          form.submit();
-
-          setTimeout(function(){
-            try{ document.body.removeChild(form); document.body.removeChild(iframe);}catch(_){}
-            window.location.href = "/shop/cart";
-          }, 400);
+          form.submit(); // el servidor debe redirigir a /shop/cart
         }
 
         async function addToCart(){
@@ -293,15 +287,37 @@
           var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
-          var payloadMeta = {
-            variant_id: parseInt(variantId,10),
-            qty: qty, tech: tech, svg_color: svgColor, notes: notes
-          };
+          // iOS: UNA SOLA PETICIÓN POST CLÁSICA + PNG en el mismo request
+          if (isIOS()){
+            try{
+              var pngUrl = await renderPNGDataURL();
+              var payloadIOS = {
+                variant_id: variantId,
+                qty: qty, tech: tech, svg_color: svgColor, notes: notes,
+                png_b64: dataURLtoBase64(pngUrl)
+              };
+              submitFullForm("/spw/add_to_cart_meta_http", payloadIOS);
+              return;
+            }catch(e){
+              // aun sin PNG, añade meta
+              submitFullForm("/spw/add_to_cart_meta_http", {
+                variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
+              });
+              return;
+            }
+          }
 
-          var r1 = await postJSON("/spw/add_to_cart_meta", payloadMeta);
-          if(!r1.ok){ r1 = await postForm("/spw/add_to_cart_meta_http", payloadMeta); }
-          if(!r1.ok && isIOS()){ postFormHidden("/spw/add_to_cart_meta_http", payloadMeta); return; }
-          if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
+          // Escritorio: como ya te funcionaba
+          var r1 = await postJSON("/spw/add_to_cart_meta", {
+            variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
+          });
+          if(!r1.ok){ r1 = await postForm("/spw/add_to_cart_meta_http", {
+            variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
+          }); }
+          if(!r1.ok){
+            alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito.");
+            return;
+          }
 
           try{
             var pngB64 = dataURLtoBase64(await renderPNGDataURL());
@@ -342,7 +358,10 @@
                 a.href = url; a.download = "personalizacion.png";
                 document.body.appendChild(a); a.click(); a.remove();
               }else{
-                window.location.href = url; // iOS abre imagen y el usuario la guarda
+                // iOS: usa Blob + window.open para evitar about:blank
+                var blobUrl = URL.createObjectURL(dataURLtoBlob(url));
+                var w = window.open(blobUrl, "_blank");
+                if(!w){ window.location.href = blobUrl; } // último recurso
               }
             }catch(e){ alert("No se pudo generar el PNG."); }
           });}
@@ -358,17 +377,32 @@
     </t>
   </template>
 
-  <!-- ============ MINIATURA EN CADA LÍNEA DEL CARRITO ============ -->
-  <template id="spw_cart_line_preview_line" inherit_id="website_sale.cart_line" name="SPW Cart Line Preview (per line)" priority="99">
-    <xpath expr="//div[contains(@class,'o_wsale_cart_line')]" position="inside">
-      <t t-set="spw_preview_url" t-value="'/spw/line_preview/%s.png' % (line.id)"/>
-      <t t-if="spw_preview_url">
-        <div class="mt-1">
-          <img t-att-src="spw_preview_url"
-               alt="Personalización"
-               style="max-width:120px;border:1px solid #e5e7eb;border-radius:6px"/>
-        </div>
-      </t>
+  <!-- ============ ASSET: PREVIEW EN CARRITO SIN HEREDAR PLANTILLAS ============ -->
+  <template id="spw_cart_assets" inherit_id="website.assets_frontend" name="SPW Cart Preview Assets">
+    <xpath expr="." position="inside">
+      <script type="text/javascript">
+        (function(){
+          function inject(){
+            if (!/\/shop\/cart/.test(window.location.pathname)) return;
+            // Para la mayoría de themes de Odoo (div o tr con data-line-id)
+            document.querySelectorAll('[data-line-id]').forEach(function(el){
+              var id = el.getAttribute('data-line-id');
+              if(!id || el.querySelector('.spw-preview')) return;
+              var url = '/spw/line_preview/' + id + '.png';
+              var img = document.createElement('img');
+              img.src = url; img.alt='Personalización'; img.className='spw-preview';
+              img.style.maxWidth='120px'; img.style.border='1px solid #e5e7eb';
+              img.style.borderRadius='6px'; img.style.marginLeft='8px';
+              var target = el.querySelector('.o_wsale_product_information, .o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_info, .o_wsale_product_img') || el;
+              target.appendChild(img);
+            });
+          }
+          document.addEventListener('DOMContentLoaded', function(){
+            inject();
+            setTimeout(inject, 600); // por si el DOM se rellena tarde
+          });
+        })();
+      </script>
     </xpath>
   </template>
 
