@@ -17,11 +17,11 @@
     <!-- ✅ BLOQUE ÚNICO: stock rápido + swatches + matriz color×talla -->
     <xpath expr="//div[@id='product_details']" position="after">
 
-      <!-- Stock rápido de la variante principal -->
+      <!-- Stock rápido de la variante principal (usar product_variant_id) -->
       <div class="mt-3">
-        <t t-if="product.product_variant.qty_available &gt; 0">
+        <t t-if="product.product_variant_id and product.product_variant_id.qty_available &gt; 0">
           <p class="text-success">
-            ✅ Stock disponible: <t t-esc="product.product_variant.qty_available"/> uds
+            ✅ Stock disponible: <t t-esc="product.product_variant_id.qty_available"/> uds
           </p>
         </t>
         <t t-else="">
@@ -29,7 +29,7 @@
         </t>
       </div>
 
-      <!-- Swatches de color (html_color); no dependemos de js_add_cart_variants -->
+      <!-- Swatches de color (html_color) -->
       <t t-set="color_attribute"
          t-value="product.attribute_line_ids.filtered(lambda l: l.attribute_id.name.lower() in ['color','colour','couleur','farbe','colore'])"/>
       <t t-if="color_attribute">
