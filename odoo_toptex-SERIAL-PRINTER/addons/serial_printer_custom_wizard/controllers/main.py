@@ -4,12 +4,14 @@ from odoo.http import request
 import base64
 import json
 
+
 class SpwCustomizer(http.Controller):
 
-    # Página de personalización (acepta /spw/customize/<id> y querystring)
+    # Página de personalización (acepta /spw/customize y /spw/customize/<template_id>)
     @http.route(['/spw/customize/<int:template_id>', '/spw/customize'], type='http',
                 auth='public', website=True, sitemap=False)
     def spw_customize(self, template_id=None, variant_id=None, **kw):
+        # permitir ?template_id= y ?variant_id=
         if template_id is None:
             tid = kw.get('template_id') or request.params.get('template_id')
             template_id = int(tid) if tid else None
@@ -35,28 +37,11 @@ class SpwCustomizer(http.Controller):
         }
         return request.render('serial_printer_custom_wizard.spw_customize_page', values)
 
-    # JSON (principal)
+    # Añadir al carrito con la personalización (JSON)
     @http.route('/spw/add_to_cart', type='json', auth='public', website=True,
                 csrf=False, methods=['POST'])
     def spw_add_to_cart(self, **kw):
         data = request.jsonrequest or {}
-        return self._do_add_to_cart(data)
-
-    # HTTP (fallback robusto para cuando el JSON da guerra)
-    @http.route('/spw/add_to_cart_http', type='http', auth='public', website=True,
-                csrf=False, methods=['POST'])
-    def spw_add_to_cart_http(self, **post):
-        try:
-            raw = request.httprequest.get_data(cache=False, as_text=True) or ''
-            data = json.loads(raw) if raw else post
-        except Exception:
-            data = post
-        res = self._do_add_to_cart(data)
-        body = json.dumps(res)
-        return request.make_response(body, headers=[('Content-Type', 'application/json')])
-
-    # Lógica compartida
-    def _do_add_to_cart(self, data):
         try:
             variant_id = int(data.get('variant_id') or 0)
             qty = int(data.get('qty') or 1)
@@ -79,10 +64,12 @@ class SpwCustomizer(http.Controller):
         order = request.website.sale_get_order(force_create=True)
         order._cart_update(product_id=variant.id, add_qty=qty)
 
+        # última línea de ese producto
         line = order.order_line.filtered(lambda l: l.product_id.id == variant.id)
         line = line.sorted('id')[-1] if line else False
 
         if line:
+            # texto con parámetros
             extras = []
             if tech:
                 extras.append(f"Técnica: {tech}")
@@ -94,14 +81,57 @@ class SpwCustomizer(http.Controller):
                 base_name = line.name or variant.get_product_multiline_description_sale() or variant.display_name
                 line.sudo().write({'name': base_name + "\n" + " | ".join(extras)})
 
+            Att = request.env['ir.attachment'].sudo()
+
+            # PNG adjunto (si viene)
             if png_b64:
-                request.env['ir.attachment'].sudo().create({
-                    'name': 'personalizacion.png',
-                    'datas': png_b64,
+                Att.create({
+                    'name': f'personalizacion_{line.id}.png',
+                    'datas': png_b64,              # ya es base64 sin prefijo
                     'type': 'binary',
                     'mimetype': 'image/png',
                     'res_model': 'sale.order.line',
                     'res_id': line.id,
                 })
 
+            # JSON con configuración para el taller
+            cfg = {
+                'variant_id': variant.id,
+                'qty': qty,
+                'tech': tech,
+                'svg_color': svg_color,
+                'notes': notes,
+            }
+            Att.create({
+                'name': f'personalizacion_{line.id}.json',
+                'datas': base64.b64encode(json.dumps(cfg, ensure_ascii=False).encode('utf-8')),
+                'type': 'binary',
+                'mimetype': 'application/json',
+                'res_model': 'sale.order.line',
+                'res_id': line.id,
+            })
+
         return {'ok': True, 'cart_url': '/shop/cart'}
+
+    # (Opcional) Endpoint para que un JS muestre previews en el carrito
+    @http.route('/spw/cart_previews', type='json', auth='public', website=True, csrf=False)
+    def spw_cart_previews(self):
+        order = request.website.sale_get_order()
+        if not order:
+            return []
+        Att = request.env['ir.attachment'].sudo()
+        res = []
+        for line in order.order_line:
+            att = Att.search([
+                ('res_model', '=', 'sale.order.line'),
+                ('res_id', '=', line.id),
+                ('mimetype', '=', 'image/png'),
+                ('name', 'ilike', 'personalizacion')
+            ], limit=1, order='id desc')
+            if att:
+                res.append({
+                    'line_id': line.id,
+                    'name': line.product_id.display_name,
+                    'url': f"/web/content/{att.id}?download=0",
+                })
+        return res
