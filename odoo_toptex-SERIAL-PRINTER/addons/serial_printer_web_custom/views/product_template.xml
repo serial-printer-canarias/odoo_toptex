@@ -31,7 +31,7 @@
 
       <!-- Swatches de color (html_color) -->
       <t t-set="color_attribute"
-         t-value="product.attribute_line_ids.filtered(lambda l: l.attribute_id.name.lower() in ['color','colour','couleur','farbe','colore'])"/>
+         t-value="product.attribute_line_ids.filtered(lambda l: l.attribute_id.name and l.attribute_id.name.lower() in ['color','colour','couleur','farbe','colore'])"/>
       <t t-if="color_attribute">
         <div class="d-flex flex-wrap my-2">
           <t t-foreach="color_attribute.value_ids" t-as="color">
@@ -43,23 +43,25 @@
         </div>
       </t>
 
-      <!-- MATRIZ estilo TopTex: Color → Tallas con stock/precio/qty -->
+      <!-- 🔁 AGRUPACIÓN CORRECTA (Odoo 18): usar PTAV en product.product -->
       <t t-set="grouped_variants" t-value="dict()"/>
       <t t-foreach="product.product_variant_ids" t-as="variant">
-        <!-- Detectar atributos Color / Talla (multilenguaje) -->
-        <t t-set="color_vals"
-           t-value="variant.attribute_value_ids.filtered(
-             lambda a: a.attribute_id.name.lower() in ['color','colour','couleur','farbe','colore']
+        <!-- PTAV de color -->
+        <t t-set="ptav_color"
+           t-value="variant.product_template_attribute_value_ids.filtered(
+             lambda v: v.attribute_id.name and v.attribute_id.name.lower() in ['color','colour','couleur','farbe','colore']
            )"/>
-        <t t-set="size_vals"
-           t-value="variant.attribute_value_ids.filtered(
-             lambda a: a.attribute_id.name.lower() in ['talla','size','taille','größe','groesse','taglia']
+        <!-- PTAV de talla -->
+        <t t-set="ptav_size"
+           t-value="variant.product_template_attribute_value_ids.filtered(
+             lambda v: v.attribute_id.name and v.attribute_id.name.lower() in ['talla','size','taille','größe','groesse','taglia']
            )"/>
 
-        <t t-if="color_vals and size_vals">
-          <t t-set="color_name"  t-value="color_vals[0].name"/>
-          <t t-set="html_color"  t-value="color_vals[0].html_color or '#ccc'"/>
-          <t t-set="talla_name"  t-value="size_vals[0].name"/>
+        <t t-if="ptav_color and ptav_size">
+          <t t-set="color_name"  t-value="ptav_color[0].product_attribute_value_id.name"/>
+          <t t-set="html_color"  t-value="ptav_color[0].product_attribute_value_id.html_color or '#ccc'"/>
+          <t t-set="talla_name"  t-value="ptav_size[0].product_attribute_value_id.name"/>
+
           <t t-set="line"
              t-value="{
                'id': variant.id,
@@ -69,11 +71,13 @@
                'price': (variant.website_price or variant.list_price),
                'html_color': html_color
              }"/>
+
           <t t-set="__void" t-value="grouped_variants.setdefault(color_name, [])"/>
           <t t-set="__void" t-value="grouped_variants[color_name].append(line)"/>
         </t>
       </t>
 
+      <!-- Pintado de tarjetas por color -->
       <t t-if="grouped_variants">
         <t t-foreach="grouped_variants.items()" t-as="pair">
           <t t-set="color_name" t-value="pair[0]"/>
