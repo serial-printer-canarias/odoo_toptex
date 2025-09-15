@@ -26,7 +26,7 @@
               <div class="card-body">
                 <h5 class="card-title mb-3">Personalización</h5>
 
-                <!-- Subida logo -->
+                <!-- Subir logo -->
                 <div class="mb-3">
                   <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
                   <input id="spw_logo_input" class="form-control" type="file"
@@ -53,7 +53,7 @@
                   </div>
                 </div>
 
-                <!-- Paleta SVG -->
+                <!-- Color SVG -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
                   <div class="spw-color-row">
@@ -133,7 +133,7 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (manteniendo tu lógica) ====== -->
+      <!-- ====== JS INLINE ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -141,7 +141,7 @@
         function $(sel, root){return (root||document).querySelector(sel);}
         function $val(id, d){ var el=$("#"+id); return el?el.value:d; }
 
-        // Carga IMG sin crossOrigin (iOS seguro)
+        // Carga IMG sin crossOrigin (iOS safe)
         async function loadImage(src){
           return new Promise(function(resolve, reject){
             var im=new Image();
@@ -239,7 +239,6 @@
             return {ok: !!(data && (data.ok===true || data.ok==="true")), data:data, status:resp.status, raw:txt};
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
-
         async function postForm(url, payload){
           try{
             var fd = new FormData();
@@ -279,35 +278,23 @@
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
 
-        // Descarga compatible con iOS (requiere /spw/download_png en servidor)
+        // Descarga compatible iOS/Safari (requiere /spw/download_png en servidor)
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
             var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
             var isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-
             if (isIOS && isSafari) {
               var form = document.createElement("form");
-              form.method = "POST";
-              form.action = "/spw/download_png";
-              form.target = "_blank";
-              var inp = document.createElement("input");
-              inp.type = "hidden";
-              inp.name = "png_b64";
-              inp.value = dataURLtoBase64(dataUrl);
-              form.appendChild(inp);
-              document.body.appendChild(form);
-              form.submit();
+              form.method = "POST"; form.action = "/spw/download_png"; form.target = "_blank";
+              var inp = document.createElement("input"); inp.type="hidden"; inp.name="png_b64"; inp.value=dataURLtoBase64(dataUrl);
+              form.appendChild(inp); document.body.appendChild(form); form.submit();
               setTimeout(function(){ form.remove(); }, 1500);
             } else {
-              var a = document.createElement("a");
-              a.href = dataUrl;
-              a.download = "personalizacion.png";
+              var a = document.createElement("a"); a.href = dataUrl; a.download = "personalizacion.png";
               document.body.appendChild(a); a.click(); a.remove();
             }
-          }catch(e){
-            alert("No se pudo generar el PNG.");
-          }
+          }catch(e){ alert("No se pudo generar el PNG."); }
         }
 
         function init(){
@@ -332,9 +319,7 @@
             applyTransform();
           };
 
-          var dl=$("#spw_download_png"); if(dl){
-            dl.addEventListener("click", function(){ downloadPNGiOSSafe(); });
-          }
+          var dl=$("#spw_download_png"); if(dl){ dl.addEventListener("click", function(){ downloadPNGiOSSafe(); }); }
           var add=$("#spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
 
           applyTransform();
@@ -346,10 +331,9 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN DE MINIATURA EN CARRITO (SIN HEREDAR website_sale.cart_line) ============ -->
-  <!-- Importante: heredar web.assets_frontend (existe siempre). No requiere tocar manifest. -->
-  <template id="spw_cart_preview_assets" name="SPW Cart Preview Assets" inherit_id="web.assets_frontend" priority="99">
-    <xpath expr="." position="inside">
+  <!-- ============ INYECCIÓN UNIVERSAL EN website.layout (EVITA XMLIDs DE ASSETS) ============ -->
+  <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
+    <xpath expr="//body" position="inside">
       <script type="text/javascript">
         //<![CDATA[
         (function(){
