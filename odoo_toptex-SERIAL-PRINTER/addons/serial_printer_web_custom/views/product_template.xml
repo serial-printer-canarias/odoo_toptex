@@ -1,20 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Serial Printer: Matriz color × talla (anclaje robusto y prioridad alta) -->
+  <!-- Serial Printer: Matriz color × talla (anclaje wrapwrap + prioridad alta) -->
   <template id="serial_printer_product_stock"
             inherit_id="website_sale.product"
             name="Serial Printer Product View"
-            priority="99">
+            priority="999">
 
-    <!-- Insertamos todo dentro del contenedor raíz de la ficha -->
-    <xpath expr="//div[contains(@class,'o_wsale_product_page')]" position="inside">
-
-      <!-- 🔎 Marcador visual para confirmar carga -->
-      <div class="alert alert-info my-3" role="alert">
+    <!-- Insertamos SIEMPRE dentro del contenedor principal de la página -->
+    <xpath expr="//main[@id='wrapwrap']" position="inside">
+      <!-- 🔎 Marcador para verificar que la vista está aplicada -->
+      <div class="alert alert-info my-3 sp-matrix-marker" role="alert">
         Matriz Serial Printer <strong>activa</strong>.
       </div>
 
-      <!-- 🟢 Stock rápido de la variante principal (no rompe nada del tema) -->
+      <!-- 🟢 Stock rápido de la variante principal -->
       <div class="mt-2">
         <t t-if="product.product_variant_id and product.product_variant_id.qty_available &gt; 0">
           <p class="text-success mb-2">
@@ -26,17 +25,17 @@
         </t>
       </div>
 
-      <!-- 📌 Línea de atributo Color en el template -->
+      <!-- 📌 Línea de atributo Color -->
       <t t-set="color_line"
          t-value="product.attribute_line_ids.filtered(
            lambda l: l.attribute_id.name and l.attribute_id.name.lower() in ['color','colour','couleur','farbe','colore']
          )"/>
 
-      <!-- 🔲 Matriz por cada color (sin dicts/setdefault) -->
+      <!-- 🔲 Matriz por color (sin dicts, usando PTAV) -->
       <t t-if="color_line and color_line.value_ids">
         <t t-foreach="color_line.value_ids" t-as="color_val">
 
-          <!-- Variantes que tienen este color (usando PTAV) -->
+          <!-- Variantes con ese color -->
           <t t-set="rows"
              t-value="product.product_variant_ids.filtered(
                lambda v: v.product_template_attribute_value_ids.filtered(
@@ -63,7 +62,7 @@
                 </thead>
                 <tbody>
                   <t t-foreach="rows" t-as="variant">
-                    <!-- PTAV de Talla (multi-idioma) -->
+                    <!-- PTAV de talla -->
                     <t t-set="ptav_size"
                        t-value="variant.product_template_attribute_value_ids.filtered(
                          lambda ptav: ptav.attribute_id.name and ptav.attribute_id.name.lower() in ['talla','size','taille','größe','groesse','taglia']
