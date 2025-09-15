@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- CARGA SENCILLA Y ESTABLE: CSS + JS PLANO (sin módulos) -->
-  <template id="assets_frontend" name="SPW Assets" inherit_id="web.assets_frontend">
+  <template id="assets_frontend" inherit_id="web.assets_frontend" name="SPW Assets (public)">
     <xpath expr="." position="inside">
       <link rel="stylesheet" href="/serial_printer_custom_wizard/static/src/css/spw.css"/>
       <script type="text/javascript" src="/serial_printer_custom_wizard/static/src/js/spw_public.js" defer="defer"/>
