@@ -1,16 +1,5 @@
-/* addons/serial_printer_web_custom/static/src/scss/product_matrix.scss */
-#sp-matrix.sp-matrix {
-  margin-top: 1.25rem;
-  border: 1px solid var(--o-border, #e6e6e6);
-  border-radius: .5rem;
-  overflow: hidden;
-  font-size: .95rem;
-}
-.sp-matrix__row { display: grid; grid-template-columns: 180px repeat(auto-fit, minmax(70px, 1fr)); }
-.sp-matrix__row--header { background: #f7f7f9; font-weight: 600; }
-.sp-matrix__cell { padding: .5rem .6rem; border-bottom: 1px solid #ececec; border-right: 1px solid #ececec; }
-.sp-matrix__cell--corner { background: #f7f7f9; border-right: 1px solid #ececec; }
-.sp-matrix__cell--rowhead { background: #fafafa; font-weight: 600; }
-.sp-matrix__cell:last-child { border-right: 0; }
-.sp-matrix__qty { width: 100%; text-align: center; }
-.sp-matrix__actions { padding: .75rem; display: flex; justify-content: flex-end; gap: .5rem; }
+.o_sp_matrix { margin: 1rem 0; overflow-x: auto; }
+.o_sp_matrix table { width: 100%; border-collapse: collapse; }
+.o_sp_matrix th, .o_sp_matrix td { border: 1px solid #e5e7eb; padding: .5rem; text-align: center; }
+.o_sp_matrix th { white-space: nowrap; }
+.o_sp_matrix input.qty { width: 70px; text-align: center; }
