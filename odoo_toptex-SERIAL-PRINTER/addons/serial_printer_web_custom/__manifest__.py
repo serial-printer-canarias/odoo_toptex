@@ -5,7 +5,8 @@
     'data': [],
     'assets': {
         'web.assets_frontend': [
-            'serial_printer_web_custom/static/src/js/product_matrix.js',
+            # OJO: solo este archivo. Nada de SCSS por ahora.
+            'serial_printer_web_custom/static/src/js/sp_matrix_boot.js',
         ],
     },
 }
