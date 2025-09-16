@@ -1,136 +1,153 @@
-/** @odoo-module **/
-import publicWidget from 'web.public.widget';
-import ajax from 'web.ajax';
+/** serial_printer_web_custom/static/src/js/product_matrix.js **/
+odoo.define('serial_printer_web_custom.product_matrix', function (require) {
+    'use strict';
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+    const publicWidget = require('web.public.widget');
+    const ajax = require('web.ajax');
 
-// Espera a que cambie el product_id (cuando Odoo recalcula la combinación)
-async function waitProductIdChange($root, oldId, timeout = 1500) {
-    const start = Date.now();
-    while (Date.now() - start < timeout) {
-        const cur = parseInt($root.find('input[name="product_id"]').val() || '0', 10);
-        if (cur && cur !== oldId) return cur;
-        await sleep(50);
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+    async function waitProductIdChange($root, before, timeout = 1500) {
+        const start = Date.now();
+        while (Date.now() - start < timeout) {
+            const cur = parseInt($root.find('input[name="product_id"]').val() || '0', 10);
+            if (cur && cur !== before) return cur;
+            await sleep(40);
+        }
+        return parseInt($root.find('input[name="product_id"]').val() || '0', 10);
     }
-    return parseInt($root.find('input[name="product_id"]').val() || '0', 10);
-}
+    function esc(s) {
+        return String(s || '').replace(/[&<>"']/g, m => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[m]));
+    }
 
-publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
-    selector: '.o_wsale_product_page',
+    publicWidget.registry.SerialPrinterMatrixGrid = publicWidget.Widget.extend({
+        selector: '.o_wsale_product_page',
 
-    start() {
-        // Construye matriz si hay al menos dos atributos (p.ej. Color y Talla)
-        this.$root = this.$el;
-        this._buildMatrix();
-        return this._super(...arguments);
-    },
+        start: function () {
+            this.$root = this.$el;
+            this._buildMatrix();
+            return this._super.apply(this, arguments);
+        },
 
-    // Lee grupos de atributos de la ficha
-    _getAttributeGroups() {
-        const groups = [];
-        this.$root.find('.css_attribute_color, .css_attribute').each(function () {
-            const $g = $(this);
-            // Título del grupo (Color/Talla/Size, etc.)
-            const title = ($g.find('.attribute_name, label, .o_wsale_attr_label').first().text() || '').trim().toLowerCase();
-            // Inputs de ese grupo
-            const $inputs = $g.find('input[type="radio"].js_variant_change');
-            if ($inputs.length) {
-                groups.push({ $g, title, $inputs });
-            }
-        });
-        return groups;
-    },
+        _groups: function () {
+            const groups = [];
+            // Odoo 18 suele usar estas clases para los grupos de atributos
+            this.$root.find('.css_attribute, .css_attribute_color').each(function () {
+                const $g = $(this);
+                const title = ($g.find('.attribute_name, label, .o_wsale_attr_label').first().text() || '').trim();
+                const $inputs = $g.find('input[type="radio"].js_variant_change');
+                if ($inputs.length) groups.push({ $g, title, $inputs });
+            });
+            return groups;
+        },
 
-    _buildMatrix() {
-        const groups = this._getAttributeGroups();
-        if (groups.length < 2) return; // nada que hacer
+        _detectRowColGroups: function (groups) {
+            const sizeIdx  = groups.findIndex(g => /(talla|size|größe|taglia|maat|tamanho)/i.test(g.title));
+            const colorIdx = groups.findIndex(g => /(color|colour|farbe|colore|kleur|cor)/i.test(g.title));
+            if (sizeIdx < 0 || colorIdx < 0) return null;
+            return { rowGroup: groups[sizeIdx], colGroup: groups[colorIdx] };
+        },
 
-        // Elegimos: filas = tallas, columnas = el color actualmente seleccionado
-        // Identificamos grupo de talla (name/label contiene 'talla'|'size'|'größe' etc.)
-        const sizeIdx = groups.findIndex(g => /(talla|size|größe|taglia|maat|tamanho)/i.test(g.title));
-        const colorIdx = groups.findIndex(g => /(color|colour|farbe|colore|kleur|cor)/i.test(g.title));
-        // Fallback si no detecta nombres
-        const rowGroup = sizeIdx >= 0 ? groups[sizeIdx] : groups[1];
-        const colGroup = colorIdx >= 0 ? groups[colorIdx] : groups[0];
+        _buildMatrix: async function () {
+            const groups = this._groups();
+            if (groups.length < 2) return;
+            const picked = this._detectRowColGroups(groups);
+            if (!picked) return;
 
-        // Contenedor bajo el botón "Add to cart"
-        const $anchor = this.$root.find('form[action*="/shop/cart/update"] .o_wsale_cta_wrapper, form[action*="/shop/cart/update"]').last();
-        if (!$anchor.length) return;
+            const { rowGroup, colGroup } = picked;
 
-        const $box = $(`
-            <div class="sp-matrix card rounded p-3 mt-3">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <div class="fw-semibold">Pedido rápido por tallas</div>
-                    <button class="btn btn-sm btn-primary sp-matrix-add">Añadir al carrito</button>
-                </div>
-                <div class="sp-matrix-grid"></div>
-                <div class="text-muted small mt-2">Se añade para el <b>color seleccionado</b>.</div>
-            </div>
-        `);
+            // Punto de inserción: debajo del CTA
+            const $anchor = this.$root.find('.o_wsale_cta_wrapper, form[action*="/shop/cart/update"]').last();
+            if (!$anchor.length) return;
 
-        const $grid = $box.find('.sp-matrix-grid');
-
-        // Renderiza lista de tallas con input de cantidad
-        rowGroup.$inputs.each(function () {
-            const $inp = $(this);
-            const valId = parseInt($inp.val() || '0', 10);
-            const label = ($inp.closest('label').text() || $inp.data('value_name') || '').trim() || $inp.attr('title') || `#${valId}`;
-            const row = $(`
-                <div class="sp-row d-flex align-items-center py-1">
-                    <div class="sp-size badge me-2">${label}</div>
-                    <input class="form-control form-control-sm sp-qty" type="number" min="0" step="1" value="0"
-                           data-size-input-id="${valId}">
+            const $box = $(`
+                <div class="sp-matrix card rounded p-3 mt-3">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="fw-semibold">Pedido rápido (Color × Talla)</div>
+                    <button class="btn btn-sm btn-primary sp-matrix-add">Añadir seleccionados</button>
+                  </div>
+                  <div class="table-responsive">
+                    <table class="table table-sm align-middle sp-matrix-table">
+                      <thead><tr><th>Talla</th></tr></thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
                 </div>
             `);
-            $grid.append(row);
-        });
+            const $theadRow = $box.find('thead tr');
+            const $tbody    = $box.find('tbody');
 
-        // Click en “Añadir”
-        $box.on('click', '.sp-matrix-add', async (ev) => {
-            ev.preventDefault();
-            const $rows = $box.find('.sp-qty');
-            if (!$rows.length) return;
+            // Cabecera: colores
+            const colors = [];
+            colGroup.$inputs.each(function () {
+                const $r = $(this);
+                const id = parseInt($r.val() || '0', 10);
+                const name =
+                    ($r.closest('label').text() || $r.data('value_name') || $r.attr('title') || `#${id}`).trim();
+                colors.push({ id, $r, name });
+                $theadRow.append(`<th class="text-center">${esc(name)}</th>`);
+            });
 
-            // Color actual (no lo tocamos)
-            const currentProductId = parseInt(this.$root.find('input[name="product_id"]').val() || '0', 10);
+            // Guardar selección original para restaurar al final
+            const $origColor = colGroup.$inputs.filter(':checked');
+            const $origSize  = rowGroup.$inputs.filter(':checked');
+            const origPid    = parseInt(this.$root.find('input[name="product_id"]').val() || '0', 10);
 
-            // Recorremos tallas con qty > 0 y añadimos una por una para asegurar combinación correcta
-            for (const el of $rows.toArray()) {
-                const $qty = $(el);
-                const qty = parseFloat($qty.val() || '0');
-                if (qty <= 0) continue;
+            // Filas: tallas; celdas: cada color → resolvemos variant_id programáticamente
+            const self = this;
+            for (const sizeRadio of rowGroup.$inputs.toArray()) {
+                const $s = $(sizeRadio);
+                const sizeId = parseInt($s.val() || '0', 10);
+                const sizeName =
+                    ($s.closest('label').text() || $s.data('value_name') || $s.attr('title') || `#${sizeId}`).trim();
+                const $tr = $(`<tr><th>${esc(sizeName)}</th></tr>`);
 
-                // Selecciona la talla correspondiente (dispara recalculo de combinación)
-                const sizeValId = $qty.data('size-input-id');
-                const $sizeRadio = rowGroup.$inputs.filter((_, r) => parseInt(r.value || '0', 10) === sizeValId);
-                if ($sizeRadio.length) {
-                    // Guardamos id actual y forzamos el cambio
-                    const before = parseInt(this.$root.find('input[name="product_id"]').val() || '0', 10);
-                    $sizeRadio.prop('checked', true).change();
-                    const variantId = await waitProductIdChange(this.$root, before);
+                for (const col of colors) {
+                    const before = parseInt(self.$root.find('input[name="product_id"]').val() || '0', 10);
+                    // Seleccionamos color + talla, dejamos que Odoo calcule combinación
+                    col.$r.prop('checked', true).change();
+                    $s.prop('checked', true).change();
+                    const variantId = await waitProductIdChange(self.$root, before);
 
-                    if (variantId) {
-                        await ajax.jsonRpc('/shop/cart/update_json', 'call', {
-                            product_id: variantId,
-                            add_qty: qty,
-                            display: false,
-                        });
-                    }
+                    const $td = $(`
+                        <td class="text-center">
+                          <input type="number" class="form-control form-control-sm sp-qty"
+                                 min="0" step="1" value="0" data-variant-id="${variantId}">
+                        </td>
+                    `);
+                    $tr.append($td);
                 }
+                $tbody.append($tr);
             }
 
-            // Restaura la combinación original (por UX) si cambió
-            if (currentProductId) {
-                // Encuentra radios que llevan a ese product_id (opcional). Como es costoso, refrescamos.
-                window.location.reload();
-            } else {
-                // Por si acaso
-                window.location.reload();
-            }
-        });
+            // Restaurar selección original
+            if ($origColor.length) $origColor.prop('checked', true).change();
+            if ($origSize.length)  $origSize.prop('checked', true).change();
+            await waitProductIdChange(this.$root, origPid);
 
-        $anchor.after($box);
-    },
+            // Insertar en la página
+            $anchor.after($box);
+
+            // Añadir al carrito todo lo marcado
+            $box.on('click', '.sp-matrix-add', async function (ev) {
+                ev.preventDefault();
+                const calls = [];
+                $box.find('.sp-qty').each(function () {
+                    const qty = parseFloat(this.value || '0');
+                    const variantId = parseInt(this.dataset.variantId || '0', 10);
+                    if (qty > 0 && variantId) {
+                        calls.push(ajax.jsonRpc('/shop/cart/update_json', 'call', {
+                            product_id: variantId, add_qty: qty, display: false,
+                        }));
+                    }
+                });
+                if (!calls.length) return;
+                await Promise.all(calls);
+                window.location.reload();
+            });
+        },
+    });
+
+    return publicWidget.registry.SerialPrinterMatrixGrid;
 });
-
-export default publicWidget.registry.SerialPrinterMatrix;
