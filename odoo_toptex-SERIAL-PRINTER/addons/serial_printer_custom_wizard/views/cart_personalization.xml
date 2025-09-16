@@ -1,10 +1,10 @@
 <odoo>
-  <!-- Inserta la previsualización PNG debajo del nombre/descripcion de la línea -->
-  <template id="cart_line_personalization" inherit_id="website_sale.cart_line" name="PNG personalization on cart line">
-    <xpath expr=".//div[contains(@class,'td-product_name')]|.//div[contains(@class,'css_description')]" position="inside">
+  <template id="cart_line_personalization" inherit_id="website_sale.cart_line">
+    <xpath expr=".//div[contains(@class,'td-product_name')]" position="inside">
       <t t-if="line.x_personalization_png">
         <div class="mt-2">
-          <img t-att-src="'data:image/png;base64,%s' % line.x_personalization_png" style="max-width:180px; border:1px solid #eee;"/>
+          <img t-att-src="'data:image/png;base64,%s' % line.x_personalization_png"
+               style="max-width:180px; border:1px solid #eee;"/>
         </div>
       </t>
     </xpath>
