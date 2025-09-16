@@ -1,2 +1,3 @@
-# serial_printer_custom_wizard/__init__.py
+# -*- coding: utf-8 -*-
 from . import controllers
+from . import models
