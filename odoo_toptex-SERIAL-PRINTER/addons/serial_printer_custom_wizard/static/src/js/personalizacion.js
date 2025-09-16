@@ -3,25 +3,29 @@ odoo.define('serial_printer_custom_wizard.personalization', function (require) {
 
     const ajax = require('web.ajax');
 
-    async function canvasToBase64(canvas) {
-        // iOS/Safari: usar toDataURL como fallback
+    function canvasToBase64(canvas) {
         try {
-            if (canvas.toBlob) {
-                const b64 = await new Promise(resolve => {
-                    canvas.toBlob(function (blob) {
-                        if (!blob) return resolve(null);
-                        const reader = new FileReader();
-                        reader.onloadend = () => resolve(reader.result.split(',')[1]);
-                        reader.readAsDataURL(blob);
-                    });
-                });
-                if (b64) return b64;
-            }
-            // Fallback
-            return canvas.toDataURL('image/png').split(',')[1];
+            // Safari iOS: toDataURL es lo más fiable si no hay CORS
+            return canvas.toDataURL('image/png'); // incluye header data:
         } catch (e) {
             return null;
         }
+    }
+
+    function b64ToBlob(b64Data, contentType) {
+        contentType = contentType || 'image/png';
+        const sliceSize = 512;
+        const byteCharacters = atob(b64Data);
+        const byteArrays = [];
+        for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+            const slice = byteCharacters.slice(offset, offset + sliceSize);
+            const byteNumbers = new Array(slice.length);
+            for (let i = 0; i < slice.length; i++) {
+                byteNumbers[i] = slice.charCodeAt(i);
+            }
+            byteArrays.push(new Uint8Array(byteNumbers));
+        }
+        return new Blob(byteArrays, { type: contentType });
     }
 
     async function addToCart() {
@@ -41,19 +45,17 @@ odoo.define('serial_printer_custom_wizard.personalization', function (require) {
 
         const canvas = document.getElementById('personalization-canvas');
         if (canvas) {
-            const b64 = await canvasToBase64(canvas); // puede ser null y es OK
-            if (b64) {
-                payload.png_b64 = b64;
+            const dataUrl = canvasToBase64(canvas); // "data:image/png;base64,....."
+            if (dataUrl) {
+                payload.png_b64 = dataUrl; // el backend lo sanea
                 payload.png_name = 'personalizacion.png';
             }
         }
 
         try {
-            const res = await ajax.jsonRpc('/personalizacion/add_to_cart', 'call', payload);
-            // Aunque res.ok sea false, a veces la línea está creada; llevamos al carrito igualmente
+            await ajax.jsonRpc('/personalizacion/add_to_cart', 'call', payload);
             window.location = '/shop/cart';
         } catch (e) {
-            // Si el JSON falla por cualquier motivo, redirigimos igual (la línea suele estar creada)
             window.location = '/shop/cart';
         }
     }
@@ -61,14 +63,22 @@ odoo.define('serial_printer_custom_wizard.personalization', function (require) {
     async function downloadPNG() {
         const canvas = document.getElementById('personalization-canvas');
         if (!canvas) return;
-        const b64 = await canvasToBase64(canvas);
-        if (!b64) return; // si no hay canvas exportable, no hacemos nada
+
+        const dataUrl = canvasToBase64(canvas);
+        if (!dataUrl) return;
+
+        // dataUrl -> Blob -> descarga (mejor compatibilidad iOS)
+        const b64 = dataUrl.split('base64,')[1];
+        const blob = b64ToBlob(b64, 'image/png');
+        const url = URL.createObjectURL(blob);
+
         const a = document.createElement('a');
-        a.href = 'data:image/png;base64,' + b64;
+        a.href = url;
         a.download = 'personalizacion.png';
         document.body.appendChild(a);
         a.click();
         a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
     }
 
     function bind() {
@@ -78,10 +88,13 @@ odoo.define('serial_printer_custom_wizard.personalization', function (require) {
             addToCart();
         });
         const dlBtn = document.getElementById('btn-download-png');
-        if (dlBtn) dlBtn.addEventListener('click', function (ev) {
-            ev.preventDefault();
-            downloadPNG();
-        });
+        if (dlBtn) {
+            dlBtn.removeAttribute('disabled'); // por si el template lo dejó desactivado
+            dlBtn.addEventListener('click', function (ev) {
+                ev.preventDefault();
+                downloadPNG();
+            });
+        }
     }
 
     document.addEventListener('DOMContentLoaded', bind);
