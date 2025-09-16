@@ -15,8 +15,17 @@
         <div class="row g-4">
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
+
+              <!-- *** PUNTO 6: IMAGEN INTERNA DE ODOO (same-origin, evita CORS en canvas) *** -->
+              <img id="spw-base-img"
+                   t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
+                   class="d-none" alt="Base interna Odoo"/>
+
+              <!-- Imagen visible (la que ya usabas) -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
+
+              <!-- Overlay del logo -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
           </div>
@@ -113,7 +122,7 @@
                 <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
+                     onclick="window.spwReset && window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -185,7 +194,11 @@
         }
 
         async function renderPNGDataURL(){
-          var baseSrc = $val("spw_img_src","") || ($("#spw_product_img")||{}).getAttribute("src");
+          // *** Prioriza la imagen interna de Odoo (spw-base-img) para evitar CORS ***
+          var internalBaseEl = $("#spw-base-img");
+          var baseSrc = (internalBaseEl && internalBaseEl.getAttribute("src")) ||
+                        $val("spw_img_src","") ||
+                        ($("#spw_product_img")||{}).getAttribute("src");
           if(!baseSrc) throw new Error("Sin imagen base.");
 
           var baseIm = await loadImage(baseSrc);
@@ -258,7 +271,7 @@
           var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
-          var pngB64=""; try{ pngB64 = dataURLtoBase64(await renderPNGDataURL()); }catch(e){}
+          var pngB64=""; try{ var du = await renderPNGDataURL(); pngB64 = du ? du.split('base64,')[1] : ""; }catch(e){}
 
           // 1) meta JSON -> fallback HTTP
           var r1 = await postJSON("/spw/add_to_cart_meta", {
@@ -278,20 +291,15 @@
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
 
-        // Descarga compatible iOS/Safari (requiere /spw/download_png en servidor)
+        // Descarga compatible iOS/Safari (abre en pestaña si no soporta "download")
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
-            var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-            var isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-            if (isIOS && isSafari) {
-              var form = document.createElement("form");
-              form.method = "POST"; form.action = "/spw/download_png"; form.target = "_blank";
-              var inp = document.createElement("input"); inp.type="hidden"; inp.name="png_b64"; inp.value=dataURLtoBase64(dataUrl);
-              form.appendChild(inp); document.body.appendChild(form); form.submit();
-              setTimeout(function(){ form.remove(); }, 1500);
+            var a = document.createElement("a");
+            a.href = dataUrl; a.download = "personalizacion.png";
+            if (typeof a.download === "undefined" || /iPad|iPhone|iPod/.test(navigator.userAgent)) {
+              window.open(dataUrl, "_blank");
             } else {
-              var a = document.createElement("a"); a.href = dataUrl; a.download = "personalizacion.png";
               document.body.appendChild(a); a.click(); a.remove();
             }
           }catch(e){ alert("No se pudo generar el PNG."); }
@@ -331,7 +339,7 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN UNIVERSAL EN website.layout (EVITA XMLIDs DE ASSETS) ============ -->
+  <!-- (Opcional) Inyección de preview en carrito si ya tienes los endpoints /spw/line_preview/... -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript">
@@ -340,19 +348,15 @@
           function inject(){
             try {
               if (!/\/shop\/cart/.test(window.location.pathname)) return;
-              // Soporta distintos themes: busca contenedor por data-line-id
               document.querySelectorAll('[data-line-id]').forEach(function(el){
                 var id = el.getAttribute('data-line-id');
                 if(!id || el.querySelector('.spw-preview')) return;
                 var url = '/spw/line_preview/' + id + '.png';
                 var img = document.createElement('img');
-                img.src = url;
-                img.alt = 'Personalización';
+                img.src = url; img.alt = 'Personalización';
                 img.className = 'spw-preview';
-                img.style.maxWidth='120px';
-                img.style.border='1px solid #e5e7eb';
-                img.style.borderRadius='6px';
-                img.style.marginLeft='8px';
+                img.style.maxWidth='120px'; img.style.border='1px solid #e5e7eb';
+                img.style.borderRadius='6px'; img.style.marginLeft='8px';
                 var target = el.querySelector('.o_wsale_product_information, .o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_info, .o_wsale_product_img') || el;
                 target.appendChild(img);
               });
