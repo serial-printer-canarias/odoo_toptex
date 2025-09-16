@@ -14,8 +14,8 @@
         "web.assets_frontend": [
             "serial_printer_custom_wizard/static/src/js/spw_button.js",
             "serial_printer_custom_wizard/static/src/js/spw_logo_preview.js",
-            "serial_printer_custom_wizard/static/src/js/customizer.js"
-            "serial_printer_custom_wizard/static/src/js/ns300_colors.js"
+            "serial_printer_custom_wizard/static/src/js/customizer.js",
+            "serial_printer_custom_wizard/static/src/js/ns300_colors.js",
             "serial_printer_custom_wizard/static/src/js/spw_options.js",
             "serial_printer_custom_wizard/static/src/js/spw_cart.js",
             "serial_printer_custom_wizard/static/src/js/spw.js",
