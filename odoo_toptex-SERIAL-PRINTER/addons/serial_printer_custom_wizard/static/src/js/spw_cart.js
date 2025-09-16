@@ -1,4 +1,4 @@
-odoo.define('serial_printer_custom_wizard.spw_cart', function (require) {
+odoo.define('serial_printer_custom_wizard.spw_cart', [], function (require) {
     'use strict';
     window.SPW = window.SPW || {};
 
