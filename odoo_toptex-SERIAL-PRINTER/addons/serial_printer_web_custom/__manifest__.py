@@ -8,7 +8,7 @@
     "license": "LGPL-3",
     "depends": ["website_sale"],
     "data": [
-        "views/product_template.xml",
+        "views/product_template.xml"
     ],
     "assets": {
         "web.assets_frontend": [
