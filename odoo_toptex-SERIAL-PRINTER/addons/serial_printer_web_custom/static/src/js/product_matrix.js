@@ -1,153 +1,147 @@
-/** serial_printer_web_custom/static/src/js/product_matrix.js **/
+/** addons/serial_printer_web_custom/static/src/js/product_matrix.js **/
 odoo.define('serial_printer_web_custom.product_matrix', function (require) {
     'use strict';
 
-    const publicWidget = require('web.public.widget');
-    const ajax = require('web.ajax');
-
-    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-    async function waitProductIdChange($root, before, timeout = 1500) {
-        const start = Date.now();
-        while (Date.now() - start < timeout) {
-            const cur = parseInt($root.find('input[name="product_id"]').val() || '0', 10);
-            if (cur && cur !== before) return cur;
-            await sleep(40);
-        }
-        return parseInt($root.find('input[name="product_id"]').val() || '0', 10);
-    }
-    function esc(s) {
-        return String(s || '').replace(/[&<>"']/g, m => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-        }[m]));
+    // Utilidad simple para ejecutar cuando el DOM está listo
+    function onReady(fn) {
+        if (document.readyState !== 'loading') fn();
+        else document.addEventListener('DOMContentLoaded', fn);
     }
 
-    publicWidget.registry.SerialPrinterMatrixGrid = publicWidget.Widget.extend({
-        selector: '.o_wsale_product_page',
+    // Detecta los bloques de atributos (Color, Talla, etc.) en la ficha
+    function getAttributeBlocks() {
+        // Odoo cambia clases entre versiones; buscamos varias opciones
+        const blocks = Array.from(document.querySelectorAll(
+            '.js_attribute, .o_wsale_product_configurator .row > div, [data-attribute_name]'
+        )).map(el => {
+            const labelEl = el.querySelector('.form-label, .o_variant_label, label, .attribute_name');
+            const name = (labelEl?.textContent || el.getAttribute('data-attribute_name') || '').trim().toLowerCase();
+            const radios = Array.from(el.querySelectorAll('input[type="radio"]'));
+            if (!name || !radios.length) return null;
+            const options = radios.map(r => {
+                // Odoo suele poner data-value_id en el input o en el <li> contenedor
+                const li = r.closest('li,[data-value_id]');
+                const id = r.dataset.valueId || li?.dataset.valueId || r.value;
+                // El texto visible puede estar en el label asociado o en el botón/etiqueta
+                const txt =
+                    (r.closest('label')?.textContent ||
+                     li?.textContent ||
+                     r.getAttribute('data-value_name') ||
+                     '').trim();
+                return id ? { id, text: txt } : null;
+            }).filter(Boolean);
+            return options.length ? { name, el, options } : null;
+        }).filter(Boolean);
 
-        start: function () {
-            this.$root = this.$el;
-            this._buildMatrix();
-            return this._super.apply(this, arguments);
-        },
+        // Intenta reconocer color y talla por nombre
+        const isColor = n => /(color|colour|couleur|farbe)/i.test(n);
+        const isSize  = n => /(talla|size|taille|größe|maat|taglia)/i.test(n);
 
-        _groups: function () {
-            const groups = [];
-            // Odoo 18 suele usar estas clases para los grupos de atributos
-            this.$root.find('.css_attribute, .css_attribute_color').each(function () {
-                const $g = $(this);
-                const title = ($g.find('.attribute_name, label, .o_wsale_attr_label').first().text() || '').trim();
-                const $inputs = $g.find('input[type="radio"].js_variant_change');
-                if ($inputs.length) groups.push({ $g, title, $inputs });
+        const color = blocks.find(b => isColor(b.name)) || blocks[0];
+        const size  = blocks.find(b => isSize(b.name))  || blocks[1];
+
+        return { color, size };
+    }
+
+    // Construye el grid HTML
+    function renderGrid({ color, size }) {
+        if (!color || !size) return;
+        if (document.querySelector('#sp-matrix')) return; // evitar duplicados
+
+        const container = document.createElement('div');
+        container.id = 'sp-matrix';
+        container.className = 'sp-matrix';
+
+        // Cabecera con tallas (columnas)
+        const header = document.createElement('div');
+        header.className = 'sp-matrix__row sp-matrix__row--header';
+        header.appendChild(document.createElement('div')).className = 'sp-matrix__cell sp-matrix__cell--corner';
+        size.options.forEach(opt => {
+            const c = document.createElement('div');
+            c.className = 'sp-matrix__cell sp-matrix__cell--head';
+            c.textContent = opt.text || opt.id;
+            header.appendChild(c);
+        });
+        container.appendChild(header);
+
+        // Filas por color
+        color.options.forEach(col => {
+            const row = document.createElement('div');
+            row.className = 'sp-matrix__row';
+            const head = document.createElement('div');
+            head.className = 'sp-matrix__cell sp-matrix__cell--rowhead';
+            head.textContent = col.text || col.id;
+            row.appendChild(head);
+
+            size.options.forEach(sz => {
+                const cell = document.createElement('div');
+                cell.className = 'sp-matrix__cell';
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.min = '0';
+                input.step = '1';
+                input.value = '';
+                input.placeholder = '0';
+                input.className = 'sp-matrix__qty';
+                // Guardamos las claves para conectar con el carrito en el siguiente paso
+                input.dataset.colorId = col.id;
+                input.dataset.sizeId = sz.id;
+                cell.appendChild(input);
+                row.appendChild(cell);
             });
-            return groups;
-        },
 
-        _detectRowColGroups: function (groups) {
-            const sizeIdx  = groups.findIndex(g => /(talla|size|größe|taglia|maat|tamanho)/i.test(g.title));
-            const colorIdx = groups.findIndex(g => /(color|colour|farbe|colore|kleur|cor)/i.test(g.title));
-            if (sizeIdx < 0 || colorIdx < 0) return null;
-            return { rowGroup: groups[sizeIdx], colGroup: groups[colorIdx] };
-        },
+            container.appendChild(row);
+        });
 
-        _buildMatrix: async function () {
-            const groups = this._groups();
-            if (groups.length < 2) return;
-            const picked = this._detectRowColGroups(groups);
-            if (!picked) return;
+        // Botón de añadir múltiples
+        const actions = document.createElement('div');
+        actions.className = 'sp-matrix__actions';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-primary sp-matrix__add';
+        btn.textContent = odoo && odoo._t ? odoo._t('Add to cart (matrix)') : 'Add to cart (matrix)';
+        actions.appendChild(btn);
+        container.appendChild(actions);
 
-            const { rowGroup, colGroup } = picked;
+        // Inserta el grid *después* del selector de variantes
+        const variantsWrapper =
+            document.querySelector('.o_wsale_product_configurator') ||
+            color.el.closest('.o_wsale_product_configurator, .product-configurator, form') ||
+            document.querySelector('#product_details, .o_wsale_product_page') ||
+            document.querySelector('main');
 
-            // Punto de inserción: debajo del CTA
-            const $anchor = this.$root.find('.o_wsale_cta_wrapper, form[action*="/shop/cart/update"]').last();
-            if (!$anchor.length) return;
+        variantsWrapper?.appendChild(container);
 
-            const $box = $(`
-                <div class="sp-matrix card rounded p-3 mt-3">
-                  <div class="d-flex justify-content-between align-items-center mb-2">
-                    <div class="fw-semibold">Pedido rápido (Color × Talla)</div>
-                    <button class="btn btn-sm btn-primary sp-matrix-add">Añadir seleccionados</button>
-                  </div>
-                  <div class="table-responsive">
-                    <table class="table table-sm align-middle sp-matrix-table">
-                      <thead><tr><th>Talla</th></tr></thead>
-                      <tbody></tbody>
-                    </table>
-                  </div>
-                </div>
-            `);
-            const $theadRow = $box.find('thead tr');
-            const $tbody    = $box.find('tbody');
-
-            // Cabecera: colores
-            const colors = [];
-            colGroup.$inputs.each(function () {
-                const $r = $(this);
-                const id = parseInt($r.val() || '0', 10);
-                const name =
-                    ($r.closest('label').text() || $r.data('value_name') || $r.attr('title') || `#${id}`).trim();
-                colors.push({ id, $r, name });
-                $theadRow.append(`<th class="text-center">${esc(name)}</th>`);
-            });
-
-            // Guardar selección original para restaurar al final
-            const $origColor = colGroup.$inputs.filter(':checked');
-            const $origSize  = rowGroup.$inputs.filter(':checked');
-            const origPid    = parseInt(this.$root.find('input[name="product_id"]').val() || '0', 10);
-
-            // Filas: tallas; celdas: cada color → resolvemos variant_id programáticamente
-            const self = this;
-            for (const sizeRadio of rowGroup.$inputs.toArray()) {
-                const $s = $(sizeRadio);
-                const sizeId = parseInt($s.val() || '0', 10);
-                const sizeName =
-                    ($s.closest('label').text() || $s.data('value_name') || $s.attr('title') || `#${sizeId}`).trim();
-                const $tr = $(`<tr><th>${esc(sizeName)}</th></tr>`);
-
-                for (const col of colors) {
-                    const before = parseInt(self.$root.find('input[name="product_id"]').val() || '0', 10);
-                    // Seleccionamos color + talla, dejamos que Odoo calcule combinación
-                    col.$r.prop('checked', true).change();
-                    $s.prop('checked', true).change();
-                    const variantId = await waitProductIdChange(self.$root, before);
-
-                    const $td = $(`
-                        <td class="text-center">
-                          <input type="number" class="form-control form-control-sm sp-qty"
-                                 min="0" step="1" value="0" data-variant-id="${variantId}">
-                        </td>
-                    `);
-                    $tr.append($td);
-                }
-                $tbody.append($tr);
+        // De momento, solo feedback visual (no carrito)
+        btn.addEventListener('click', () => {
+            // Esto es solo para comprobar que el grid “funciona”
+            const filled = Array.from(container.querySelectorAll('.sp-matrix__qty'))
+                .filter(i => parseFloat(i.value || '0') > 0)
+                .map(i => ({
+                    colorId: i.dataset.colorId,
+                    sizeId: i.dataset.sizeId,
+                    qty: parseFloat(i.value),
+                }));
+            if (!filled.length) {
+                alert('Introduce cantidades en el grid.');
+                return;
             }
+            console.log('[SP] Cantidades capturadas (grid):', filled);
+            alert('Grid OK. Cantidades capturadas en consola. (Conectamos al carrito en el siguiente paso).');
+        });
+    }
 
-            // Restaurar selección original
-            if ($origColor.length) $origColor.prop('checked', true).change();
-            if ($origSize.length)  $origSize.prop('checked', true).change();
-            await waitProductIdChange(this.$root, origPid);
-
-            // Insertar en la página
-            $anchor.after($box);
-
-            // Añadir al carrito todo lo marcado
-            $box.on('click', '.sp-matrix-add', async function (ev) {
-                ev.preventDefault();
-                const calls = [];
-                $box.find('.sp-qty').each(function () {
-                    const qty = parseFloat(this.value || '0');
-                    const variantId = parseInt(this.dataset.variantId || '0', 10);
-                    if (qty > 0 && variantId) {
-                        calls.push(ajax.jsonRpc('/shop/cart/update_json', 'call', {
-                            product_id: variantId, add_qty: qty, display: false,
-                        }));
-                    }
-                });
-                if (!calls.length) return;
-                await Promise.all(calls);
-                window.location.reload();
-            });
-        },
+    onReady(() => {
+        try {
+            const blocks = getAttributeBlocks();
+            if (!blocks.color || !blocks.size) {
+                console.warn('[SP] No se detectaron correctamente los atributos de Color/Talla.');
+                return;
+            }
+            renderGrid(blocks);
+            console.log('[SP] Matriz cargada.');
+        } catch (e) {
+            console.error('[SP] Error al construir la matriz:', e);
+        }
     });
-
-    return publicWidget.registry.SerialPrinterMatrixGrid;
 });
