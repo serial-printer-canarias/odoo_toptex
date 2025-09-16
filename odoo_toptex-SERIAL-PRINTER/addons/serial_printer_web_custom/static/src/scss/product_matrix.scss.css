@@ -1,24 +1,16 @@
-odoo.define('serial_printer_custom_wizard.personalizar_preview', function (require) {
-    'use strict';
-    const publicWidget = require('web.public.widget');
-
-    publicWidget.registry.spwPreview = publicWidget.Widget.extend({
-        selector: '#spw_wrapper',
-        start() {
-            this.$logoInput = this.$('#spw_logo');
-            this.$logoPreview = this.$('#spw_logo_preview');
-            if (this.$logoInput.length) {
-                this.$logoInput.on('change', this._onLogoChange.bind(this));
-            }
-            return this._super(...arguments);
-        },
-        _onLogoChange(ev) {
-            const file = ev.target.files && ev.target.files[0];
-            if (!file) return;
-            const url = URL.createObjectURL(file);
-            this.$logoPreview.attr('src', url).removeClass('d-none');
-        },
-    });
-
-    return publicWidget.registry.spwPreview;
-});
+/* addons/serial_printer_web_custom/static/src/scss/product_matrix.scss */
+#sp-matrix.sp-matrix {
+  margin-top: 1.25rem;
+  border: 1px solid var(--o-border, #e6e6e6);
+  border-radius: .5rem;
+  overflow: hidden;
+  font-size: .95rem;
+}
+.sp-matrix__row { display: grid; grid-template-columns: 180px repeat(auto-fit, minmax(70px, 1fr)); }
+.sp-matrix__row--header { background: #f7f7f9; font-weight: 600; }
+.sp-matrix__cell { padding: .5rem .6rem; border-bottom: 1px solid #ececec; border-right: 1px solid #ececec; }
+.sp-matrix__cell--corner { background: #f7f7f9; border-right: 1px solid #ececec; }
+.sp-matrix__cell--rowhead { background: #fafafa; font-weight: 600; }
+.sp-matrix__cell:last-child { border-right: 0; }
+.sp-matrix__qty { width: 100%; text-align: center; }
+.sp-matrix__actions { padding: .75rem; display: flex; justify-content: flex-end; gap: .5rem; }
