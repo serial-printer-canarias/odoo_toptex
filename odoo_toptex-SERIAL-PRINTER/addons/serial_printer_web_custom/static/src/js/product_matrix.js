@@ -20,7 +20,7 @@ odoo.define('serial_printer_web_custom.product_matrix', function (require) {
                     }));
                 }
             });
-            if (!calls.length) { return; }
+            if (!calls.length) return;
             Promise.all(calls).then(() => window.location.reload());
         },
     });
