@@ -6,7 +6,6 @@ odoo.define('serial_printer_web_custom.product_matrix', function (require) {
     publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
         selector: '.o_wsale_product_page',
         events: { 'click .add-to-cart-btn': '_onAddToCartColor' },
-
         _onAddToCartColor: function (ev) {
             ev.preventDefault();
             const $btn = $(ev.currentTarget);
@@ -21,7 +20,7 @@ odoo.define('serial_printer_web_custom.product_matrix', function (require) {
                     }));
                 }
             });
-            if (!calls.length) return;
+            if (!calls.length) { return; }
             Promise.all(calls).then(() => window.location.reload());
         },
     });
