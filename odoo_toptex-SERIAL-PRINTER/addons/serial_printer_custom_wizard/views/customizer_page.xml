@@ -16,12 +16,12 @@
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
 
-              <!-- *** PUNTO 6: IMAGEN INTERNA DE ODOO (same-origin, evita CORS en canvas) *** -->
+              <!-- *** PUNTO 6: IMAGEN INTERNA ODOO (same-origin) PARA EVITAR CORS EN CANVAS *** -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
 
-              <!-- Imagen visible (la que ya usabas) -->
+              <!-- Imagen visible que ya usabas -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
 
@@ -121,8 +121,9 @@
 
                 <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <!-- OJO: &amp;&amp; ESCAPADO PARA EVITAR EL XMLSyntaxError -->
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset && window.spwReset();">Reset</a>
+                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -194,7 +195,7 @@
         }
 
         async function renderPNGDataURL(){
-          // *** Prioriza la imagen interna de Odoo (spw-base-img) para evitar CORS ***
+          // Prioriza la imagen interna de Odoo (evita CORS)
           var internalBaseEl = $("#spw-base-img");
           var baseSrc = (internalBaseEl && internalBaseEl.getAttribute("src")) ||
                         $val("spw_img_src","") ||
@@ -266,8 +267,8 @@
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
-          var tech=( ($("input[name='spw_tech']:checked")||{}).value )||"";
-          var svgColor=( ($("input[name='spw_svg_color']:checked")||{}).value )||"";
+          var tech=( (document.querySelector("input[name='spw_tech']:checked")||{}).value )||"";
+          var svgColor=( (document.querySelector("input[name='spw_svg_color']:checked")||{}).value )||"";
           var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
@@ -291,7 +292,7 @@
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
 
-        // Descarga compatible iOS/Safari (abre en pestaña si no soporta "download")
+        // Descarga compatible iOS/Safari: abre en pestaña si no soporta "download"
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
@@ -306,8 +307,8 @@
         }
 
         function init(){
-          var logoInput=$("#spw_logo_input");
-          var logoEl=$("#spw_logo_preview");
+          var logoInput=document.getElementById("spw_logo_input");
+          var logoEl=document.getElementById("spw_logo_preview");
           if(logoInput){
             logoInput.addEventListener("change", async function(ev){
               var f = ev.target.files && ev.target.files[0]; if(!f) return;
@@ -320,15 +321,18 @@
             });
           }
           ["spw_size","spw_pos_x","spw_pos_y","spw_rotation"].forEach(function(id){
-            var el=$("#"+id); if(el) el.addEventListener("input", applyTransform);
+            var el=document.getElementById(id); if(el) el.addEventListener("input", applyTransform);
           });
           window.spwReset=function(){
-            $("#spw_size").value=100; $("#spw_pos_x").value=0; $("#spw_pos_y").value=10; $("#spw_rotation").value=0;
+            document.getElementById("spw_size").value=100;
+            document.getElementById("spw_pos_x").value=0;
+            document.getElementById("spw_pos_y").value=10;
+            document.getElementById("spw_rotation").value=0;
             applyTransform();
           };
 
-          var dl=$("#spw_download_png"); if(dl){ dl.addEventListener("click", function(){ downloadPNGiOSSafe(); }); }
-          var add=$("#spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
+          var dl=document.getElementById("spw_download_png"); if(dl){ dl.addEventListener("click", function(){ downloadPNGiOSSafe(); }); }
+          var add=document.getElementById("spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
 
           applyTransform();
         }
@@ -337,40 +341,6 @@
       })();
       ]]></script>
     </t>
-  </template>
-
-  <!-- (Opcional) Inyección de preview en carrito si ya tienes los endpoints /spw/line_preview/... -->
-  <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
-    <xpath expr="//body" position="inside">
-      <script type="text/javascript">
-        //<![CDATA[
-        (function(){
-          function inject(){
-            try {
-              if (!/\/shop\/cart/.test(window.location.pathname)) return;
-              document.querySelectorAll('[data-line-id]').forEach(function(el){
-                var id = el.getAttribute('data-line-id');
-                if(!id || el.querySelector('.spw-preview')) return;
-                var url = '/spw/line_preview/' + id + '.png';
-                var img = document.createElement('img');
-                img.src = url; img.alt = 'Personalización';
-                img.className = 'spw-preview';
-                img.style.maxWidth='120px'; img.style.border='1px solid #e5e7eb';
-                img.style.borderRadius='6px'; img.style.marginLeft='8px';
-                var target = el.querySelector('.o_wsale_product_information, .o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_info, .o_wsale_product_img') || el;
-                target.appendChild(img);
-              });
-            } catch(_e) {}
-          }
-          if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', function(){ inject(); setTimeout(inject, 600); });
-          } else {
-            inject(); setTimeout(inject, 600);
-          }
-        })();
-        //]]>
-      </script>
-    </xpath>
   </template>
 
 </odoo>
