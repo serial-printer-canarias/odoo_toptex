@@ -1,4 +1,4 @@
-odoo.define('serial_printer_custom_wizard.spw', function (require) {
+odoo.define('serial_printer_custom_wizard.spw', [], function (require) {
     'use strict';
 
     // --- Polyfill web.ajax (arregla: "modules needed... web.ajax") ---
