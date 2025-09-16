@@ -5,37 +5,34 @@
             name="Serial Printer Product View"
             priority="9999">
 
-    <!-- Insertamos el bloque justo DESPUÉS de #product_details -->
-    <xpath expr="//div[@id='product_details']" position="after">
-
-      <!-- Marcador visible para verificar que la vista entra -->
+    <!-- 1) MARCADOR: siempre entra, anclado al root de la plantilla -->
+    <xpath expr="." position="inside">
       <div class="alert alert-info my-3 sp-matrix-marker" role="alert">
         Matriz Serial Printer <strong>activa</strong>.
       </div>
+    </xpath>
 
-      <!-- Stock rápido de la variante principal -->
+    <!-- 2) MATRIZ: bajo el bloque de detalles del producto -->
+    <xpath expr="//div[@id='product_details']" position="after">
+      <!-- Stock rápido -->
       <div class="mt-2">
         <t t-if="product.product_variant_id and product.product_variant_id.qty_available &gt; 0">
           <p class="text-success mb-2">
             ✅ Stock disponible: <t t-esc="product.product_variant_id.qty_available"/> uds
           </p>
         </t>
-        <t t-else="">
-          <p class="text-danger mb-2">❌ Sin stock</p>
-        </t>
+        <t t-else=""><p class="text-danger mb-2">❌ Sin stock</p></t>
       </div>
 
-      <!-- Línea de atributo Color del template -->
+      <!-- Línea Color -->
       <t t-set="color_line"
          t-value="product.attribute_line_ids.filtered(
            lambda l: l.attribute_id.name and l.attribute_id.name.lower() in ['color','colour','couleur','farbe','colore']
          )"/>
 
-      <!-- Matriz por COLOR (usando PTAV en product.product) -->
+      <!-- Matriz por color (PTAV, Odoo 18) -->
       <t t-if="color_line and color_line.value_ids">
         <t t-foreach="color_line.value_ids" t-as="color_val">
-
-          <!-- Variantes que tienen este color -->
           <t t-set="rows"
              t-value="product.product_variant_ids.filtered(
                lambda v: v.product_template_attribute_value_ids.filtered(
@@ -62,7 +59,6 @@
                 </thead>
                 <tbody>
                   <t t-foreach="rows" t-as="variant">
-                    <!-- PTAV de Talla -->
                     <t t-set="ptav_size"
                        t-value="variant.product_template_attribute_value_ids.filtered(
                          lambda ptav: ptav.attribute_id.name and ptav.attribute_id.name.lower() in ['talla','size','taille','größe','groesse','taglia']
@@ -85,23 +81,18 @@
               </table>
             </div>
 
-            <!-- Botón: el JS añadirá todas las cantidades > 0 de este color -->
             <button type="button"
                     class="btn btn-primary add-to-cart-btn"
                     t-att-data-color="color_val.name">
               Añadir al carrito (color <t t-esc="color_val.name"/>)
             </button>
           </div>
-
         </t>
       </t>
 
       <t t-else="">
-        <p class="alert alert-warning mt-3">
-          No hay atributo de Color configurado para este producto.
-        </p>
+        <p class="alert alert-warning mt-3">No hay atributo de Color configurado.</p>
       </t>
-
     </xpath>
   </template>
 </odoo>
