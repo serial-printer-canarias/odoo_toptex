@@ -1,98 +1,29 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <template id="serial_printer_product_stock"
-            inherit_id="website_sale.product"
+  <!-- Heredamos SIEMPRE la plantilla base del producto -->
+  <template id="serial_printer_product_view"
             name="Serial Printer Product View"
-            priority="9999">
+            inherit_id="website_sale.product">
 
-    <!-- 1) MARCADOR: siempre entra, anclado al root de la plantilla -->
-    <xpath expr="." position="inside">
-      <div class="alert alert-info my-3 sp-matrix-marker" role="alert">
-        Matriz Serial Printer <strong>activa</strong>.
+    <!--
+      Anclaje robusto: el DIV "oe_structure" propio de la página de producto.
+      Existe incluso con temas/ediciones de Website Builder.
+    -->
+    <xpath expr="//div[@id='oe_structure_website_sale_product']" position="before">
+      <div class="alert alert-info my-3" role="alert">
+        Matriz Serial Printer: <strong>activa</strong>
       </div>
     </xpath>
 
-    <!-- 2) MATRIZ: bajo el bloque de detalles del producto -->
-    <xpath expr="//div[@id='product_details']" position="after">
-      <!-- Stock rápido -->
-      <div class="mt-2">
-        <t t-if="product.product_variant_id and product.product_variant_id.qty_available &gt; 0">
-          <p class="text-success mb-2">
-            ✅ Stock disponible: <t t-esc="product.product_variant_id.qty_available"/> uds
-          </p>
-        </t>
-        <t t-else=""><p class="text-danger mb-2">❌ Sin stock</p></t>
+    <!--
+      Ejemplo opcional: caja al final de la página de producto
+      (si quieres probar que el heredado funciona en dos puntos distintos)
+    -->
+    <xpath expr="//div[@id='oe_structure_website_sale_product']" position="after">
+      <div class="o-spwc-box mt-4 p-3 border rounded">
+        <t t-esc="'Bloque insertado por serial_printer_web_custom'"/>
       </div>
-
-      <!-- Línea Color -->
-      <t t-set="color_line"
-         t-value="product.attribute_line_ids.filtered(
-           lambda l: l.attribute_id.name and l.attribute_id.name.lower() in ['color','colour','couleur','farbe','colore']
-         )"/>
-
-      <!-- Matriz por color (PTAV, Odoo 18) -->
-      <t t-if="color_line and color_line.value_ids">
-        <t t-foreach="color_line.value_ids" t-as="color_val">
-          <t t-set="rows"
-             t-value="product.product_variant_ids.filtered(
-               lambda v: v.product_template_attribute_value_ids.filtered(
-                 lambda ptav: ptav.attribute_id.name and ptav.attribute_id.name.lower() in ['color','colour','couleur','farbe','colore']
-                 and ptav.product_attribute_value_id.id == color_val.id
-               )
-             )"/>
-
-          <div class="border rounded p-3 mb-4">
-            <h5 class="mb-3 d-flex align-items-center">
-              <span t-att-style="'display:inline-block;width:20px;height:20px;border-radius:50%;background-color:' + (color_val.html_color or '#ccc') + ';border:1px solid #000;margin-right:8px;'"></span>
-              <t t-esc="color_val.name"/>
-            </h5>
-
-            <div class="table-responsive">
-              <table class="table table-sm table-bordered text-center align-middle mb-2">
-                <thead class="table-light">
-                  <tr>
-                    <th style="min-width:72px;">Talla</th>
-                    <th>Stock</th>
-                    <th>Precio</th>
-                    <th style="width:120px;">Cantidad</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <t t-foreach="rows" t-as="variant">
-                    <t t-set="ptav_size"
-                       t-value="variant.product_template_attribute_value_ids.filtered(
-                         lambda ptav: ptav.attribute_id.name and ptav.attribute_id.name.lower() in ['talla','size','taille','größe','groesse','taglia']
-                       )"/>
-                    <tr>
-                      <td><t t-esc="(ptav_size and ptav_size[0].product_attribute_value_id.name) or ''"/></td>
-                      <td><t t-esc="variant.qty_available"/> uds</td>
-                      <td><t t-esc="variant.lst_price"/> €</td>
-                      <td>
-                        <input type="number"
-                               class="form-control form-control-sm qty-input"
-                               t-att-name="'qty_' + str(variant.id)"
-                               t-att-data-variant-id="variant.id"
-                               t-att-data-sku="variant.default_code"
-                               min="0" value="0"/>
-                      </td>
-                    </tr>
-                  </t>
-                </tbody>
-              </table>
-            </div>
-
-            <button type="button"
-                    class="btn btn-primary add-to-cart-btn"
-                    t-att-data-color="color_val.name">
-              Añadir al carrito (color <t t-esc="color_val.name"/>)
-            </button>
-          </div>
-        </t>
-      </t>
-
-      <t t-else="">
-        <p class="alert alert-warning mt-3">No hay atributo de Color configurado.</p>
-      </t>
     </xpath>
+
   </template>
 </odoo>
