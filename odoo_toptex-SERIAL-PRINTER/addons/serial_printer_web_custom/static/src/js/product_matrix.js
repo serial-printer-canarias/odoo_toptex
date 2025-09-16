@@ -1,82 +1,136 @@
-/** Serial Printer – Matrix (Odoo 18) */
-odoo.define('serial_printer_web_custom.product_matrix', function (require) {
-    'use strict';
+/** @odoo-module **/
+import publicWidget from 'web.public.widget';
+import ajax from 'web.ajax';
 
-    const publicWidget = require('web.public.widget');
-    const ajax = require('web.ajax');
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-    /**
-     * Nos anclamos al bloque estable de la página de producto.
-     * (Evita depender de .o_wsale_product_page / #product_details, que pueden no existir según el tema.)
-     */
-    publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
-        selector: '#oe_structure_website_sale_product',
+// Espera a que cambie el product_id (cuando Odoo recalcula la combinación)
+async function waitProductIdChange($root, oldId, timeout = 1500) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+        const cur = parseInt($root.find('input[name="product_id"]').val() || '0', 10);
+        if (cur && cur !== oldId) return cur;
+        await sleep(50);
+    }
+    return parseInt($root.find('input[name="product_id"]').val() || '0', 10);
+}
 
-        /**
-         * Soportamos tus clases actuales y un prefijo propio por si las cambias:
-         *  - Botón:  .add-to-cart-btn  o  .sp-add-to-cart
-         *  - Contenedor: [data-sp-matrix], .sp-matrix, .border.rounded.p-3
-         *  - Cantidades: .qty-input  o  .sp-qty-input  (con data-variant-id)
-         */
-        events: {
-            'click .add-to-cart-btn': '_onAddToCart',
-            'click .sp-add-to-cart':  '_onAddToCart',
-        },
+publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
+    selector: '.o_wsale_product_page',
 
-        /**
-         * Recolecta líneas válidas (qty > 0 y variant id presente) dentro del ámbito dado.
-         */
-        _collectLines($scope) {
-            const lines = [];
-            $scope.find('.sp-qty-input, input.qty-input').each(function () {
-                // Acepta "1,5" o "1.5"
-                const raw = String(this.value || '').trim().replace(',', '.');
-                const qty = parseFloat(raw);
-                const product_id = parseInt(this.dataset.variantId || this.getAttribute('data-variant-id') || '0', 10);
-                if (Number.isFinite(qty) && qty > 0 && product_id) {
-                    lines.push({ product_id, qty });
-                }
-            });
-            return lines;
-        },
+    start() {
+        // Construye matriz si hay al menos dos atributos (p.ej. Color y Talla)
+        this.$root = this.$el;
+        this._buildMatrix();
+        return this._super(...arguments);
+    },
 
-        /**
-         * Click en "Añadir a carrito" del matrix.
-         */
-        _onAddToCart(ev) {
+    // Lee grupos de atributos de la ficha
+    _getAttributeGroups() {
+        const groups = [];
+        this.$root.find('.css_attribute_color, .css_attribute').each(function () {
+            const $g = $(this);
+            // Título del grupo (Color/Talla/Size, etc.)
+            const title = ($g.find('.attribute_name, label, .o_wsale_attr_label').first().text() || '').trim().toLowerCase();
+            // Inputs de ese grupo
+            const $inputs = $g.find('input[type="radio"].js_variant_change');
+            if ($inputs.length) {
+                groups.push({ $g, title, $inputs });
+            }
+        });
+        return groups;
+    },
+
+    _buildMatrix() {
+        const groups = this._getAttributeGroups();
+        if (groups.length < 2) return; // nada que hacer
+
+        // Elegimos: filas = tallas, columnas = el color actualmente seleccionado
+        // Identificamos grupo de talla (name/label contiene 'talla'|'size'|'größe' etc.)
+        const sizeIdx = groups.findIndex(g => /(talla|size|größe|taglia|maat|tamanho)/i.test(g.title));
+        const colorIdx = groups.findIndex(g => /(color|colour|farbe|colore|kleur|cor)/i.test(g.title));
+        // Fallback si no detecta nombres
+        const rowGroup = sizeIdx >= 0 ? groups[sizeIdx] : groups[1];
+        const colGroup = colorIdx >= 0 ? groups[colorIdx] : groups[0];
+
+        // Contenedor bajo el botón "Add to cart"
+        const $anchor = this.$root.find('form[action*="/shop/cart/update"] .o_wsale_cta_wrapper, form[action*="/shop/cart/update"]').last();
+        if (!$anchor.length) return;
+
+        const $box = $(`
+            <div class="sp-matrix card rounded p-3 mt-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="fw-semibold">Pedido rápido por tallas</div>
+                    <button class="btn btn-sm btn-primary sp-matrix-add">Añadir al carrito</button>
+                </div>
+                <div class="sp-matrix-grid"></div>
+                <div class="text-muted small mt-2">Se añade para el <b>color seleccionado</b>.</div>
+            </div>
+        `);
+
+        const $grid = $box.find('.sp-matrix-grid');
+
+        // Renderiza lista de tallas con input de cantidad
+        rowGroup.$inputs.each(function () {
+            const $inp = $(this);
+            const valId = parseInt($inp.val() || '0', 10);
+            const label = ($inp.closest('label').text() || $inp.data('value_name') || '').trim() || $inp.attr('title') || `#${valId}`;
+            const row = $(`
+                <div class="sp-row d-flex align-items-center py-1">
+                    <div class="sp-size badge me-2">${label}</div>
+                    <input class="form-control form-control-sm sp-qty" type="number" min="0" step="1" value="0"
+                           data-size-input-id="${valId}">
+                </div>
+            `);
+            $grid.append(row);
+        });
+
+        // Click en “Añadir”
+        $box.on('click', '.sp-matrix-add', async (ev) => {
             ev.preventDefault();
+            const $rows = $box.find('.sp-qty');
+            if (!$rows.length) return;
 
-            const $btn  = $(ev.currentTarget);
-            const $card = $btn.closest('[data-sp-matrix], .sp-matrix, .border.rounded.p-3');
-            const $scope = $card.length ? $card : this.$el;
+            // Color actual (no lo tocamos)
+            const currentProductId = parseInt(this.$root.find('input[name="product_id"]').val() || '0', 10);
 
-            const lines = this._collectLines($scope);
-            if (!lines.length) {
-                // Nada que añadir: no hacemos ruido, simplemente salimos.
-                return;
+            // Recorremos tallas con qty > 0 y añadimos una por una para asegurar combinación correcta
+            for (const el of $rows.toArray()) {
+                const $qty = $(el);
+                const qty = parseFloat($qty.val() || '0');
+                if (qty <= 0) continue;
+
+                // Selecciona la talla correspondiente (dispara recalculo de combinación)
+                const sizeValId = $qty.data('size-input-id');
+                const $sizeRadio = rowGroup.$inputs.filter((_, r) => parseInt(r.value || '0', 10) === sizeValId);
+                if ($sizeRadio.length) {
+                    // Guardamos id actual y forzamos el cambio
+                    const before = parseInt(this.$root.find('input[name="product_id"]').val() || '0', 10);
+                    $sizeRadio.prop('checked', true).change();
+                    const variantId = await waitProductIdChange(this.$root, before);
+
+                    if (variantId) {
+                        await ajax.jsonRpc('/shop/cart/update_json', 'call', {
+                            product_id: variantId,
+                            add_qty: qty,
+                            display: false,
+                        });
+                    }
+                }
             }
 
-            const calls = lines.map(({ product_id, qty }) =>
-                ajax.jsonRpc('/shop/cart/update_json', 'call', {
-                    product_id: product_id,
-                    add_qty: qty,
-                    display: false,
-                })
-            );
+            // Restaura la combinación original (por UX) si cambió
+            if (currentProductId) {
+                // Encuentra radios que llevan a ese product_id (opcional). Como es costoso, refrescamos.
+                window.location.reload();
+            } else {
+                // Por si acaso
+                window.location.reload();
+            }
+        });
 
-            Promise.all(calls)
-                .then(() => {
-                    // Lo más simple y seguro: refrescar para ver totales/stock actualizados.
-                    window.location.reload();
-                })
-                .catch((err) => {
-                    // Si algo falla, al menos no dejamos al usuario sin feedback.
-                    // (En consola para debug; en producción el reload también suele recuperar estado.)
-                    console.error('SerialPrinterMatrix error:', err);
-                    window.location.reload();
-                });
-        },
-    });
-
-    return publicWidget.registry.SerialPrinterMatrix;
+        $anchor.after($box);
+    },
 });
+
+export default publicWidget.registry.SerialPrinterMatrix;
