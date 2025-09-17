@@ -150,7 +150,6 @@
         function $(sel, root){return (root||document).querySelector(sel);}
         function $val(id, d){ var el=$("#"+id); return el?el.value:d; }
 
-        // Carga IMG sin crossOrigin (iOS safe)
         async function loadImage(src){
           return new Promise(function(resolve, reject){
             var im=new Image();
@@ -193,7 +192,6 @@
         }
 
         async function renderPNGDataURL(){
-          // Prioriza la imagen interna de Odoo (evita CORS)
           var internalBaseEl = $("#spw-base-img");
           var baseSrc = (internalBaseEl && internalBaseEl.getAttribute("src")) ||
                         $val("spw_img_src","") ||
@@ -201,12 +199,10 @@
           if(!baseSrc) throw new Error("Sin imagen base.");
 
           var baseIm = await loadImage(baseSrc);
-
           var canvas = document.createElement("canvas");
           var ctx = canvas.getContext("2d");
           canvas.width  = baseIm.naturalWidth  || baseIm.width;
           canvas.height = baseIm.naturalHeight || baseIm.height;
-
           ctx.drawImage(baseIm, 0, 0, canvas.width, canvas.height);
 
           var logoEl = $("#spw_logo_preview");
@@ -216,25 +212,19 @@
             var br = baseEl.getBoundingClientRect();
             var lr = logoEl.getBoundingClientRect();
 
-            var cx_norm = ((lr.left + lr.width/2)  - br.left) / bw;
-            var cy_norm = ((lr.top  + lr.height/2) - br.top ) / bh;
-            var w_norm  = lr.width / bw;
-
-            var cx = cx_norm * canvas.width;
-            var cy = cy_norm * canvas.height;
-            var drawW = w_norm * canvas.width;
+            var cx = ((lr.left + lr.width/2) - br.left) / bw * canvas.width;
+            var cy = ((lr.top  + lr.height/2) - br.top ) / bh * canvas.height;
+            var drawW = (lr.width / bw) * canvas.width;
 
             var logoIm = await loadImage(logoEl.src);
             var ratio = (logoIm.naturalHeight || logoIm.height) / (logoIm.naturalWidth || logoIm.width);
             var drawH = drawW * ratio;
-
             var rot = (parseInt($val("spw_rotation","0"),10) * Math.PI)/180;
 
             ctx.save(); ctx.translate(cx, cy); ctx.rotate(rot);
             ctx.drawImage(logoIm, -drawW/2, -drawH/2, drawW, drawH);
             ctx.restore();
           }
-
           return canvas.toDataURL("image/png");
         }
 
@@ -277,7 +267,7 @@
             const fullDu = await renderPNGDataURL();
             pngB64 = fullDu ? fullDu.split('base64,')[1] : "";
 
-            // Downscale a 600px de ancho máximo (preview para carrito)
+            // Downscale a 600px ancho máx para carrito
             const tmpImg = await loadImage(fullDu);
             const maxW = 600;
             const ow = tmpImg.naturalWidth || tmpImg.width || 900;
@@ -289,7 +279,7 @@
             previewDu = c.toDataURL('image/png');
           }catch(e){}
 
-          // 2) Endpoint meta (devuelve line_id)
+          // 2) Endpoint meta
           var r1 = await postJSON("/spw/add_to_cart_meta", {
             variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
           });
@@ -367,55 +357,73 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN EN WEBSITE.LAYOUT PARA MOSTRAR PREVIEW EN /shop/cart ============ -->
+  <!-- ============ INYECCIÓN EN WEBSITE.LAYOUT: PREVIEW AL LADO DE SU PRODUCTO ============ -->
   <template id="spw_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript">
         //<![CDATA[
         (function(){
-          function place(){
-            if(!/\/shop\/cart/.test(location.pathname)) return;
+          function inject(){
+            if (!/\/shop\/cart/.test(location.pathname)) return;
 
-            var du = null;
+            var du = null, lineId = null;
             try { du = sessionStorage.getItem('spw_last_png'); } catch(_e) {}
-            var lineId = null;
             try { lineId = sessionStorage.getItem('spw_last_line_id'); } catch(_e) {}
 
-            // Fallback a endpoint si no hay dataURL en sessionStorage
             if (!du && lineId) du = '/spw/line_preview/' + lineId + '.png';
             if (!du) return;
 
-            var row = null, target = null;
+            // Localiza la FILA exacta por line_id
+            var row = null;
             if (lineId) {
               row = document.querySelector('[data-line-id="' + lineId + '"]') ||
                     document.querySelector('tr[data-line-id="' + lineId + '"]') ||
                     document.querySelector('div[data-line-id="' + lineId + '"]');
             }
+
+            // Elige contenedor: preferimos la CELDA DE IMAGEN para que quede al lado
+            var target = null;
             if (row) {
-              target = row.querySelector('.td-product_name, .o_wsale_product_information, .o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_info');
+              target =
+                row.querySelector('.td-img, .o_wsale_product_img, .o_cart_product_img, .o_wsale_product_image, .o_cart_product_thumbnail') ||
+                row.querySelector('.td-product_name, .o_wsale_product_information, .o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_info');
+            } else {
+              // Fallback general
+              target =
+                document.querySelector('.js_cart_lines .td-img, .td-img, .o_wsale_product_img') ||
+                document.querySelector('.js_cart_lines .td-product_name, .td-product_name, .css_description, .oe_cart');
             }
-            if (!target) {
-              target = document.querySelector('.js_cart_lines .td-product_name, .td-product_name, .css_description, .oe_cart');
-            }
+
             if (!target || target.querySelector('.spw-preview')) return;
 
             var img = document.createElement('img');
             img.src = du;
             img.alt = 'Personalización';
             img.className = 'spw-preview';
-            img.style.maxWidth = '160px';
+
+            // Si estamos en la celda de imagen, tamaño compacto; si no, flotamos a la derecha
+            var isImgCell = !!target.closest('.td-img') || target.classList.contains('o_wsale_product_img') ||
+                            target.classList.contains('o_cart_product_img') || target.classList.contains('o_wsale_product_image');
+            if (isImgCell) {
+              img.style.maxWidth = '120px';
+              img.style.display = 'block';
+              img.style.marginTop = '6px';
+            } else {
+              img.style.maxWidth = '160px';
+              img.style.float = 'right';
+              img.style.margin = '0 0 6px 12px';
+            }
             img.style.border = '1px solid #eee';
-            img.style.marginTop = '8px';
-            img.style.display = 'block';
+            img.style.borderRadius = '6px';
             target.appendChild(img);
           }
+
           if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', function(){ place(); setTimeout(place, 600); });
+            document.addEventListener('DOMContentLoaded', function(){ inject(); setTimeout(inject, 600); });
           } else {
-            place(); setTimeout(place, 600);
+            inject(); setTimeout(inject, 600);
           }
-          // reinyecta si el carrito se redibuja
-          try { new MutationObserver(place).observe(document.documentElement, {childList:true, subtree:true}); } catch(_e){}
+          try { new MutationObserver(inject).observe(document.body, {childList:true, subtree:true}); } catch(_e){}
         })();
         //]]>
       </script>
