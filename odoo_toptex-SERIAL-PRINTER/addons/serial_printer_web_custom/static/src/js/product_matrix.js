@@ -1,8 +1,24 @@
-/** Odoo 18 */
-odoo.define('serial_printer_web_custom.product_matrix', [], function (require) {
+/** Odoo 18 - Matrix color × talla sin dependencias externas */
+odoo.define('serial_printer_web_custom.product_matrix', [], function () {
     "use strict";
 
-    const ajax = require('web.ajax');
+    // -------- JSON-RPC mínimo (sustituye a web.ajax) --------
+    async function jsonRpc(url, params = {}) {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                method: 'call',
+                params,
+                id: Date.now(),
+            }),
+            credentials: 'same-origin',
+        });
+        const payload = await res.json();
+        if (payload && payload.error) throw payload.error;
+        return payload ? payload.result : null;
+    }
 
     // ------------------- Helpers de ordenación de tallas -------------------
     const SIZE_ORDER = [
@@ -39,9 +55,10 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function (require) {
             scope.querySelector('.oe_website_sale .js_attributes');
         if (!container) return [];
 
-        const groups = container.querySelectorAll('.js_attribute, .o_wsale_product_configurator_row, .o_variant_attribute');
+        const groups = container.querySelectorAll(
+            '.js_attribute, .o_wsale_product_configurator_row, .o_variant_attribute'
+        );
         const blocks = [];
-
         groups.forEach(group => {
             const labelEl =
                 group.querySelector('.o_variant_label, .attribute_name, .o_wsale_product_configurator_label') ||
@@ -54,19 +71,16 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function (require) {
             if (!radios.length) return;
 
             const options = radios.map(inp => {
-                const id =
-                    parseInt(
-                        inp.getAttribute('data-value_id') ||
-                        inp.getAttribute('data-attribute_value_id') ||
-                        inp.value || '0', 10
-                    ) || null;
+                const id = parseInt(
+                    inp.getAttribute('data-value_id') ||
+                    inp.getAttribute('data-attribute_value_id') ||
+                    inp.value || '0', 10
+                ) || null;
 
                 const lab = group.querySelector(`label[for="${inp.id}"]`);
-                const txt =
-                    (lab && lab.textContent) ||
-                    inp.getAttribute('data-value_name') ||
-                    inp.getAttribute('data-attribute_name') ||
-                    '';
+                const txt = (lab && lab.textContent) ||
+                            inp.getAttribute('data-value_name') ||
+                            inp.getAttribute('data-attribute_name') || '';
 
                 return { id, text: String(txt).trim(), input: inp };
             }).filter(o => o.id && o.text);
@@ -78,8 +92,8 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function (require) {
     }
 
     function findColorAndSize(blocks) {
-        const isColor = (n) => /^(color|colour|couleur|farbe)$/i.test(norm(n));
-        const isSize  = (n) => /^(talla|size|taille|grosse|maat)$/i.test(norm(n));
+        const isColor = n => /^(color|colour|couleur|farbe)$/i.test(norm(n));
+        const isSize  = n => /^(talla|size|taille|grosse|maat)$/i.test(norm(n));
         const color = blocks.find(b => isColor(b.name)) || blocks[0] || null;
         const size  = blocks.find(b => isSize(b.name))  || blocks[1] || null;
         return { color, size };
@@ -88,7 +102,6 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function (require) {
     // ------------------- Render del grid -------------------
     function renderGrid({ color, size }, mountAfter) {
         if (!color || !size) return null;
-
         size.options.sort((a, b) => sizeSortKey(a.text) - sizeSortKey(b.text));
 
         const box = document.createElement('div');
@@ -156,7 +169,7 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function (require) {
             pricelist_id: getPricelistId(),
             product_id: 0,
         };
-        const data = await ajax.jsonRpc('/website_sale/get_combination_info', 'call', payload);
+        const data = await jsonRpc('/website_sale/get_combination_info', payload);
         return data && data.product_id ? parseInt(data.product_id, 10) : 0;
     }
 
@@ -181,7 +194,7 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function (require) {
             const productForm = page.querySelector('.js_product');
             if (productForm) productForm.classList.add('sp-matrix-active');
 
-            // Placeholder de miniaturas por color (fase 2: imagen real de variante)
+            // Miniaturas placeholder por color (fase 2: imagen real)
             color.options.forEach(c => {
                 const img = grid.querySelector(`tr[data-color-id="${c.id}"] .sp-color__img`);
                 if (img) img.src = "/web/static/img/placeholder.png";
@@ -203,26 +216,27 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function (require) {
             const addBtn = grid.querySelector('.add-to-cart-matrix');
             addBtn?.addEventListener('click', async () => {
                 const calls = [];
-                const inputs = grid.querySelectorAll('input.sp-qty');
-                for (const inp of inputs) {
+                grid.querySelectorAll('input.sp-qty').forEach(inp => {
                     const qty = parseFloat(inp.value || '0');
-                    if (!qty || qty <= 0) continue;
+                    if (!qty || qty <= 0) return;
 
-                    let vid = parseInt(inp.dataset.variantId || '0', 10);
-                    if (!vid && ptId) {
-                        const avIds = (inp.dataset.avIds || '')
-                            .split(',').map(x => parseInt(x, 10)).filter(Boolean);
-                        vid = await getVariantId(ptId, avIds);
-                        if (vid) inp.dataset.variantId = String(vid);
-                    }
-                    if (!vid) continue;
+                    calls.push((async () => {
+                        let vid = parseInt(inp.dataset.variantId || '0', 10);
+                        if (!vid && ptId) {
+                            const avIds = (inp.dataset.avIds || '')
+                                .split(',').map(x => parseInt(x, 10)).filter(Boolean);
+                            vid = await getVariantId(ptId, avIds);
+                            if (vid) inp.dataset.variantId = String(vid);
+                        }
+                        if (!vid) return;
+                        await jsonRpc('/shop/cart/update_json', {
+                            product_id: vid,
+                            add_qty: qty,
+                            display: false,
+                        });
+                    })());
+                });
 
-                    calls.push(ajax.jsonRpc('/shop/cart/update_json', 'call', {
-                        product_id: vid,
-                        add_qty: qty,
-                        display: false,
-                    }));
-                }
                 if (!calls.length) return;
                 await Promise.all(calls);
                 window.location.reload();
