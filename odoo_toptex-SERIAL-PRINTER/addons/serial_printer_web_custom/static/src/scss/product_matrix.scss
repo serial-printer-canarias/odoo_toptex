@@ -1,22 +1,17 @@
-#sp-matrix {
-  margin-top: 1rem;
+.sp-matrix-wrap {
+  border: 1px dashed #ddd;
+  padding: 12px;
 }
 
-#sp-matrix .spm-grid {
-  display: grid;
-  grid-template-columns: 140px repeat(var(--spm-cols, 5), minmax(70px, 1fr));
-  gap: .5rem;
-  align-items: center;
-}
-
-#sp-matrix .spm-th,
-#sp-matrix .spm-rowhead {
-  font-weight: 600;
-}
-
-#sp-matrix .spm-td input.spm-qty {
+.sp-matrix {
   width: 100%;
-  padding: .25rem .5rem;
-  border: 1px solid var(--o-gray-300, #ddd);
-  border-radius: .25rem;
+  border-collapse: collapse;
+  th, td {
+    border: 1px solid #e5e5e5;
+    padding: 6px;
+    text-align: center;
+    vertical-align: middle;
+  }
+  th:first-child { text-align: left; }
+  input.sp-qty { width: 64px; text-align: right; }
 }
