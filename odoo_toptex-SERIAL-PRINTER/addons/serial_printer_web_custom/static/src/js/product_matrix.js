@@ -1,154 +1,111 @@
 /** @odoo-module **/
 
-import { jsonrpc } from "@web/core/network/rpc_service";
+import publicWidget from "@web/legacy/js/public/public_widget";
 
-/* ---------- utilidades ---------- */
+// Utilidad: ejecutar cuando el DOM está listo
 function onReady(fn) {
     if (document.readyState !== "loading") fn();
     else document.addEventListener("DOMContentLoaded", fn);
 }
 
-function qsa(root, sel) { return Array.from(root.querySelectorAll(sel)); }
+publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
+    selector: ".o_wsale_product_page",
 
-function getAttrBlocks(root) {
-    // Buscamos los bloques de atributos (Color, Talla, …) en varias estructuras
-    const containers =
-        qsa(root, ".o_wsale_product_configurator")        // v17/18
-        || qsa(root, ".o_product_configurator")
-        || qsa(root, ".js_add_cart_variants");
+    start() {
+        onReady(() => this._buildMatrix());
+        return this._super(...arguments);
+    },
 
-    const out = [];
-    containers.forEach(c => {
-        qsa(c, "[data-attribute_name]").forEach(el => {
-            const labelEl = el.querySelector("label, .o_variant_label, .label");
-            const name = (labelEl?.textContent || el.getAttribute("data-attribute_name") || "")
-                .trim().toLowerCase();
-            const radios = qsa(el, 'input[type="radio"]');
-            if (!radios.length) return;
-            const options = radios.map(r => {
-                const lab = el.querySelector(`label[for="${r.id}"]`);
-                const text = (lab?.textContent || r.value || "").trim();
-                const valId = r.dataset.valueId || r.value || "";
-                return { id: valId, text, input: r };
+    // Obtiene grupos de atributos (nombre + opciones)
+    _getAttributeBlocks() {
+        const root =
+            this.el.querySelector(".o_wsale_product_configurator") || this.el;
+
+        const groups = [...root.querySelectorAll(
+            ".o_wsale_attribute, .js_product .attribute"  // soporta plantillas distintas
+        )];
+
+        return groups.map((g) => {
+            const name = (
+                g.querySelector(".o_wsale_attribute_name, .attribute_name, .o_variant_label")?.textContent || ""
+            ).trim();
+            const radios = [...g.querySelectorAll('input[type="radio"]')].map((r) => {
+                const lbl = root.querySelector(`label[for="${r.id}"]`);
+                const txt = (lbl?.textContent || r.getAttribute("data-value_name") || r.value || "").trim();
+                return { input: r, text: txt };
             });
-            if (options.length) out.push({ el, name, options });
+            return { name, radios, el: g };
         });
-    });
-    return out;
-}
+    },
 
-const isColor = (n) => /color|colour|couleur/i.test(n || "");
-const isSize  = (n) => /size|talla|taille|größe|maat/i.test(n || "");
+    _buildMatrix() {
+        try {
+            const blocks = this._getAttributeBlocks();
+            if (!blocks.length) return;
 
-function renderGrid(color, size) {
-    const table = document.createElement("table");
-    table.className = "sp-matrix";
-
-    const thead = document.createElement("thead");
-    const hr = document.createElement("tr");
-    hr.appendChild(document.createElement("th"));
-    size.options.forEach(o => {
-        const th = document.createElement("th");
-        th.textContent = o.text;
-        hr.appendChild(th);
-    });
-    thead.appendChild(hr);
-    table.appendChild(thead);
-
-    const tbody = document.createElement("tbody");
-    color.options.forEach(co => {
-        const tr = document.createElement("tr");
-
-        const th = document.createElement("th");
-        th.textContent = co.text;
-        tr.appendChild(th);
-
-        size.options.forEach(so => {
-            const td = document.createElement("td");
-            const inp = document.createElement("input");
-            inp.type = "number";
-            inp.min = "0";
-            inp.step = "1";
-            inp.className = "sp-qty";
-            inp.dataset.colorId = co.id;
-            inp.dataset.sizeId = so.id;
-            td.appendChild(inp);
-            tr.appendChild(td);
-        });
-
-        tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
-
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "btn btn-primary mt-2 sp-add";
-    btn.textContent = "Añadir líneas";
-
-    const wrap = document.createElement("div");
-    wrap.className = "sp-matrix-wrap my-3";
-    wrap.appendChild(table);
-    wrap.appendChild(btn);
-
-    return { wrap, btn };
-}
-
-async function getVariantId(templateId, valueIds) {
-    // Servicio estándar de website_sale
-    const res = await jsonrpc("/website_sale/get_combination_info", {
-        product_template_id: templateId,
-        combination: valueIds.map(Number),
-        add_qty: 1,
-        parent_combination: [],
-    });
-    return res?.product_id || 0;
-}
-
-function getTemplateId(root) {
-    const el = root.querySelector('input[name="product_template_id"], input[name="product_template"]');
-    return Number(el?.value || 0);
-}
-
-/* ---------- inicio ---------- */
-onReady(() => {
-    const root = document.querySelector(".o_wsale_product_page");
-    if (!root) return;
-
-    const blocks = getAttrBlocks(document);
-    const color = blocks.find(b => isColor(b.name)) || null;
-    const size  = blocks.find(b => isSize(b.name))  || null;
-
-    if (!color || !size) {
-        console.debug("[SP] Sin Color/Talla: matriz no aplicada.");
-        return;
-    }
-
-    const qtyBox = root.querySelector(".o_wsale_product_qty, .o_product_add_to_cart, .quantity");
-    const { wrap, btn } = renderGrid(color, size);
-    (qtyBox?.parentElement || root).insertBefore(wrap, qtyBox || root.firstChild);
-
-    const templateId = getTemplateId(root);
-
-    btn.addEventListener("click", async () => {
-        const lines = qsa(wrap, "input.sp-qty").filter(i => Number(i.value) > 0);
-        if (!lines.length) return;
-
-        for (const i of lines) {
-            const valIds = [i.dataset.colorId, i.dataset.sizeId].map(Number).filter(Boolean);
-            let productId = 0;
-            if (templateId && valIds.length) {
-                productId = await getVariantId(templateId, valIds);
+            const colorBlock = blocks.find((b) => /color/i.test(b.name));
+            const sizeBlock  = blocks.find((b) => /(talla|size)/i.test(b.name));
+            if (!colorBlock || !sizeBlock) {
+                // No hay las dos dimensiones, no renderizamos (evita errores)
+                return;
             }
-            if (productId) {
-                await jsonrpc("/shop/cart/update_json", {
-                    product_id: productId,
-                    add_qty: Number(i.value),
-                    display: false,
+
+            // Contenedor (idempotente)
+            let container = this.el.querySelector("#sp-matrix");
+            if (!container) {
+                container = document.createElement("div");
+                container.id = "sp-matrix";
+                container.className = "sp-matrix card border rounded p-3 my-3";
+                // lo ponemos después del bloque de tallas
+                sizeBlock.el.after(container);
+            }
+            container.innerHTML = "";
+
+            // Tabla
+            const table = document.createElement("table");
+            table.className = "sp-matrix-table";
+
+            const thead = document.createElement("thead");
+            const trh = document.createElement("tr");
+            trh.appendChild(document.createElement("th")); // esquina
+            sizeBlock.radios.forEach((s) => {
+                const th = document.createElement("th");
+                th.textContent = s.text;
+                trh.appendChild(th);
+            });
+            thead.appendChild(trh);
+            table.appendChild(thead);
+
+            const tbody = document.createElement("tbody");
+            colorBlock.radios.forEach((c) => {
+                const tr = document.createElement("tr");
+                const th = document.createElement("th");
+                th.textContent = c.text;
+                tr.appendChild(th);
+
+                sizeBlock.radios.forEach((s) => {
+                    const td = document.createElement("td");
+                    const input = document.createElement("input");
+                    input.type = "number";
+                    input.min = "0";
+                    input.step = "1";
+                    input.className = "sp-qty";
+                    td.appendChild(input);
+                    tr.appendChild(td);
                 });
-            }
-        }
-        window.location.reload();
-    });
 
-    console.log("[SP] Matriz cargada.");
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+            container.appendChild(table);
+
+            // Botón (por ahora solo visual; el add to cart múltiple lo cableamos después)
+            const hint = document.createElement("div");
+            hint.className = "text-muted small mt-2";
+            hint.textContent = "Indica cantidades por color y talla. (Añadido masivo se activa en el siguiente paso)";
+            container.appendChild(hint);
+        } catch (e) {
+            console.error("[SP] Error construyendo la matriz:", e);
+        }
+    },
 });
