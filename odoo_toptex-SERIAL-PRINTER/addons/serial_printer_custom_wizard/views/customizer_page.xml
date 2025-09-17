@@ -15,11 +15,16 @@
         <div class="row g-4">
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
+              <!-- Base same-origin para canvas (evita CORS en iOS/Safari) -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
+
+              <!-- Imagen visible del producto -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
+
+              <!-- Overlay del logo -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
           </div>
@@ -29,6 +34,7 @@
               <div class="card-body">
                 <h5 class="card-title mb-3">Personalización</h5>
 
+                <!-- Subir logo -->
                 <div class="mb-3">
                   <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
                   <input id="spw_logo_input" class="form-control" type="file"
@@ -36,6 +42,7 @@
                   <small class="text-muted">Máx. 10MB.</small>
                 </div>
 
+                <!-- Técnica -->
                 <div class="mb-3">
                   <label class="form-label">Técnica</label>
                   <div class="d-flex gap-3 flex-wrap">
@@ -54,6 +61,7 @@
                   </div>
                 </div>
 
+                <!-- Color SVG -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
                   <div class="spw-color-row">
@@ -81,6 +89,7 @@
                   <div class="spw-help mt-1">Se aplica solo a logos SVG.</div>
                 </div>
 
+                <!-- Controles -->
                 <div class="mb-3">
                   <label for="spw_size" class="form-label">Tamaño</label>
                   <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
@@ -98,6 +107,7 @@
                   <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
                 </div>
 
+                <!-- Cantidad / Observaciones -->
                 <div class="mb-3">
                   <label for="spw_qty" class="form-label">Cantidad</label>
                   <input id="spw_qty" class="form-control" type="number" min="1" value="1"/>
@@ -108,9 +118,9 @@
                             placeholder="Indica instrucciones para el taller..."></textarea>
                 </div>
 
+                <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                  <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset && window.spwReset();">Reset</a>
+                  <a id="spw_btn_reset" class="btn btn-outline-secondary" href="javascript:void(0)">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -130,7 +140,7 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (añade a carrito + guarda previews en sesión) ====== -->
+      <!-- ====== JS INLINE (híbrido local; sin depender de controladores) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -237,7 +247,7 @@
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
 
-        /* ===== addToCart: guarda previews (lista) en sessionStorage; NO depende del servidor para mostrar ===== */
+        /* ===== addToCart: guarda previews (lista) en sessionStorage; NO depende de servidor para mostrar ===== */
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
@@ -258,7 +268,7 @@
             previewDu = c.toDataURL('image/png');
           }catch(e){}
 
-          // Crear línea con meta (tu endpoint/hook existente)
+          // Crear línea con meta (tu endpoint existente)
           let r1 = await postJSON('/spw/add_to_cart_meta', {
             variant_id: parseInt(variantId,10), qty, tech, svg_color: svgColor, notes
           });
@@ -269,6 +279,7 @@
           }
           if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : 'No se pudo añadir al carrito.'); return; }
 
+          // Guardar “último” y LISTA (para múltiples líneas)
           try{
             const lid = r1.data && r1.data.line_id ? String(r1.data.line_id) : '';
             sessionStorage.setItem('spw_last_line_id', lid);
@@ -282,7 +293,7 @@
             sessionStorage.setItem('spw_previews', JSON.stringify(list));
           }catch(_e){}
 
-          // Adjuntar PNG si tienes endpoint (no afecta a la vista local)
+          // Adjuntar PNG al servidor (opcional; no afecta a la vista local)
           if(pngB64){
             let r2 = await postJSON('/spw/attach_png', { line_id: r1.data.line_id, png_b64: pngB64 });
             if(!r2.ok){ await postForm('/spw/attach_png_http', { line_id: r1.data.line_id, png_b64: pngB64 }); }
@@ -327,6 +338,9 @@
             applyTransform();
           };
 
+          var rs=document.getElementById('spw_btn_reset');
+          if (rs) rs.addEventListener('click', function(e){ e.preventDefault(); if (window.spwReset) window.spwReset(); });
+
           var dl=document.getElementById('spw_download_png'); if(dl){ dl.addEventListener('click', function(){ downloadPNGiOSSafe(); }); }
           var add=document.getElementById('spw_add_to_cart'); if(add){ add.addEventListener('click', addToCart); }
 
@@ -339,7 +353,7 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN EN WEBSITE.LAYOUT (solo sesión, sin servidor) ============ -->
+  <!-- ============ INYECCIÓN EN WEBSITE.LAYOUT: PREVIEW LOCAL POR LÍNEA ============ -->
   <template id="spw_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript">
@@ -368,27 +382,23 @@
             var list = [];
             try { list = JSON.parse(sessionStorage.getItem('spw_previews') || '[]') || []; } catch(_e){ list = []; }
 
-            // Índices usados por product_id para soportar múltiples líneas del mismo producto
             var usedByProduct = {};
-
             document.querySelectorAll('[data-line-id], tr[data-line-id], div[data-line-id], .o_cart_product, .js_cart_lines tr, .js_cart_lines div').forEach(function(row){
               if (row.querySelector('.spw-preview')) return;
 
               var lid = row.getAttribute('data-line-id') || (row.querySelector('[data-line-id]') && row.querySelector('[data-line-id]').getAttribute('data-line-id')) || '';
               var pid = getProductIdFromRow(row);
 
-              // Buscar por line_id primero
               var hit = null;
               if(lid){
                 hit = (list||[]).find(function(it){ return String(it.line_id)===String(lid) && it.du; });
               }
-              // Si no hay line_id, asignar por product_id (último no usado)
               if(!hit && pid){
                 var candidates = (list||[]).filter(function(it){ return Number(it.product_id)===Number(pid) && it.du; })
-                                           .sort(function(a,b){ return a.t-b.t; }); // antiguos -> nuevos
+                                           .sort(function(a,b){ return a.t-b.t; });
                 var idx = usedByProduct[pid] || 0;
                 hit = candidates[idx] || null;
-                if (hit) usedByProduct[pid] = idx + 1; // la siguiente línea del mismo producto cogerá el siguiente preview
+                if (hit) usedByProduct[pid] = idx + 1;
               }
               if(!hit || !hit.du) return;
 
