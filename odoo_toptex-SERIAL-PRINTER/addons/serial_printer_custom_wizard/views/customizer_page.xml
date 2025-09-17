@@ -15,16 +15,13 @@
         <div class="row g-4">
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
-
-              <!-- Imagen base interna (same-origin) para evitar CORS en canvas -->
+              <!-- Base same-origin para canvas -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
-
               <!-- Imagen visible -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
-
               <!-- Overlay del logo -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
@@ -167,8 +164,6 @@
           });
         }
 
-        var S={ logoDataURL:"", isSVG:false };
-
         function applyTransform(){
           var logo = $("#spw_logo_preview"); if(!logo) return;
           var base = $("#spw_product_img");  if(!base) return;
@@ -192,22 +187,21 @@
         }
 
         async function renderPNGDataURL(){
-          var internalBaseEl = $("#spw-base-img");
-          var baseSrc = (internalBaseEl && internalBaseEl.getAttribute("src")) ||
+          var baseSrc = ($("#spw-base-img")||{}).getAttribute("src") ||
                         $val("spw_img_src","") ||
                         ($("#spw_product_img")||{}).getAttribute("src");
           if(!baseSrc) throw new Error("Sin imagen base.");
-
           var baseIm = await loadImage(baseSrc);
+
           var canvas = document.createElement("canvas");
           var ctx = canvas.getContext("2d");
           canvas.width  = baseIm.naturalWidth  || baseIm.width;
           canvas.height = baseIm.naturalHeight || baseIm.height;
           ctx.drawImage(baseIm, 0, 0, canvas.width, canvas.height);
 
-          var logoEl = $("#spw_logo_preview");
+          var logoEl = document.getElementById("spw_logo_preview");
           if(logoEl && logoEl.src){
-            var baseEl = $("#spw_product_img");
+            var baseEl = document.getElementById("spw_product_img");
             var bw = baseEl.clientWidth,  bh = baseEl.clientHeight;
             var br = baseEl.getBoundingClientRect();
             var lr = logoEl.getBoundingClientRect();
@@ -252,7 +246,7 @@
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
 
-        /* =================== addToCart() con downscale + sessionStorage =================== */
+        /* =================== addToCart(): downscale + múltiples previews =================== */
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
@@ -266,8 +260,7 @@
           try{
             const fullDu = await renderPNGDataURL();
             pngB64 = fullDu ? fullDu.split('base64,')[1] : "";
-
-            // Downscale a 600px ancho máx para carrito
+            // Downscale a 600px ancho máx para el carrito
             const tmpImg = await loadImage(fullDu);
             const maxW = 600;
             const ow = tmpImg.naturalWidth || tmpImg.width || 900;
@@ -290,11 +283,20 @@
           }
           if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
-          // 3) Guarda claves para el script del carrito
+          // 3) Guarda claves (último) y también una LISTA para múltiples líneas
           try{
-            if (r1.data && r1.data.line_id) sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id));
+            const lid = (r1.data && r1.data.line_id) ? String(r1.data.line_id) : "";
+            if (lid) sessionStorage.setItem('spw_last_line_id', lid);
             sessionStorage.setItem('spw_last_product_id', String(variantId));
             if (previewDu) sessionStorage.setItem('spw_last_png', previewDu);
+
+            // lista acumulada de previews {line_id, product_id, du, t}
+            let arr = [];
+            try { arr = JSON.parse(sessionStorage.getItem('spw_previews') || '[]') || []; } catch(_e){}
+            arr.push({ line_id: lid, product_id: parseInt(variantId,10) || 0, du: previewDu || "", t: Date.now() });
+            // limita a los últimos 10 para evitar cuota
+            if (arr.length > 10) arr = arr.slice(-10);
+            sessionStorage.setItem('spw_previews', JSON.stringify(arr));
           }catch(e){}
 
           // 4) Adjunta PNG completo (no bloquea)
@@ -303,7 +305,7 @@
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
           }
 
-          // 5) Redirección al carrito
+          // 5) Redirigir al carrito
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
         /* =================================================================== */
@@ -329,7 +331,6 @@
             logoInput.addEventListener("change", async function(ev){
               var f = ev.target.files && ev.target.files[0]; if(!f) return;
               var dataURL = await readAsDataURL(f);
-              S.logoDataURL = dataURL;
               logoEl.src = dataURL;
               applyTransform();
             });
@@ -357,73 +358,66 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN EN WEBSITE.LAYOUT: PREVIEW AL LADO DE SU PRODUCTO ============ -->
+  <!-- ============ INYECCIÓN EN WEBSITE.LAYOUT: PREVIEWS AL LADO Y MÚLTIPLES ============ -->
   <template id="spw_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript">
         //<![CDATA[
         (function(){
-          function inject(){
+          function placeAll(){
             if (!/\/shop\/cart/.test(location.pathname)) return;
 
-            var du = null, lineId = null;
-            try { du = sessionStorage.getItem('spw_last_png'); } catch(_e) {}
-            try { lineId = sessionStorage.getItem('spw_last_line_id'); } catch(_e) {}
+            // Carga todos los previews guardados
+            var list = [];
+            try { list = JSON.parse(sessionStorage.getItem('spw_previews') || '[]') || []; } catch(_e){ list = []; }
 
-            if (!du && lineId) du = '/spw/line_preview/' + lineId + '.png';
-            if (!du) return;
+            // Recorre cada línea del carrito
+            document.querySelectorAll('[data-line-id]').forEach(function(row){
+              if (row.querySelector('.spw-preview')) return; // ya insertado
+              var lid = row.getAttribute('data-line-id') || '';
+              var hit = (list || []).find(function(it){ return String(it.line_id) === String(lid); });
 
-            // Localiza la FILA exacta por line_id
-            var row = null;
-            if (lineId) {
-              row = document.querySelector('[data-line-id="' + lineId + '"]') ||
-                    document.querySelector('tr[data-line-id="' + lineId + '"]') ||
-                    document.querySelector('div[data-line-id="' + lineId + '"]');
-            }
+              var du = (hit && hit.du) ? hit.du : (lid ? ('/spw/line_preview/' + lid + '.png') : null);
+              if (!du) return;
 
-            // Elige contenedor: preferimos la CELDA DE IMAGEN para que quede al lado
-            var target = null;
-            if (row) {
-              target =
+              // Contenedor preferente: celda de imagen
+              var target =
                 row.querySelector('.td-img, .o_wsale_product_img, .o_cart_product_img, .o_wsale_product_image, .o_cart_product_thumbnail') ||
-                row.querySelector('.td-product_name, .o_wsale_product_information, .o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_info');
-            } else {
-              // Fallback general
-              target =
-                document.querySelector('.js_cart_lines .td-img, .td-img, .o_wsale_product_img') ||
-                document.querySelector('.js_cart_lines .td-product_name, .td-product_name, .css_description, .oe_cart');
-            }
+                row.querySelector('.td-product_name, .o_wsale_product_information, .o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_info') ||
+                row;
 
-            if (!target || target.querySelector('.spw-preview')) return;
+              var img = document.createElement('img');
+              img.src = du;
+              img.alt = 'Personalización';
+              img.className = 'spw-preview';
+              img.style.border = '1px solid #eee';
+              img.style.borderRadius = '6px';
 
-            var img = document.createElement('img');
-            img.src = du;
-            img.alt = 'Personalización';
-            img.className = 'spw-preview';
+              // Si hay celda de imagen -> se muestra compacta; si no, a la izquierda del texto
+              var isImgCell = !!row.querySelector('.td-img, .o_wsale_product_img, .o_cart_product_img, .o_wsale_product_image, .o_cart_product_thumbnail');
+              if (isImgCell) {
+                img.style.maxWidth = '110px';
+                img.style.display = 'block';
+                img.style.marginTop = '6px';
+              } else {
+                img.style.maxWidth = '110px';
+                img.style.display = 'inline-block';
+                img.style.verticalAlign = 'top';
+                img.style.float = 'left';
+                img.style.margin = '0 10px 6px 0';
+              }
 
-            // Si estamos en la celda de imagen, tamaño compacto; si no, flotamos a la derecha
-            var isImgCell = !!target.closest('.td-img') || target.classList.contains('o_wsale_product_img') ||
-                            target.classList.contains('o_cart_product_img') || target.classList.contains('o_wsale_product_image');
-            if (isImgCell) {
-              img.style.maxWidth = '120px';
-              img.style.display = 'block';
-              img.style.marginTop = '6px';
-            } else {
-              img.style.maxWidth = '160px';
-              img.style.float = 'right';
-              img.style.margin = '0 0 6px 12px';
-            }
-            img.style.border = '1px solid #eee';
-            img.style.borderRadius = '6px';
-            target.appendChild(img);
+              // Insertar al principio del target para que quede al lado
+              target.insertBefore(img, target.firstChild);
+            });
           }
 
           if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', function(){ inject(); setTimeout(inject, 600); });
+            document.addEventListener('DOMContentLoaded', function(){ placeAll(); setTimeout(placeAll, 600); });
           } else {
-            inject(); setTimeout(inject, 600);
+            placeAll(); setTimeout(placeAll, 600);
           }
-          try { new MutationObserver(inject).observe(document.body, {childList:true, subtree:true}); } catch(_e){}
+          try { new MutationObserver(placeAll).observe(document.body, {childList:true, subtree:true}); } catch(_e){}
         })();
         //]]>
       </script>
