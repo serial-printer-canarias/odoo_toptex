@@ -142,7 +142,7 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (añadido sessionStorage spw_last_line_id) ====== -->
+      <!-- ====== JS INLINE (añadido sessionStorage spw_last_line_id y downscale preview) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -263,6 +263,7 @@
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
 
+        /* =================== SOLO MODIFICADO: addToCart() =================== */
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
@@ -271,39 +272,52 @@
           var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
-          var pngB64=""; 
+          // 1) Render y versión reducida para guardar en sessionStorage (evita QuotaExceeded)
+          let pngB64 = "", previewDu = "";
           try{
-            var du = await renderPNGDataURL();
-            // Guardamos para el preview en carrito
-            sessionStorage.setItem('spw_last_product_id', String(variantId));
-            sessionStorage.setItem('spw_last_png', du || '');
-            pngB64 = du ? du.split('base64,')[1] : "";
+            const fullDu = await renderPNGDataURL();
+            pngB64 = fullDu ? fullDu.split('base64,')[1] : "";
+
+            // downscale para preview (máx 600px ancho)
+            const tmpImg = await loadImage(fullDu);
+            const maxW = 600;
+            const ow = tmpImg.naturalWidth || tmpImg.width || 900;
+            const oh = tmpImg.naturalHeight || tmpImg.height || 900;
+            const scale = Math.min(1, maxW / ow);
+            const w = Math.round(ow * scale), h = Math.round(oh * scale);
+            const c = document.createElement('canvas'); c.width = w; c.height = h;
+            c.getContext('2d').drawImage(tmpImg, 0, 0, w, h);
+            previewDu = c.toDataURL('image/png');
           }catch(e){}
 
-          // 1) meta JSON -> fallback HTTP
+          // 2) Llamada meta (tu endpoint)
           var r1 = await postJSON("/spw/add_to_cart_meta", {
             variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
           });
-          if(!r1.ok){ r1 = await postForm("/spw/add_to_cart_meta_http", {
-            variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
-          }); }
+          if(!r1.ok){
+            r1 = await postForm("/spw/add_to_cart_meta_http", {
+              variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
+            });
+          }
           if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
-          // === NUEVO: guarda line_id para insertar la preview debajo de la línea correcta ===
-          try {
-            if (r1.data && r1.data.line_id) {
-              sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id));
-            }
-          } catch(e) {}
+          // 3) Guarda claves para el JS del carrito (linea + preview reducido)
+          try{
+            if (r1.data && r1.data.line_id) sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id));
+            sessionStorage.setItem('spw_last_product_id', String(variantId));
+            if (previewDu) sessionStorage.setItem('spw_last_png', previewDu);
+          }catch(e){}
 
-          // 2) PNG JSON -> fallback HTTP (no bloquea redirección)
+          // 4) Adjunta PNG completo (no bloquea redirección)
           if(pngB64){
             var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
           }
 
+          // 5) Redirigir al carrito
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
+        /* =================================================================== */
 
         // Descarga compatible iOS/Safari (abre en pestaña si no soporta "download")
         async function downloadPNGiOSSafe(){
