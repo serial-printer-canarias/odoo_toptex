@@ -1,34 +1,7 @@
 odoo.define('serial_printer_custom_wizard/js/spw', [], function (require) {
   'use strict';
 
-  function findRowByProductId(pid) {
-    if (!pid) return null;
-
-    // Busca el elemento de la línea según distintos temas/plantillas
-    const probes = [
-      '.js_cart_lines [data-product-id="%ID%"]',
-      '.js_cart_lines .js_quantity[data-product-id="%ID%"]',
-      '.js_cart_lines input[name="product_id"][value="%ID%"]',
-      '[data-product-id="%ID%"]',
-      'input[name="product_id"][value="%ID%"]',
-    ];
-
-    for (const p of probes) {
-      const el = document.querySelector(p.replace('%ID%', pid));
-      if (el) {
-        const row =
-          el.closest('[data-line-id]') ||
-          el.closest('tr') ||
-          el.closest('.o_cart_line') ||
-          el.closest('.oe_website_sale') ||
-          el.closest('div');
-        if (row) return row;
-      }
-    }
-    return null;
-  }
-
-  function getNameCell(row) {
+  function pickNameCell(row) {
     if (!row) return null;
     return (
       row.querySelector('.td-product_name') ||
@@ -46,15 +19,15 @@ odoo.define('serial_printer_custom_wizard/js/spw', [], function (require) {
     const dataUrl = sessionStorage.getItem('spw_last_png');
     if (!dataUrl) return;
 
-    const pid = sessionStorage.getItem('spw_last_product_id');
+    const lineId = sessionStorage.getItem('spw_last_line_id');   // ← NUEVO
     let container = null;
 
-    if (pid) {
-      const row = findRowByProductId(pid);
-      container = getNameCell(row);
+    if (lineId) {
+      const row = document.querySelector('[data-line-id="' + lineId + '"]');
+      container = pickNameCell(row);
     }
 
-    // Fallback: primera celda de nombre
+    // Fallback: primera celda de nombre del carrito
     if (!container) {
       container =
         document.querySelector('.js_cart_lines .td-product_name') ||
@@ -76,8 +49,7 @@ odoo.define('serial_printer_custom_wizard/js/spw', [], function (require) {
 
   document.addEventListener('DOMContentLoaded', function () {
     injectPreview();
-    // Si el DOM del carrito se repinta, reinyecta
-    const mo = new MutationObserver(injectPreview);
-    mo.observe(document.body, { childList: true, subtree: true });
+    // Reinyectar si el DOM del carrito se recompone
+    new MutationObserver(injectPreview).observe(document.body, { childList: true, subtree: true });
   });
 });
