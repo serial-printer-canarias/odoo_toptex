@@ -1,99 +1,69 @@
-odoo.define('serial_printer_web_custom.product_matrix', [], function (require) {
+/** serial_printer_web_custom/static/src/js/product_matrix.js **/
+odoo.define('@serial_printer_web_custom/js/product_matrix', [
+    'web.public.widget',
+], function (require) {
     'use strict';
 
-    // Inyecta un CSS mínimo para la tabla (evita depender del SCSS)
-    (function injectStyle(){
-        if (document.getElementById('sp-matrix-style')) return;
-        const css = `
-            .o_sp_matrix{margin:1rem 0;overflow-x:auto}
-            .o_sp_matrix table{width:100%;border-collapse:collapse}
-            .o_sp_matrix th,.o_sp_matrix td{border:1px solid #e5e7eb;padding:.5rem;text-align:center}
-            .o_sp_matrix th{white-space:nowrap}
-            .o_sp_matrix input.qty{width:72px;text-align:center}
-        `;
-        const s = document.createElement('style');
-        s.id = 'sp-matrix-style';
-        s.textContent = css;
-        document.head.appendChild(s);
-    })();
+    const publicWidget = require('web.public.widget');
 
-    function ready(fn){ document.readyState !== 'loading' ? fn() : document.addEventListener('DOMContentLoaded', fn); }
+    /**
+     * Dibuja una rejilla Color x Talla (solo visual por ahora).
+     * Se muestra únicamente si encuentra dos atributos: color y talla.
+     */
+    publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
+        selector: '.o_wsale_product_page',
+        start() {
+            try {
+                const $form = this.$el.find('form.o_wsale_product_configurator');
+                if (!$form.length) return this._super(...arguments);
 
-    // Busca bloques de atributos en distintas versiones de Odoo
-    function findAttributeBlocks(root){
-        const nodes = Array.from(root.querySelectorAll(
-            '[data-attribute_name], [data-attribute-name], .o_variant_attribute, .js_attribute'
-        ));
-        const blocks = [];
-        for (const el of nodes){
-            const radios = Array.from(el.querySelectorAll('input[type="radio"]'));
-            if (!radios.length) continue;
+                // localizar bloques de atributos
+                const blocks = $form.find('.o_variant_field');
+                const parsed = blocks.toArray().map(el => {
+                    const $b = $(el);
+                    const name = ($b.find('.o_variant_label, .label, legend').first().text() || '')
+                        .trim().toLowerCase();
+                    const options = $b.find('input[type="radio"],input[type="checkbox"]').toArray().map(inp => {
+                        const $inp = $(inp);
+                        const txt = ($inp.closest('label, .o_variant_value').text() || '').trim();
+                        return { text: txt };
+                    });
+                    return { name, options };
+                });
 
-            let name =
-                el.getAttribute('data-attribute_name') ||
-                el.getAttribute('data-attribute-name') || '';
-            if (!name){
-                const label = el.querySelector('.o_variant_label, .attribute_name, legend, .label');
-                name = (label && label.textContent || '').trim();
+                // detectar color / talla en varios idiomas
+                const isColor = n => /(color|colour|couleur|farbe|colore|kleur|cor)/i.test(n);
+                const isSize  = n => /(size|talla|taille|größe|groesse|taglia|maat|tamanho)/i.test(n);
+
+                const color = parsed.find(b => isColor(b.name));
+                const size  = parsed.find(b => isSize(b.name));
+
+                // Solo si hay dos ejes
+                if (!color || !size) return this._super(...arguments);
+                if (this.$el.find('#sp-matrix').length) return this._super(...arguments);
+
+                // Render sencillo
+                let html = '<div id="sp-matrix" class="border rounded p-3 mt-3">';
+                html += '<div class="fw-bold mb-2">Pedido rápido por Color x Talla</div>';
+                html += '<div class="d-flex mb-1"><div class="w-25"></div>';
+                size.options.forEach(o => { html += `<div class="w-25 text-center fw-bold">${_.escape(o.text)}</div>`; });
+                html += '</div>';
+                color.options.forEach(c => {
+                    html += `<div class="d-flex align-items-center mb-1"><div class="w-25 fw-bold">${_.escape(c.text)}</div>`;
+                    size.options.forEach(() => { html += `<div class="w-25"><input class="form-control form-control-sm" type="number" min="0" value="0"></div>`; });
+                    html += '</div>';
+                });
+                html += '</div>';
+
+                // insertar debajo del configurador
+                $form.after(html);
+            } catch (e) {
+                // no bloqueamos la página si algo falla
+                console.error('[SP] Matrix error:', e);
             }
-
-            const options = radios.map(r => {
-                const lbl = r.closest('label') || el.querySelector(`label[for="${r.id}"]`);
-                const txt = (lbl ? lbl.textContent : r.value || '').trim();
-                const id  = r.value || r.dataset.value_id || r.getAttribute('data-value_id') || r.id;
-                return { id, text: txt, input: r };
-            });
-
-            blocks.push({ name: (name||'').toLowerCase(), el, options });
-        }
-        return blocks;
-    }
-
-    ready(function(){
-        const page = document.querySelector('.o_wsale_product_page');
-        if (!page){ console.log('[SP] matrix: página de producto no encontrada'); return; }
-
-        const blocks = findAttributeBlocks(page);
-        console.log('[SP] matrix: bloques detectados =>', blocks.map(b => ({name:b.name, n:b.options.length})));
-        if (blocks.length < 2){ console.log('[SP] matrix: no hay suficientes atributos'); return; }
-
-        const isColor = n => /(color|colour|colou?r)/i.test(n);
-        const isSize  = n => /(size|talla|taille|maat|größe|taglia)/i.test(n);
-
-        const color = blocks.find(b => isColor(b.name)) || blocks[0];
-        const size  = blocks.find(b => isSize(b.name))  || blocks[1];
-
-        // Construye grid
-        const holder = document.createElement('div'); holder.className = 'o_sp_matrix';
-        const table  = document.createElement('table');
-        const thead  = document.createElement('thead');
-        const trh    = document.createElement('tr');
-        trh.appendChild(document.createElement('th')); // esquina vacía
-        size.options.forEach(opt => { const th=document.createElement('th'); th.textContent=opt.text; trh.appendChild(th); });
-        thead.appendChild(trh); table.appendChild(thead);
-
-        const tbody = document.createElement('tbody');
-        color.options.forEach(c => {
-            const tr = document.createElement('tr');
-            const th = document.createElement('th'); th.textContent = c.text; tr.appendChild(th);
-            size.options.forEach(s => {
-                const td = document.createElement('td');
-                const inp = document.createElement('input');
-                inp.type='number'; inp.min='0'; inp.step='1'; inp.className='qty';
-                inp.dataset.colorId=c.id; inp.dataset.sizeId=s.id;
-                td.appendChild(inp); tr.appendChild(td);
-            });
-            tbody.appendChild(tr);
-        });
-        table.appendChild(tbody); holder.appendChild(table);
-
-        // Inserta el grid justo después del último bloque de atributos
-        const allAttr = Array.from(page.querySelectorAll('[data-attribute_name], [data-attribute-name], .o_variant_attribute, .js_attribute'));
-        const last    = allAttr.length ? allAttr[allAttr.length-1] : null;
-        (last && last.parentNode) ? last.parentNode.insertBefore(holder, last.nextSibling) : page.appendChild(holder);
-
-        console.log('[SP] Matrix cargada ✔️');
+            return this._super(...arguments);
+        },
     });
 
-    return {};
+    return publicWidget.registry.SerialPrinterMatrix;
 });
