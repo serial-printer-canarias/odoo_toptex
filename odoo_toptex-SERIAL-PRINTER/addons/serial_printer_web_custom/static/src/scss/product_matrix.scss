@@ -4,7 +4,7 @@
 .sp-matrix__table thead th { position:sticky; top:0; z-index:3; background:#fafafa; }
 .sp-sticky-left { position:sticky; left:0; z-index:2; background:#fafafa; min-width:11rem; }
 .sp-color { display:flex; align-items:center; gap:.5rem; }
-.sp-color__img { width:36px; height:36px; border-radius:.35rem; object-fit:cover; border:1px solid #ddd; }
+.sp-color__img { width:36px; height:36px; border-radius:.35rem; object-fit:cover; border:1px solid #ddd; background:#f3f4f6; }
 .sp-cell { display:flex; flex-direction:column; gap:.15rem; }
 .sp-qty { width:100%; text-align:center; }
 .sp-meta { font-size:.75rem; line-height:1.1; opacity:.9; }
