@@ -1,163 +1,237 @@
-/** **********************************************************************
- * SERIAL PRINTER - Product Matrix (solo grid, sin dependencias Odoo JS)
- * - Sin require('web.public.widget') ni require('web.ajax')
- * - Construye el grid Color × Talla cuando detecta ambos atributos
- * - Reintenta con MutationObserver si el tema inyecta tarde los atributos
- *********************************************************************** */
-odoo.define('serial_printer_web_custom.product_matrix', function () {
-  'use strict';
+/** Odoo 18 */
+odoo.define('serial_printer_web_custom.product_matrix', [], function (require) {
+    "use strict";
 
-  // Utilidad: ejecutar cuando el DOM está listo
-  function onReady(fn) {
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
-    else fn();
-  }
+    const ajax = require('web.ajax');
 
-  // Buscar bloques de atributos (soporta distintos temas/plantillas)
-  function getAttributeBlocks(scope) {
-    const $scope = scope || document;
-    const blocks = [];
-
-    // (A) Contenedores con data-attribute_name (el más común)
-    $scope.querySelectorAll('.js_product .js_attributes [data-attribute_name]').forEach(el => {
-      const name = (el.getAttribute('data-attribute_name') || '').trim();
-      const options = Array.from(el.querySelectorAll('input[type="radio"]')).map(inp => {
-        const id = parseInt(inp.dataset.valueId || inp.dataset.attributeValueId || inp.value, 10);
-        const lbl = inp.closest('label');
-        const text = (lbl ? lbl.textContent : (inp.getAttribute('title') || '')).trim();
-        return id ? { id, name: text, input: inp } : null;
-      }).filter(Boolean);
-      if (name && options.length) blocks.push({ name, options, el });
-    });
-    if (blocks.length) return blocks;
-
-    // (B) Fallback: label.o_variant_label + radios
-    const root = $scope.querySelector('.js_product .js_attributes, .js_product .o_wsale_product_configurator');
-    if (root) {
-      const groups = {};
-      root.querySelectorAll('label.o_variant_label').forEach(lbl => {
-        const name = (lbl.textContent || lbl.getAttribute('title') || '').trim();
-        const holder = lbl.parentElement;
-        const options = Array.from(holder.querySelectorAll('input[type="radio"]')).map(inp => {
-          const id = parseInt(inp.dataset.valueId || inp.dataset.attributeValueId || inp.value, 10);
-          const l = inp.closest('label');
-          const text = (l ? l.textContent : (inp.getAttribute('title') || '')).trim();
-          return id ? { id, name: text, input: inp } : null;
-        }).filter(Boolean);
-        if (name && options.length) groups[name] = { name, options, el: holder };
-      });
-      Object.values(groups).forEach(g => blocks.push(g));
+    // ------------------- Helpers de ordenación de tallas -------------------
+    const SIZE_ORDER = [
+        'XXS','XS','S','M','L','XL','XXL','3XL','4XL','5XL','6XL',
+        '32','34','36','38','40','42','44','46','48','50','52','54',
+        '4 UK','6 UK','8 UK','10 UK','12 UK','14 UK','16 UK','18 UK','20 UK',
+        '34 EU','36 EU','38 EU','40 EU','42 EU','44 EU','46 EU','48 EU',
+    ];
+    function sizeSortKey(txt) {
+        const t = String(txt || '').trim().toUpperCase();
+        const idx = SIZE_ORDER.indexOf(t);
+        if (idx !== -1) return idx;
+        const m = t.match(/^(\d{1,3})\s*(EU|US|UK|FR)?$/);
+        if (m) return 100 + parseInt(m[1], 10);
+        return 1000 + (t.charCodeAt(0) || 0);
     }
-    return blocks;
-  }
 
-  // Detectar cuál es Color y cuál Talla; si no puede, usa los dos primeros
-  function pickColorAndSize(blocks) {
-    const isColor = n => /^(color|colour|couleur)$/i.test((n || '').trim());
-    const isSize  = n => /^(talla|size|taille|talle)$/i.test((n || '').trim());
-    let color = blocks.find(b => isColor(b.name));
-    let size  = blocks.find(b => isSize(b.name));
-    const rest = blocks.filter(b => (b.options || []).length);
-    if (!color && rest[0]) color = rest[0];
-    if (!size  && rest[1]) size  = rest[1];
-    return { color, size };
-  }
+    // ------------------- Utilidades DOM -------------------
+    function onReady(fn) {
+        if (document.readyState !== 'loading') fn();
+        else document.addEventListener('DOMContentLoaded', fn);
+    }
+    function norm(s) {
+        return String(s || '')
+            .toLowerCase()
+            .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+            .trim();
+    }
 
-  // Construir HTML del grid
-  function renderGrid(colorBlock, sizeBlock) {
-    const colors = colorBlock.options;
-    const sizes  = sizeBlock.options;
+    function getAttrBlocks(scope) {
+        const container =
+            scope.querySelector('.js_product .js_attributes') ||
+            scope.querySelector('#product_details .js_attributes') ||
+            scope.querySelector('.oe_website_sale .js_attributes');
+        if (!container) return [];
 
-    const table = document.createElement('table');
-    table.className = 'sp-matrix__table table table-borderless';
+        const groups = container.querySelectorAll('.js_attribute, .o_wsale_product_configurator_row, .o_variant_attribute');
+        const blocks = [];
 
-    const thead = document.createElement('thead');
-    const htr = document.createElement('tr');
-    const corner = document.createElement('th');
-    corner.className = 'sp-sticky-left';
-    htr.appendChild(corner);
-    sizes.forEach(s => {
-      const th = document.createElement('th');
-      th.innerHTML = `<div class="text-center fw-medium">${_.escape(s.name)}</div>`;
-      htr.appendChild(th);
-    });
-    thead.appendChild(htr);
-    table.appendChild(thead);
+        groups.forEach(group => {
+            const labelEl =
+                group.querySelector('.o_variant_label, .attribute_name, .o_wsale_product_configurator_label') ||
+                group.closest('[data-attribute_name]');
+            const name =
+                (labelEl && (labelEl.textContent || labelEl.getAttribute('data-attribute_name'))) ?
+                    (labelEl.textContent || labelEl.getAttribute('data-attribute_name')) : '';
 
-    const tbody = document.createElement('tbody');
-    colors.forEach(c => {
-      const tr = document.createElement('tr');
-      const th = document.createElement('th');
-      th.className = 'sp-sticky-left';
-      th.innerHTML = `
-        <div class="sp-color">
-          <div class="sp-color__img" style="background:#f5f5f5;"></div>
-          <div class="fw-medium">${_.escape(c.name)}</div>
-        </div>`;
-      tr.appendChild(th);
+            const radios = Array.from(group.querySelectorAll('input[type="radio"]'));
+            if (!radios.length) return;
 
-      sizes.forEach(s => {
-        const td = document.createElement('td');
-        td.innerHTML = `
-          <div class="sp-cell">
-            <input class="sp-qty form-control form-control-sm"
-                   type="number" min="0" step="1"
-                   data-color-id="${c.id}" data-size-id="${s.id}"
-                   placeholder="">
-            <div class="sp-meta text-muted d-flex justify-content-between">
-              <span class="sp-price"></span>
-              <span class="sp-stock"></span>
+            const options = radios.map(inp => {
+                const id =
+                    parseInt(
+                        inp.getAttribute('data-value_id') ||
+                        inp.getAttribute('data-attribute_value_id') ||
+                        inp.value || '0', 10
+                    ) || null;
+
+                const lab = group.querySelector(`label[for="${inp.id}"]`);
+                const txt =
+                    (lab && lab.textContent) ||
+                    inp.getAttribute('data-value_name') ||
+                    inp.getAttribute('data-attribute_name') ||
+                    '';
+
+                return { id, text: String(txt).trim(), input: inp };
+            }).filter(o => o.id && o.text);
+
+            blocks.push({ name: String(name).trim(), options });
+        });
+
+        return blocks;
+    }
+
+    function findColorAndSize(blocks) {
+        const isColor = (n) => /^(color|colour|couleur|farbe)$/i.test(norm(n));
+        const isSize  = (n) => /^(talla|size|taille|grosse|maat)$/i.test(norm(n));
+        const color = blocks.find(b => isColor(b.name)) || blocks[0] || null;
+        const size  = blocks.find(b => isSize(b.name))  || blocks[1] || null;
+        return { color, size };
+    }
+
+    // ------------------- Render del grid -------------------
+    function renderGrid({ color, size }, mountAfter) {
+        if (!color || !size) return null;
+
+        size.options.sort((a, b) => sizeSortKey(a.text) - sizeSortKey(b.text));
+
+        const box = document.createElement('div');
+        box.id = 'sp-matrix';
+        box.innerHTML = `
+            <div class="sp-matrix-note mb-2 text-muted small">
+                Indica cantidades por color y talla.
             </div>
-          </div>`;
-        tr.appendChild(td);
-      });
+            <table class="sp-matrix__table">
+                <thead>
+                    <tr>
+                        <th class="sp-sticky-left">Color</th>
+                        ${size.options.map(o => `<th><div class="text-center fw-600">${o.text}</div></th>`).join('')}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${color.options.map(c => `
+                        <tr data-color-id="${c.id}">
+                            <th class="sp-sticky-left">
+                                <div class="sp-color">
+                                    <img class="sp-color__img" alt="${c.text}">
+                                    <span>${c.text}</span>
+                                </div>
+                            </th>
+                            ${size.options.map(s => `
+                                <td>
+                                    <div class="sp-cell">
+                                        <input class="form-control sp-qty" type="number" min="0" step="1"
+                                               data-av-ids="${c.id},${s.id}">
+                                        <div class="sp-meta"></div>
+                                    </div>
+                                </td>
+                            `).join('')}
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+            <div class="mt-2 text-end">
+                <button type="button" class="btn btn-primary add-to-cart-matrix">Añadir selección</button>
+            </div>
+        `;
+        mountAfter.parentNode.insertBefore(box, mountAfter.nextSibling);
+        return box;
+    }
 
-      tbody.appendChild(tr);
+    // ------------------- Resolver de variant_id (lazy) -------------------
+    function getPricelistId() {
+        const el = document.querySelector('input[name="pricelist_id"]');
+        return el ? parseInt(el.value, 10) || 0 : 0;
+    }
+    function getProductTemplateId() {
+        const cand = document.querySelector('input[name="product_template_id"]') ||
+                     document.querySelector('#product_details[data-product-template-id]');
+        if (cand) {
+            const v = cand.value || cand.getAttribute('data-product-template-id');
+            return parseInt(v || '0', 10) || 0;
+        }
+        return 0;
+    }
+    async function getVariantId(ptId, avIds) {
+        const payload = {
+            product_template_id: ptId,
+            combination_ids: avIds,
+            add_qty: 1,
+            pricelist_id: getPricelistId(),
+            product_id: 0,
+        };
+        const data = await ajax.jsonRpc('/website_sale/get_combination_info', 'call', payload);
+        return data && data.product_id ? parseInt(data.product_id, 10) : 0;
+    }
+
+    // ------------------- Bootstrap -------------------
+    onReady(async function () {
+        const page = document.querySelector('.o_wsale_product_page');
+        if (!page) return;
+
+        try {
+            const blocks = getAttrBlocks(page);
+            const { color, size } = findColorAndSize(blocks);
+            if (!color || !size) return;
+
+            const attrs = page.querySelector('.js_product .js_attributes') ||
+                          page.querySelector('#product_details .js_attributes');
+            if (!attrs) return;
+
+            const grid = renderGrid({ color, size }, attrs);
+            if (!grid) return;
+
+            // Oculta radios originales SOLO cuando existe la matriz
+            const productForm = page.querySelector('.js_product');
+            if (productForm) productForm.classList.add('sp-matrix-active');
+
+            // Placeholder de miniaturas por color (fase 2: imagen real de variante)
+            color.options.forEach(c => {
+                const img = grid.querySelector(`tr[data-color-id="${c.id}"] .sp-color__img`);
+                if (img) img.src = "/web/static/img/placeholder.png";
+            });
+
+            // Resolver variant_id al enfocar una celda
+            const ptId = getProductTemplateId();
+            grid.addEventListener('focusin', async (ev) => {
+                const inp = ev.target.closest('input.sp-qty');
+                if (!inp || inp.dataset.variantId || !ptId) return;
+                const avIds = (inp.dataset.avIds || '')
+                    .split(',').map(x => parseInt(x, 10)).filter(Boolean);
+                if (!avIds.length) return;
+                const vid = await getVariantId(ptId, avIds);
+                if (vid) inp.dataset.variantId = String(vid);
+            });
+
+            // Añadir selección al carrito
+            const addBtn = grid.querySelector('.add-to-cart-matrix');
+            addBtn?.addEventListener('click', async () => {
+                const calls = [];
+                const inputs = grid.querySelectorAll('input.sp-qty');
+                for (const inp of inputs) {
+                    const qty = parseFloat(inp.value || '0');
+                    if (!qty || qty <= 0) continue;
+
+                    let vid = parseInt(inp.dataset.variantId || '0', 10);
+                    if (!vid && ptId) {
+                        const avIds = (inp.dataset.avIds || '')
+                            .split(',').map(x => parseInt(x, 10)).filter(Boolean);
+                        vid = await getVariantId(ptId, avIds);
+                        if (vid) inp.dataset.variantId = String(vid);
+                    }
+                    if (!vid) continue;
+
+                    calls.push(ajax.jsonRpc('/shop/cart/update_json', 'call', {
+                        product_id: vid,
+                        add_qty: qty,
+                        display: false,
+                    }));
+                }
+                if (!calls.length) return;
+                await Promise.all(calls);
+                window.location.reload();
+            });
+
+        } catch (err) {
+            console.error('[SP] Error en matriz:', err);
+        }
     });
 
-    table.appendChild(tbody);
-    return table;
-  }
-
-  // Montaje del grid (una sola vez)
-  function buildMatrixOnce() {
-    if (document.getElementById('sp-matrix')) return true;
-    const page = document.querySelector('.o_wsale_product_page, .oe_website_sale');
-    if (!page) return false;
-
-    const blocks = getAttributeBlocks(page);
-    const { color, size } = pickColorAndSize(blocks);
-    if (!(color && size)) return false;
-
-    // punto de inserción
-    const after = page.querySelector('.js_product .js_attributes:last-of-type') ||
-                  page.querySelector('.product_price') ||
-                  page.querySelector('.js_product');
-    if (!after) return false;
-
-    // contenedor + tabla
-    document.body.classList.add('sp-matrix-active');
-    const mount = document.createElement('div');
-    mount.id = 'sp-matrix';
-    mount.className = 'sp-matrix o-pt-3';
-    mount.appendChild(renderGrid(color, size));
-    after.parentNode.insertBefore(mount, after.nextSibling);
-
-    console.info('[SP] Matrix: construida');
-    return true;
-  }
-
-  // Observador para páginas que inyectan los atributos tarde
-  function ensureMatrix() {
-    if (buildMatrixOnce()) return;
-
-    const obs = new MutationObserver(() => {
-      if (buildMatrixOnce()) {
-        obs.disconnect();
-      }
-    });
-    obs.observe(document.body, { childList: true, subtree: true });
-  }
-
-  onReady(ensureMatrix);
+    return {};
 });
