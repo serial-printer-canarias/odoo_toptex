@@ -142,7 +142,7 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (solo añadidas las líneas de sessionStorage y base interna) ====== -->
+      <!-- ====== JS INLINE (añadido sessionStorage spw_last_line_id) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -274,13 +274,13 @@
           var pngB64=""; 
           try{
             var du = await renderPNGDataURL();
-            // === NUEVO: guardar en sessionStorage para el preview en carrito ===
+            // Guardamos para el preview en carrito
             sessionStorage.setItem('spw_last_product_id', String(variantId));
             sessionStorage.setItem('spw_last_png', du || '');
             pngB64 = du ? du.split('base64,')[1] : "";
           }catch(e){}
 
-          // 1) meta JSON -> fallback HTTP (SIN CAMBIOS)
+          // 1) meta JSON -> fallback HTTP
           var r1 = await postJSON("/spw/add_to_cart_meta", {
             variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
           });
@@ -289,7 +289,14 @@
           }); }
           if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
-          // 2) PNG JSON -> fallback HTTP (SIN CAMBIOS)
+          // === NUEVO: guarda line_id para insertar la preview debajo de la línea correcta ===
+          try {
+            if (r1.data && r1.data.line_id) {
+              sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id));
+            }
+          } catch(e) {}
+
+          // 2) PNG JSON -> fallback HTTP (no bloquea redirección)
           if(pngB64){
             var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
