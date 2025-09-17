@@ -1,14 +1,17 @@
 {
     "name": "Serial Printer Web Custom",
-    "version": "18.0.0.7",
+    "version": "18.0.1.0.0",
     "category": "Website",
+    "summary": "Product matrix (color x talla) con precio/stock",
     "depends": ["website_sale"],
+    "data": [
+        # si tienes alguna vista qweb heredada, añádela aquí
+    ],
     "assets": {
         "web.assets_frontend": [
             "serial_printer_web_custom/static/src/js/product_matrix.js",
             "serial_printer_web_custom/static/src/scss/product_matrix.scss",
         ],
     },
-    "installable": True,
-    "application": False,
+    "license": "LGPL-3",
 }
