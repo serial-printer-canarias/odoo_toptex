@@ -19,15 +19,29 @@ odoo.define('serial_printer_custom_wizard/js/spw', [], function (require) {
     const dataUrl = sessionStorage.getItem('spw_last_png');
     if (!dataUrl) return;
 
-    const lineId = sessionStorage.getItem('spw_last_line_id');   // ← NUEVO
     let container = null;
 
+    // 1) Si tenemos line_id, vamos directos a esa fila
+    const lineId = sessionStorage.getItem('spw_last_line_id');
     if (lineId) {
-      const row = document.querySelector('[data-line-id="' + lineId + '"]');
+      const row = document.querySelector('[data-line-id="' + lineId + '"]') ||
+                  document.querySelector('tr[data-line-id="' + lineId + '"]') ||
+                  document.querySelector('div[data-line-id="' + lineId + '"]');
       container = pickNameCell(row);
     }
 
-    // Fallback: primera celda de nombre del carrito
+    // 2) Fallback por product_id si no hay line_id
+    if (!container) {
+      const pid = sessionStorage.getItem('spw_last_product_id');
+      if (pid) {
+        const el = document.querySelector('.js_quantity[data-product-id="' + pid + '"]') ||
+                   document.querySelector('[data-product-id="' + pid + '"]') ||
+                   document.querySelector('input[name="product_id"][value="' + pid + '"]');
+        if (el) container = pickNameCell(el.closest('[data-line-id]') || el.closest('tr') || el.closest('div'));
+      }
+    }
+
+    // 3) Último fallback: primera celda del carrito
     if (!container) {
       container =
         document.querySelector('.js_cart_lines .td-product_name') ||
@@ -49,7 +63,6 @@ odoo.define('serial_printer_custom_wizard/js/spw', [], function (require) {
 
   document.addEventListener('DOMContentLoaded', function () {
     injectPreview();
-    // Reinyectar si el DOM del carrito se recompone
     new MutationObserver(injectPreview).observe(document.body, { childList: true, subtree: true });
   });
 });
