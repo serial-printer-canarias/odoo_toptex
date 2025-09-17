@@ -7,12 +7,7 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function () {
         const res = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                jsonrpc: '2.0',
-                method: 'call',
-                params,
-                id: Date.now(),
-            }),
+            body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params, id: Date.now() }),
             credentials: 'same-origin',
         });
         const payload = await res.json();
@@ -20,19 +15,16 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function () {
         return payload ? payload.result : null;
     }
 
-    // ------------------- Helpers de ordenación de tallas -------------------
+    // ------------------- Ordenación de tallas -------------------
     const SIZE_ORDER = [
         'XXS','XS','S','M','L','XL','XXL','3XL','4XL','5XL','6XL',
-        '32','34','36','38','40','42','44','46','48','50','52','54',
-        '4 UK','6 UK','8 UK','10 UK','12 UK','14 UK','16 UK','18 UK','20 UK',
-        '34 EU','36 EU','38 EU','40 EU','42 EU','44 EU','46 EU','48 EU',
     ];
     function sizeSortKey(txt) {
         const t = String(txt || '').trim().toUpperCase();
-        const idx = SIZE_ORDER.indexOf(t);
-        if (idx !== -1) return idx;
-        const m = t.match(/^(\d{1,3})\s*(EU|US|UK|FR)?$/);
-        if (m) return 100 + parseInt(m[1], 10);
+        const fixed = SIZE_ORDER.indexOf(t);
+        if (fixed !== -1) return fixed;
+        const m = t.match(/^(\d{1,3})\s*(EU|US|UK|FR)?$/); // 6 UK, 38 EU, etc.
+        if (m) return 100 + parseInt(m[1], 10);           // orden numérico ascendente
         return 1000 + (t.charCodeAt(0) || 0);
     }
 
@@ -47,7 +39,6 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function () {
             .normalize('NFD').replace(/\p{Diacritic}/gu, '')
             .trim();
     }
-
     function getAttrBlocks(scope) {
         const container =
             scope.querySelector('.js_product .js_attributes') ||
@@ -76,12 +67,10 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function () {
                     inp.getAttribute('data-attribute_value_id') ||
                     inp.value || '0', 10
                 ) || null;
-
                 const lab = group.querySelector(`label[for="${inp.id}"]`);
                 const txt = (lab && lab.textContent) ||
                             inp.getAttribute('data-value_name') ||
                             inp.getAttribute('data-attribute_name') || '';
-
                 return { id, text: String(txt).trim(), input: inp };
             }).filter(o => o.id && o.text);
 
@@ -90,7 +79,6 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function () {
 
         return blocks;
     }
-
     function findColorAndSize(blocks) {
         const isColor = n => /^(color|colour|couleur|farbe)$/i.test(norm(n));
         const isSize  = n => /^(talla|size|taille|grosse|maat)$/i.test(norm(n));
@@ -174,77 +162,82 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function () {
     }
 
     // ------------------- Bootstrap -------------------
-    onReady(async function () {
+    function ensureMatrix() {
         const page = document.querySelector('.o_wsale_product_page');
         if (!page) return;
 
-        try {
-            const blocks = getAttrBlocks(page);
-            const { color, size } = findColorAndSize(blocks);
-            if (!color || !size) return;
+        // evita duplicar
+        if (page.querySelector('#sp-matrix')) return;
 
-            const attrs = page.querySelector('.js_product .js_attributes') ||
-                          page.querySelector('#product_details .js_attributes');
-            if (!attrs) return;
+        const blocks = getAttrBlocks(page);
+        const found = findColorAndSize(blocks);
+        if (!found.color || !found.size) return;
 
-            const grid = renderGrid({ color, size }, attrs);
-            if (!grid) return;
+        const attrs = page.querySelector('.js_product .js_attributes') ||
+                      page.querySelector('#product_details .js_attributes');
+        if (!attrs) return;
 
-            // Oculta radios originales SOLO cuando existe la matriz
-            const productForm = page.querySelector('.js_product');
-            if (productForm) productForm.classList.add('sp-matrix-active');
+        const grid = renderGrid(found, attrs);
+        if (!grid) return;
 
-            // Miniaturas placeholder por color (fase 2: imagen real)
-            color.options.forEach(c => {
-                const img = grid.querySelector(`tr[data-color-id="${c.id}"] .sp-color__img`);
-                if (img) img.src = "/web/static/img/placeholder.png";
+        // Oculta radios originales SOLO cuando existe la matriz
+        const productForm = page.querySelector('.js_product');
+        if (productForm) productForm.classList.add('sp-matrix-active');
+
+        // Placeholder de imagen (fase 2: foto real por variante)
+        found.color.options.forEach(c => {
+            const img = grid.querySelector(`tr[data-color-id="${c.id}"] .sp-color__img`);
+            if (img) img.src = "/web/static/img/placeholder.png";
+        });
+
+        // Resolver variant_id al enfocar una celda
+        const ptId = getProductTemplateId();
+        grid.addEventListener('focusin', async (ev) => {
+            const inp = ev.target.closest('input.sp-qty');
+            if (!inp || inp.dataset.variantId || !ptId) return;
+            const avIds = (inp.dataset.avIds || '')
+                .split(',').map(x => parseInt(x, 10)).filter(Boolean);
+            if (!avIds.length) return;
+            const vid = await getVariantId(ptId, avIds);
+            if (vid) inp.dataset.variantId = String(vid);
+        });
+
+        // Añadir selección al carrito
+        const addBtn = grid.querySelector('.add-to-cart-matrix');
+        addBtn?.addEventListener('click', async () => {
+            const calls = [];
+            grid.querySelectorAll('input.sp-qty').forEach(inp => {
+                const qty = parseFloat(inp.value || '0');
+                if (!qty || qty <= 0) return;
+                calls.push((async () => {
+                    let vid = parseInt(inp.dataset.variantId || '0', 10);
+                    if (!vid && ptId) {
+                        const avIds = (inp.dataset.avIds || '')
+                            .split(',').map(x => parseInt(x, 10)).filter(Boolean);
+                        vid = await getVariantId(ptId, avIds);
+                        if (vid) inp.dataset.variantId = String(vid);
+                    }
+                    if (!vid) return;
+                    await jsonRpc('/shop/cart/update_json', {
+                        product_id: vid,
+                        add_qty: qty,
+                        display: false,
+                    });
+                })());
             });
+            if (!calls.length) return;
+            await Promise.all(calls);
+            window.location.reload();
+        });
+    }
 
-            // Resolver variant_id al enfocar una celda
-            const ptId = getProductTemplateId();
-            grid.addEventListener('focusin', async (ev) => {
-                const inp = ev.target.closest('input.sp-qty');
-                if (!inp || inp.dataset.variantId || !ptId) return;
-                const avIds = (inp.dataset.avIds || '')
-                    .split(',').map(x => parseInt(x, 10)).filter(Boolean);
-                if (!avIds.length) return;
-                const vid = await getVariantId(ptId, avIds);
-                if (vid) inp.dataset.variantId = String(vid);
-            });
-
-            // Añadir selección al carrito
-            const addBtn = grid.querySelector('.add-to-cart-matrix');
-            addBtn?.addEventListener('click', async () => {
-                const calls = [];
-                grid.querySelectorAll('input.sp-qty').forEach(inp => {
-                    const qty = parseFloat(inp.value || '0');
-                    if (!qty || qty <= 0) return;
-
-                    calls.push((async () => {
-                        let vid = parseInt(inp.dataset.variantId || '0', 10);
-                        if (!vid && ptId) {
-                            const avIds = (inp.dataset.avIds || '')
-                                .split(',').map(x => parseInt(x, 10)).filter(Boolean);
-                            vid = await getVariantId(ptId, avIds);
-                            if (vid) inp.dataset.variantId = String(vid);
-                        }
-                        if (!vid) return;
-                        await jsonRpc('/shop/cart/update_json', {
-                            product_id: vid,
-                            add_qty: qty,
-                            display: false,
-                        });
-                    })());
-                });
-
-                if (!calls.length) return;
-                await Promise.all(calls);
-                window.location.reload();
-            });
-
-        } catch (err) {
-            console.error('[SP] Error en matriz:', err);
-        }
+    onReady(() => {
+        // Intento inmediato y también cuando Owl/DOM cambie (por si el bloque se monta tarde)
+        ensureMatrix();
+        const mo = new MutationObserver(() => ensureMatrix());
+        mo.observe(document.body, { childList: true, subtree: true });
+        // Traza mínima para verificar carga
+        console.log('[SP] product_matrix listo');
     });
 
     return {};
