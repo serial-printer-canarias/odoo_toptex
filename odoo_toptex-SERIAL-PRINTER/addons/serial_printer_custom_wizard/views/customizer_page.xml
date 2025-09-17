@@ -247,7 +247,7 @@
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
 
-        /* ===== addToCart: guarda previews (lista) en sessionStorage; NO depende de servidor para mostrar ===== */
+        /* ===== addToCart: guarda previews (lista) en sessionStorage ===== */
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
@@ -268,7 +268,7 @@
             previewDu = c.toDataURL('image/png');
           }catch(e){}
 
-          // Crear línea con meta (tu endpoint existente)
+          // Crear línea con meta (endpoints existentes)
           let r1 = await postJSON('/spw/add_to_cart_meta', {
             variant_id: parseInt(variantId,10), qty, tech, svg_color: svgColor, notes
           });
@@ -279,7 +279,7 @@
           }
           if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : 'No se pudo añadir al carrito.'); return; }
 
-          // Guardar “último” y LISTA (para múltiples líneas)
+          // Guardar en sesión (soporta múltiples líneas)
           try{
             const lid = r1.data && r1.data.line_id ? String(r1.data.line_id) : '';
             sessionStorage.setItem('spw_last_line_id', lid);
@@ -293,7 +293,7 @@
             sessionStorage.setItem('spw_previews', JSON.stringify(list));
           }catch(_e){}
 
-          // Adjuntar PNG al servidor (opcional; no afecta a la vista local)
+          // Adjuntar PNG completo (opcional; no afecta al preview local)
           if(pngB64){
             let r2 = await postJSON('/spw/attach_png', { line_id: r1.data.line_id, png_b64: pngB64 });
             if(!r2.ok){ await postForm('/spw/attach_png_http', { line_id: r1.data.line_id, png_b64: pngB64 }); }
@@ -301,7 +301,7 @@
 
           window.location.href = (r1.data && r1.data.cart_url) || '/shop/cart';
         }
-        /* ===================================================================================================== */
+        /* ================================================================== */
 
         async function downloadPNGiOSSafe(){
           try{
@@ -353,12 +353,20 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN EN WEBSITE.LAYOUT: PREVIEW LOCAL POR LÍNEA ============ -->
+  <!-- ============ INYECCIÓN EN WEBSITE.LAYOUT: PREVIEW EN COLUMNA DE CANTIDAD (SIN DUPLICADOS) ============ -->
   <template id="spw_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript">
         //<![CDATA[
         (function(){
+          function getTopLevelRows(){
+            // Filas raíz con data-line-id (evita procesar contenedores internos)
+            var rows = Array.from(document.querySelectorAll('[data-line-id]'))
+              .filter(function(el){ var p = el.parentElement && el.parentElement.closest('[data-line-id]'); return !p; });
+            if (rows.length) return rows;
+            // Fallback por temas
+            return Array.from(document.querySelectorAll('.o_cart_product, .js_cart_lines > tr'));
+          }
           function getProductIdFromRow(row){
             var pid = row.getAttribute('data-product-id');
             if(!pid){
@@ -383,10 +391,11 @@
             try { list = JSON.parse(sessionStorage.getItem('spw_previews') || '[]') || []; } catch(_e){ list = []; }
 
             var usedByProduct = {};
-            document.querySelectorAll('[data-line-id], tr[data-line-id], div[data-line-id], .o_cart_product, .js_cart_lines tr, .js_cart_lines div').forEach(function(row){
+            getTopLevelRows().forEach(function(row){
+              // si ya hay preview en la fila, no repetimos
               if (row.querySelector('.spw-preview')) return;
 
-              var lid = row.getAttribute('data-line-id') || (row.querySelector('[data-line-id]') && row.querySelector('[data-line-id]').getAttribute('data-line-id')) || '';
+              var lid = row.getAttribute('data-line-id') || '';
               var pid = getProductIdFromRow(row);
 
               var hit = null;
@@ -402,11 +411,23 @@
               }
               if(!hit || !hit.du) return;
 
-              var imgCell =
-                row.querySelector('.td-img, .o_wsale_product_img, .o_cart_product_img, .o_wsale_product_image, .o_cart_product_thumbnail');
+              // Objetivo: columna de cantidad (al lado de los botones ±)
+              var qtyCell =
+                row.querySelector('.td-qty, .o_wsale_cart_item_qty, .o_wsale_cart_quantity, .css_quantity, .quantity, .o_qty');
+
+              // Fallback si no encontramos qty: info del producto
               var nameCell =
-                row.querySelector('.td-product_name, .o_wsale_product_information, .o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_info');
-              var target = imgCell || nameCell || row;
+                row.querySelector('.o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_information, .td-product_name');
+
+              var target = qtyCell || nameCell || row;
+
+              // Evitar múltiples contenedores dentro de qty
+              if (target.querySelector('.spw-preview')) return;
+
+              var wrap = document.createElement('div');
+              wrap.className = 'spw-preview-wrap';
+              wrap.style.textAlign = 'center';
+              wrap.style.marginTop = '6px';
 
               var img = document.createElement('img');
               img.src = hit.du;
@@ -415,15 +436,16 @@
               img.style.maxWidth = '110px';
               img.style.border = '1px solid #eee';
               img.style.borderRadius = '6px';
-              img.style.display = imgCell ? 'block' : 'inline-block';
-              img.style.verticalAlign = 'top';
-              if (imgCell) {
-                img.style.marginTop = '6px';
+              img.style.display = 'inline-block';
+
+              wrap.appendChild(img);
+
+              // Si es qty, lo ponemos al final de la celda; si no, delante del nombre
+              if (qtyCell && target === qtyCell) {
+                target.appendChild(wrap);
               } else {
-                img.style.float = 'left';
-                img.style.margin = '0 10px 6px 0';
+                target.insertBefore(wrap, target.firstChild);
               }
-              target.insertBefore(img, target.firstChild);
             });
           }
 
