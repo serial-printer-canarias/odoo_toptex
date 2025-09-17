@@ -16,12 +16,12 @@
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
 
-              <!-- *** PUNTO 6: IMAGEN INTERNA ODOO (same-origin) PARA EVITAR CORS EN CANVAS *** -->
+              <!-- Imagen base interna (same-origin) para evitar CORS en canvas -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
 
-              <!-- Imagen visible que ya usabas -->
+              <!-- Imagen visible -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
 
@@ -142,7 +142,7 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (añadido sessionStorage spw_last_line_id y downscale preview) ====== -->
+      <!-- ====== JS INLINE ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -167,7 +167,6 @@
             r.readAsDataURL(file);
           });
         }
-        function dataURLtoBase64(u){ var i=u.indexOf(','); return i!==-1?u.slice(i+1):u; }
 
         var S={ logoDataURL:"", isSVG:false };
 
@@ -263,7 +262,7 @@
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
 
-        /* =================== SOLO MODIFICADO: addToCart() =================== */
+        /* =================== addToCart() con downscale + sessionStorage =================== */
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
@@ -272,13 +271,13 @@
           var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
-          // 1) Render y versión reducida para guardar en sessionStorage (evita QuotaExceeded)
+          // 1) Render y versión reducida para guardar (evita QuotaExceeded)
           let pngB64 = "", previewDu = "";
           try{
             const fullDu = await renderPNGDataURL();
             pngB64 = fullDu ? fullDu.split('base64,')[1] : "";
 
-            // downscale para preview (máx 600px ancho)
+            // Downscale a 600px de ancho máximo (preview para carrito)
             const tmpImg = await loadImage(fullDu);
             const maxW = 600;
             const ow = tmpImg.naturalWidth || tmpImg.width || 900;
@@ -290,7 +289,7 @@
             previewDu = c.toDataURL('image/png');
           }catch(e){}
 
-          // 2) Llamada meta (tu endpoint)
+          // 2) Endpoint meta (devuelve line_id)
           var r1 = await postJSON("/spw/add_to_cart_meta", {
             variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
           });
@@ -301,25 +300,25 @@
           }
           if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
-          // 3) Guarda claves para el JS del carrito (linea + preview reducido)
+          // 3) Guarda claves para el script del carrito
           try{
             if (r1.data && r1.data.line_id) sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id));
             sessionStorage.setItem('spw_last_product_id', String(variantId));
             if (previewDu) sessionStorage.setItem('spw_last_png', previewDu);
           }catch(e){}
 
-          // 4) Adjunta PNG completo (no bloquea redirección)
+          // 4) Adjunta PNG completo (no bloquea)
           if(pngB64){
             var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
           }
 
-          // 5) Redirigir al carrito
+          // 5) Redirección al carrito
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
         /* =================================================================== */
 
-        // Descarga compatible iOS/Safari (abre en pestaña si no soporta "download")
+        // Descarga compatible iOS/Safari
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
@@ -339,8 +338,6 @@
           if(logoInput){
             logoInput.addEventListener("change", async function(ev){
               var f = ev.target.files && ev.target.files[0]; if(!f) return;
-              var name=(f.name||"").toLowerCase();
-              S.isSVG = name.endsWith(".svg");
               var dataURL = await readAsDataURL(f);
               S.logoDataURL = dataURL;
               logoEl.src = dataURL;
@@ -368,6 +365,61 @@
       })();
       ]]></script>
     </t>
+  </template>
+
+  <!-- ============ INYECCIÓN EN WEBSITE.LAYOUT PARA MOSTRAR PREVIEW EN /shop/cart ============ -->
+  <template id="spw_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
+    <xpath expr="//body" position="inside">
+      <script type="text/javascript">
+        //<![CDATA[
+        (function(){
+          function place(){
+            if(!/\/shop\/cart/.test(location.pathname)) return;
+
+            var du = null;
+            try { du = sessionStorage.getItem('spw_last_png'); } catch(_e) {}
+            var lineId = null;
+            try { lineId = sessionStorage.getItem('spw_last_line_id'); } catch(_e) {}
+
+            // Fallback a endpoint si no hay dataURL en sessionStorage
+            if (!du && lineId) du = '/spw/line_preview/' + lineId + '.png';
+            if (!du) return;
+
+            var row = null, target = null;
+            if (lineId) {
+              row = document.querySelector('[data-line-id="' + lineId + '"]') ||
+                    document.querySelector('tr[data-line-id="' + lineId + '"]') ||
+                    document.querySelector('div[data-line-id="' + lineId + '"]');
+            }
+            if (row) {
+              target = row.querySelector('.td-product_name, .o_wsale_product_information, .o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_info');
+            }
+            if (!target) {
+              target = document.querySelector('.js_cart_lines .td-product_name, .td-product_name, .css_description, .oe_cart');
+            }
+            if (!target || target.querySelector('.spw-preview')) return;
+
+            var img = document.createElement('img');
+            img.src = du;
+            img.alt = 'Personalización';
+            img.className = 'spw-preview';
+            img.style.maxWidth = '160px';
+            img.style.border = '1px solid #eee';
+            img.style.marginTop = '8px';
+            img.style.display = 'block';
+            target.appendChild(img);
+          }
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function(){ place(); setTimeout(place, 600); });
+          } else {
+            place(); setTimeout(place, 600);
+          }
+          // reinyecta si el carrito se redibuja
+          try { new MutationObserver(place).observe(document.documentElement, {childList:true, subtree:true}); } catch(_e){}
+        })();
+        //]]>
+      </script>
+    </xpath>
   </template>
 
 </odoo>
