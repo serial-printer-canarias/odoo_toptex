@@ -18,3 +18,19 @@
 .spw-color-swatch.is-blue .spw-color-ring{background:#2060FF}
 .spw-color-swatch.is-green .spw-color-ring{background:#2A9D8F}
 .spw-color-swatch input:checked + .spw-color-ring{outline:3px solid #3b82f6;outline-offset:2px}
+
+/* Fix: header oculto detrás de secciones en desktop */
+.o_header_standard,
+header.o_header_standard,
+.o_header_affixed {
+  position: relative !important;
+  z-index: 2000 !important;
+  pointer-events: auto !important;
+  opacity: 1 !important;
+}
+
+/* Cualquier hero/sección full-bleed por debajo del header */
+.s_discovery, .s_cover, .s_hero, .s_parallax {
+  position: relative;
+  z-index: 1;
+}
