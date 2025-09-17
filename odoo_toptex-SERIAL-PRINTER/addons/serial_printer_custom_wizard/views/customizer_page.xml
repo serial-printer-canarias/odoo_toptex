@@ -268,7 +268,6 @@
             previewDu = c.toDataURL('image/png');
           }catch(e){}
 
-          // Crear línea con meta (endpoints existentes)
           let r1 = await postJSON('/spw/add_to_cart_meta', {
             variant_id: parseInt(variantId,10), qty, tech, svg_color: svgColor, notes
           });
@@ -279,7 +278,6 @@
           }
           if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : 'No se pudo añadir al carrito.'); return; }
 
-          // Guardar en sesión (soporta múltiples líneas)
           try{
             const lid = r1.data && r1.data.line_id ? String(r1.data.line_id) : '';
             sessionStorage.setItem('spw_last_line_id', lid);
@@ -293,7 +291,6 @@
             sessionStorage.setItem('spw_previews', JSON.stringify(list));
           }catch(_e){}
 
-          // Adjuntar PNG completo (opcional; no afecta al preview local)
           if(pngB64){
             let r2 = await postJSON('/spw/attach_png', { line_id: r1.data.line_id, png_b64: pngB64 });
             if(!r2.ok){ await postForm('/spw/attach_png_http', { line_id: r1.data.line_id, png_b64: pngB64 }); }
@@ -353,26 +350,22 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN EN WEBSITE.LAYOUT: PREVIEW EN COLUMNA DE CANTIDAD (SIN DUPLICADOS) ============ -->
+  <!-- ============ INYECCIÓN EN WEBSITE.LAYOUT: PREVIEW UNA SOLA VEZ POR LÍNEA ============ -->
   <template id="spw_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript">
         //<![CDATA[
         (function(){
-          function getTopLevelRows(){
-            // Filas raíz con data-line-id (evita procesar contenedores internos)
+          function topLevelRows(){
+            // Filas raíz con data-line-id (evita contenedores anidados)
             var rows = Array.from(document.querySelectorAll('[data-line-id]'))
-              .filter(function(el){ var p = el.parentElement && el.parentElement.closest('[data-line-id]'); return !p; });
+              .filter(function(el){ return !el.parentElement || !el.parentElement.closest('[data-line-id]'); });
             if (rows.length) return rows;
-            // Fallback por temas
-            return Array.from(document.querySelectorAll('.o_cart_product, .js_cart_lines > tr'));
+            return Array.from(document.querySelectorAll('.o_cart_product, .js_cart_lines > tr, .js_cart_lines > div'));
           }
           function getProductIdFromRow(row){
-            var pid = row.getAttribute('data-product-id');
-            if(!pid){
-              var el = row.querySelector('[data-product-id]');
-              if(el) pid = el.getAttribute('data-product-id');
-            }
+            var pid = row.getAttribute('data-product-id') ||
+                      (row.querySelector('[data-product-id]') && row.querySelector('[data-product-id]').getAttribute('data-product-id'));
             if(!pid){
               var a = row.querySelector('a[href*="/shop/product"]');
               if(a){
@@ -391,17 +384,19 @@
             try { list = JSON.parse(sessionStorage.getItem('spw_previews') || '[]') || []; } catch(_e){ list = []; }
 
             var usedByProduct = {};
-            getTopLevelRows().forEach(function(row){
-              // si ya hay preview en la fila, no repetimos
+            topLevelRows().forEach(function(row){
+              // si ya tiene previa dentro, no repetimos
               if (row.querySelector('.spw-preview')) return;
 
               var lid = row.getAttribute('data-line-id') || '';
               var pid = getProductIdFromRow(row);
 
+              // 1) buscar por line_id exacto
               var hit = null;
               if(lid){
                 hit = (list||[]).find(function(it){ return String(it.line_id)===String(lid) && it.du; });
               }
+              // 2) si no hay line_id, asignar por product_id (respetando varias líneas)
               if(!hit && pid){
                 var candidates = (list||[]).filter(function(it){ return Number(it.product_id)===Number(pid) && it.du; })
                                            .sort(function(a,b){ return a.t-b.t; });
@@ -411,23 +406,16 @@
               }
               if(!hit || !hit.du) return;
 
-              // Objetivo: columna de cantidad (al lado de los botones ±)
+              // Destino ÚNICO por prioridad (para no duplicar):
+              // 1) columna de cantidad  2) info del producto  3) columna de imagen  4) fallback: toda la fila
               var qtyCell =
                 row.querySelector('.td-qty, .o_wsale_cart_item_qty, .o_wsale_cart_quantity, .css_quantity, .quantity, .o_qty');
-
-              // Fallback si no encontramos qty: info del producto
-              var nameCell =
+              var infoCell =
                 row.querySelector('.o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_information, .td-product_name');
+              var imgCell =
+                row.querySelector('.o_wsale_product_img, .o_cart_product_img, .o_wsale_product_image, .o_cart_product_thumbnail');
 
-              var target = qtyCell || nameCell || row;
-
-              // Evitar múltiples contenedores dentro de qty
-              if (target.querySelector('.spw-preview')) return;
-
-              var wrap = document.createElement('div');
-              wrap.className = 'spw-preview-wrap';
-              wrap.style.textAlign = 'center';
-              wrap.style.marginTop = '6px';
+              var target = qtyCell || infoCell || imgCell || row;
 
               var img = document.createElement('img');
               img.src = hit.du;
@@ -436,15 +424,22 @@
               img.style.maxWidth = '110px';
               img.style.border = '1px solid #eee';
               img.style.borderRadius = '6px';
-              img.style.display = 'inline-block';
+              img.style.display = (target===imgCell) ? 'block' : 'inline-block';
+              img.style.verticalAlign = 'top';
+              if (target===imgCell) {
+                img.style.marginTop = '6px';
+              } else if (target===infoCell) {
+                img.style.float = 'left';
+                img.style.margin = '0 10px 6px 0';
+              } else if (target===qtyCell) {
+                img.style.marginTop = '6px';
+              }
 
-              wrap.appendChild(img);
-
-              // Si es qty, lo ponemos al final de la celda; si no, delante del nombre
-              if (qtyCell && target === qtyCell) {
-                target.appendChild(wrap);
+              // Insertamos solo UNA vez
+              if (target===infoCell) {
+                target.insertBefore(img, target.firstChild);
               } else {
-                target.insertBefore(wrap, target.firstChild);
+                target.appendChild(img);
               }
             });
           }
