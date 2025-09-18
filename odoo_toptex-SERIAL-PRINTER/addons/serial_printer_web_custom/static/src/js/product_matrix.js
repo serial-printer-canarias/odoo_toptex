@@ -51,7 +51,7 @@ function getAttributeBlocks(scope) {
     return { color, size };
 }
 
-// === Ordenar tallas: numéricas o estándar ===
+// === Ordena tallas (numéricas o estándar) ===
 function sortSizes(opts) {
     const std = ["2XS","XXS","XS","S","M","L","XL","2XL","XXL","3XL","4XL","5XL","6XL","7XL","8XL"];
     return [...opts].sort((a, b) => {
@@ -106,7 +106,7 @@ function escapeHtml(s) {
     }[c]));
 }
 
-// === Miniatura por color (img en label o background-image de swatch) ===
+// === Miniatura por color (label > img, o cualquier hijo con background-image, o data-*) ===
 function findColorImageSrc(colorId, scope) {
     const input = scope.querySelector(
         `input[type="radio"][data-value-id="${colorId}"],
@@ -118,15 +118,25 @@ function findColorImageSrc(colorId, scope) {
     const label = scope.querySelector(`label[for="${input.id}"]`) || input.closest("label");
     if (!label) return null;
 
+    // 1) <img> dentro del label
     const img = label.querySelector("img");
     if (img?.src) return img.src;
 
-    const sw = label.querySelector(".o_variant_image, .o_variant_color, .variant_img, span, i");
-    if (sw) {
-        const bg = getComputedStyle(sw).backgroundImage;
+    // 2) Algún hijo con background-image
+    const withBg = Array.from(label.querySelectorAll("*")).find((n) => {
+        const bg = getComputedStyle(n).backgroundImage;
+        return bg && bg !== "none" && /url\(/i.test(bg);
+    });
+    if (withBg) {
+        const bg = getComputedStyle(withBg).backgroundImage;
         const m = /url\(["']?(.*?)["']?\)/.exec(bg);
         if (m?.[1]) return m[1];
     }
+
+    // 3) Atributos data comunes
+    const dataUrl = label.dataset.imageUrl || label.dataset.img || input.dataset.img || "";
+    if (dataUrl) return dataUrl;
+
     return null;
 }
 
@@ -144,18 +154,23 @@ function fillColorThumbs(page) {
     });
 }
 
-// === Insertar la matriz justo ANTES del botón Add to cart ===
-function placeMatrixNearCart(html, page) {
-    const btn = page.querySelector(
-        'button[name="add_to_cart"], .o_wsale_product_btn .btn-primary, .o_add_to_cart, a.js_add_to_cart'
-    );
-    if (btn) {
-        const wrapper = document.createElement("div");
-        wrapper.innerHTML = html;
-        const el = wrapper.firstElementChild;
-        btn.insertAdjacentElement("beforebegin", el);
+// === Insertar la matriz: preferencia 1) justo después de los atributos ===
+function placeMatrix(html, page) {
+    const attrs = page.querySelector(".js_attributes");
+    if (attrs) {
+        attrs.insertAdjacentHTML("afterend", html);
         return true;
     }
+    // 2) antes del botón Add to Cart (por si falla lo anterior)
+    const btn = page.querySelector(
+        'button[name="add_to_cart"], button[name="add"], a.js_add_to_cart, .o_wsale_product_btn .btn-primary, .o_add_to_cart'
+    );
+    if (btn) {
+        btn.insertAdjacentHTML("beforebegin", html);
+        return true;
+    }
+    // 3) último recurso
+    page.insertAdjacentHTML("beforeend", html);
     return false;
 }
 
@@ -174,15 +189,9 @@ function ensureMatrix() {
     }
 
     const html = renderGrid(color, size);
-    if (!placeMatrixNearCart(html, page)) {
-        // Fallback: si no encuentro el botón, la pongo después de atributos
-        const attrs = page.querySelector(".js_attributes") ||
-                      page.querySelector("form.o_wsale_product_configurator");
-        if (attrs) attrs.insertAdjacentHTML("afterend", html);
-        else page.insertAdjacentHTML("beforeend", html);
-    }
-
+    placeMatrix(html, page);
     fillColorThumbs(page);
+
     document.body.classList.add("sp-matrix-active");
     console.log("[SP] Matrix lista (UI).");
 }
