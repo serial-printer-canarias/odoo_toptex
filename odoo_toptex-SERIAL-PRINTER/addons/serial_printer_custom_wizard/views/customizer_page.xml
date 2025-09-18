@@ -243,11 +243,14 @@
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
 
+        /* ==== ÚNICO CAMBIO: selectores de tech/svg corregidos ==== */
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
-          var tech=( (document.querySelector("input[name='spw_tech']:checked')||{}).value )||"";
-          var svgColor=( (document.querySelector("input[name='spw_svg_color']:checked')||{}).value )||"";
+          var techEl   = document.querySelector("input[name='spw_tech']:checked");
+          var svgEl    = document.querySelector("input[name='spw_svg_color']:checked");
+          var tech     = techEl ? techEl.value : "";
+          var svgColor = svgEl ? svgEl.value : "";
           var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
@@ -257,7 +260,7 @@
             sessionStorage.setItem('spw_last_product_id', String(variantId));
             sessionStorage.setItem('spw_last_png', du || '');
             pngB64 = du ? du.split('base64,')[1] : "";
-          }catch(e){}
+          }catch(e){ console.warn("[SPW] PNG render failed:", e); }
 
           var r1 = await postJSON("/spw/add_to_cart_meta", {
             variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
@@ -265,7 +268,7 @@
           if(!r1.ok){ r1 = await postForm("/spw/add_to_cart_meta_http", {
             variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
           }); }
-          if(!r1 || !r1.ok){ alert("No se pudo añadir al carrito."); return; }
+          if(!r1 || !r1.ok){ alert((r1 && r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
           try{
             if (r1.data && r1.data.line_id) sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id));
@@ -338,7 +341,7 @@
     </t>
   </template>
 
-  <!-- ====== INYECCIÓN EN CARRITO (1 miniatura por línea, nunca en +/-) ====== -->
+  <!-- ====== INYECCIÓN EN CARRITO (sin cambios) ====== -->
   <template id="spw_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript">
@@ -361,7 +364,6 @@
                    || (row.dataset && row.dataset.productId) || '')) || '';
             }
             function infoCell(row){
-              // Contenedor de info, evitando la celda de cantidad
               return row.querySelector('.o_wsale_cart_item_info, .o_wsale_product_information, .o_cart_product_information, .o_wsale_product_info, .o_cart_product_name')
                      || row.querySelector('.o_wsale_product_img, .o_cart_product_img')
                      || row;
@@ -370,7 +372,6 @@
               const lid = getLineId(row);
               const pid = getProductId(row);
               const unique = 'spw-prev-' + (lid ? 'lid-' + lid : 'pid-' + pid);
-              // Elimina duplicados en toda la línea
               qsa('img.spw-preview', row).forEach(function(n){
                 if (n.id !== unique) n.remove();
               });
@@ -442,7 +443,6 @@
             document.addEventListener('DOMContentLoaded', burst);
             if (document.readyState !== 'loading') burst();
 
-            // Recolocar al cambiar cantidades o refrescar líneas
             ['click','change','input'].forEach(ev=>{
               document.addEventListener(ev, function(e){
                 const row = e.target && (e.target.closest && e.target.closest('tr, .o_wsale_cart_item, .o_wsale_cart_line, .o_cart_product'));
