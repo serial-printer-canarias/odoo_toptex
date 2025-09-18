@@ -141,7 +141,7 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (defensivo y sin romper otras páginas) ====== -->
+      <!-- ====== JS INLINE (defensivo) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -170,16 +170,13 @@
         function applyTransform(){
           var logo = $("#spw_logo_preview"); if(!logo) return;
           var base = $("#spw_product_img");  if(!base) return;
-
           var sizePx = parseInt($val("spw_size","100"),10);
           var posX   = parseInt($val("spw_pos_x","0"),10);
           var posY   = parseInt($val("spw_pos_y","10"),10);
           var rot    = parseInt($val("spw_rotation","0"),10);
-
           var bw = base.clientWidth, bh = base.clientHeight;
           var leftPx = bw*(0.5 + posX/100);
           var topPx  = bh*(0.6 + posY/100);
-
           logo.style.position="absolute";
           logo.style.left = leftPx + "px";
           logo.style.top  = topPx  + "px";
@@ -195,7 +192,6 @@
                         ($("#spw_product_img")||{}).getAttribute("src");
           if(!baseSrc) throw new Error("Sin imagen base.");
           var baseIm = await loadImage(baseSrc);
-
           var canvas = document.createElement("canvas");
           var ctx = canvas.getContext("2d");
           canvas.width  = baseIm.naturalWidth  || baseIm.width;
@@ -208,16 +204,13 @@
             var bw = baseEl.clientWidth,  bh = baseEl.clientHeight;
             var br = baseEl.getBoundingClientRect();
             var lr = logoEl.getBoundingClientRect();
-
             var cx = ((lr.left + lr.width/2) - br.left) / bw * canvas.width;
             var cy = ((lr.top  + lr.height/2) - br.top ) / bh * canvas.height;
             var drawW = (lr.width / bw) * canvas.width;
-
             var logoIm = await loadImage(logoEl.src);
             var ratio = (logoIm.naturalHeight || logoIm.height) / (logoIm.naturalWidth || logoIm.width);
             var drawH = drawW * ratio;
             var rot = (parseInt($val("spw_rotation","0"),10) * Math.PI)/180;
-
             ctx.save(); ctx.translate(cx, cy); ctx.rotate(rot);
             ctx.drawImage(logoIm, -drawW/2, -drawH/2, drawW, drawH);
             ctx.restore();
@@ -300,7 +293,6 @@
             var a = document.createElement("a");
             a.href = dataUrl; a.download = "personalizacion.png";
             document.body.appendChild(a); a.click(); a.remove();
-
             if (!('download' in HTMLAnchorElement.prototype) || /iPad|iPhone|iPod/.test(navigator.userAgent)) {
               var blob = dataURLToBlob(dataUrl);
               var url = (window.URL || window.webkitURL).createObjectURL(blob);
@@ -334,21 +326,18 @@
               document.getElementById("spw_rotation").value=0;
               applyTransform();
             };
-
             var dl=document.getElementById("spw_download_png"); if(dl){ dl.addEventListener("click", function(){ downloadPNGiOSSafe(); }); }
             var add=document.getElementById("spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
-
             applyTransform();
           }catch(_){}
         }
-
         if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded", init); } else { init(); }
       })();
       ]]></script>
     </t>
   </template>
 
-  <!-- ====== INYECCIÓN ULTRA-DEFENSIVA: PREVIEW EN CARRITO ====== -->
+  <!-- ====== INYECCIÓN ULTRA LIGERA EN CARRITO (una miniatura por línea) ====== -->
   <template id="spw_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript">
@@ -356,6 +345,8 @@
         (function(){
           try{
             if (!/\/shop\/cart/.test(location.pathname)) return;
+            if (window.__SPW_CART_PREVIEW_LOADED__) return;
+            window.__SPW_CART_PREVIEW_LOADED__ = true;
 
             function qsa(sel, root){ try{ return Array.from((root||document).querySelectorAll(sel)); }catch(_){ return []; } }
             function getLineId(row){
@@ -370,44 +361,31 @@
                   || row.querySelector('.o_wsale_product_img, .o_cart_product_img, .o_wsale_product_image, .o_cart_product_thumbnail')
                   || row;
             }
-            function findRows(){
-              const set=new Set();
-              qsa('[data-line-id]').forEach(el=>set.add(el));
-              qsa('input[name="line_id"]').forEach(inp=>{
-                const r = inp.closest('tr, .o_wsale_cart_line, .o_wsale_cart_item, .o_cart_product, .card, .row, li, div');
-                if (r) set.add(r);
-              });
-              if (!set.size) qsa('.o_wsale_cart_line, .o_wsale_cart_item, .o_cart_product, .js_cart_line, .js_cart_lines > tr, .js_cart_lines > div').forEach(el=>set.add(el));
-              return Array.from(set);
-            }
             function readStorage(){
               try{
-                const list = JSON.parse(sessionStorage.getItem('spw_previews')||'[]')||[];
-                const lastDU = sessionStorage.getItem('spw_last_png')||'';
-                const lastPID = sessionStorage.getItem('spw_last_product_id')||'';
-                return {list, lastDU, lastPID};
-              }catch(_){ return {list:[], lastDU:'', lastPID:''}; }
+                return JSON.parse(sessionStorage.getItem('spw_previews')||'[]')||[];
+              }catch(_){ return []; }
             }
             function loadFromStorage(img, lid, pid){
               try{
-                const st = readStorage();
-                let hit = lid ? st.list.find(it => String(it.line_id)===String(lid) && it.du) : null;
+                const list = readStorage();
+                let hit = lid ? list.find(it => String(it.line_id)===String(lid) && it.du) : null;
                 if (!hit && pid){
-                  for (let i=st.list.length-1;i>=0;i--){
-                    if (String(st.list[i].product_id)===String(pid) && st.list[i].du){ hit=st.list[i]; break; }
+                  for (let i=list.length-1;i>=0;i--){
+                    if (String(list[i].product_id)===String(pid) && list[i].du){ hit=list[i]; break; }
                   }
                 }
-                if (!hit && st.lastDU && (!pid || String(st.lastPID)===String(pid))) {
-                  img.src = st.lastDU; return;
+                if (!hit){
+                  const du = sessionStorage.getItem('spw_last_png')||'';
+                  const p  = sessionStorage.getItem('spw_last_product_id')||'';
+                  if (du && (!pid || String(p)===String(pid))) { img.src = du; return; }
                 }
                 if (hit && hit.du){ img.src = hit.du; } else { img.remove(); }
-              }catch(_e){ img.remove(); }
+              }catch(_){ img.remove(); }
             }
             function placeOne(row){
               if (!row) return;
-              // Evitar duplicados
-              qsa('img.spw-preview', row).forEach(n => n.remove());
-
+              qsa('img.spw-preview', row).forEach(n => n.remove()); // evita duplicados
               const lid = getLineId(row);
               const pid = getProductId(row);
 
@@ -422,15 +400,7 @@
               img.style.margin='6px 0 0 8px';
 
               const tgt = targetCell(row);
-              if (tgt && (tgt.className||'').match(/(qty|quantity)/)) {
-                tgt.appendChild(img);
-              } else if (tgt && (tgt.className||'').match(/(info|information)/)) {
-                tgt.insertBefore(img, tgt.firstChild);
-              } else if (tgt) {
-                tgt.appendChild(img);
-              } else {
-                row.appendChild(img);
-              }
+              (tgt||row).appendChild(img);
 
               let okServer=false;
               if (lid){
@@ -441,14 +411,24 @@
                 loadFromStorage(img, lid, pid);
               }
             }
-            function placeAll(){ findRows().forEach(placeOne); }
+            function placeAll(){
+              // Estructuras habituales de Odoo: filas con data-line-id o inputs
+              const rows = new Set();
+              qsa('[data-line-id]').forEach(r=>rows.add(r));
+              qsa('input[name="line_id"]').forEach(inp=>{
+                const r = inp.closest('tr, .o_wsale_cart_line, .o_wsale_cart_item, .o_cart_product, .row, .card, li, div');
+                if (r) rows.add(r);
+              });
+              if (!rows.size) qsa('.o_wsale_cart_line, .o_wsale_cart_item, .o_cart_product, .js_cart_lines > tr, .js_cart_lines > div').forEach(r=>rows.add(r));
+              Array.from(rows).forEach(placeOne);
+            }
 
-            const run=function(){ placeAll(); setTimeout(placeAll, 600); };
-            if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', run); else run();
-            try{ new MutationObserver(placeAll).observe(document.body, {childList:true, subtree:true}); }catch(_){}
-          }catch(_err){
-            // Silencioso: nunca rompemos la página
-          }
+            // Ejecuta una vez y reintenta suavemente (sin observers)
+            document.addEventListener('DOMContentLoaded', function(){
+              try{ placeAll(); setTimeout(placeAll, 400); setTimeout(placeAll, 900); }catch(_){}
+            });
+            if (document.readyState !== 'loading'){ try{ placeAll(); setTimeout(placeAll, 400); setTimeout(placeAll, 900); }catch(_){} }
+          }catch(_e){ /* nunca romper */ }
         })();
         //]]>
       </script>
