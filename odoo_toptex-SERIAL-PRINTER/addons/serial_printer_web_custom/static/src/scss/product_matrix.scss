@@ -1,9 +1,12 @@
-#sp-matrix { margin-top: 1rem; overflow-x: auto; }
+#sp-matrix {
+  margin-top: 1rem;
+  overflow-x: auto;
+}
 
 .sp-matrix__table {
   width: 100%;
   border-collapse: separate;
-  border-spacing: .5rem;      /* más espacio para futuras columnas (stock/precio) */
+  border-spacing: .25rem;
   table-layout: fixed;
 }
 
@@ -12,7 +15,7 @@
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: .5rem;
-  padding: .5rem;
+  padding: .35rem;
   vertical-align: top;
 }
 
@@ -28,34 +31,24 @@
   left: 0;
   z-index: 2;
   background: #fafafa;
-  min-width: 12rem;          /* más ancho para nombre + miniatura */
+  min-width: 11rem;
 }
 
-.sp-color {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-}
+.sp-color { display: flex; align-items: center; gap: .5rem; }
 
 .sp-color__img {
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   border-radius: .35rem;
   object-fit: cover;
   border: 1px solid #ddd;
 }
 
-.sp-swatch {
-  display: inline-block;
-  width: 28px;
-  height: 28px;
-  border-radius: .35rem;
-  border: 1px solid #ddd;
-}
-
-.sp-cell { display: flex; flex-direction: column; gap: .25rem; }
+.sp-cell { display: flex; flex-direction: column; gap: .15rem; }
 .sp-qty  { width: 100%; text-align: center; }
 .sp-meta { font-size: .75rem; line-height: 1.1; opacity: .9; }
+
 .sp-unavailable { opacity: .4; }
 
-/* NO ocultamos radios originales por ahora */
+/* Oculta radios originales mientras está activa la matriz para evitar duplicado */
+.sp-matrix-active .js_product .js_attributes { display: none !important; }
