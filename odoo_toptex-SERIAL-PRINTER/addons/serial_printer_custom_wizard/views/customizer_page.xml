@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
+  <!-- ============ PÁGINA DEL PERSONALIZADOR ============ -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
@@ -14,13 +15,16 @@
         <div class="row g-4">
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
+              <!-- Base same-origin para evitar CORS al renderizar -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
 
+              <!-- Imagen visible -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
 
+              <!-- Overlay del logo -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
           </div>
@@ -30,6 +34,7 @@
               <div class="card-body">
                 <h5 class="card-title mb-3">Personalización</h5>
 
+                <!-- Subir logo -->
                 <div class="mb-3">
                   <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
                   <input id="spw_logo_input" class="form-control" type="file"
@@ -37,6 +42,7 @@
                   <small class="text-muted">Máx. 10MB.</small>
                 </div>
 
+                <!-- Técnica -->
                 <div class="mb-3">
                   <label class="form-label">Técnica</label>
                   <div class="d-flex gap-3 flex-wrap">
@@ -55,6 +61,7 @@
                   </div>
                 </div>
 
+                <!-- Color SVG -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
                   <div class="spw-color-row">
@@ -82,6 +89,7 @@
                   <div class="spw-help mt-1">Se aplica solo a logos SVG.</div>
                 </div>
 
+                <!-- Controles -->
                 <div class="mb-3">
                   <label for="spw_size" class="form-label">Tamaño</label>
                   <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
@@ -99,6 +107,7 @@
                   <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
                 </div>
 
+                <!-- Cantidad / Observaciones -->
                 <div class="mb-3">
                   <label for="spw_qty" class="form-label">Cantidad</label>
                   <input id="spw_qty" class="form-control" type="number" min="1" value="1"/>
@@ -109,6 +118,7 @@
                             placeholder="Indica instrucciones para el taller..."></textarea>
                 </div>
 
+                <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a id="spw_btn_reset" class="btn btn-outline-secondary" href="javascript:void(0)">Reset</a>
 
@@ -130,6 +140,7 @@
         </div>
       </div>
 
+      <!-- ====== JS INLINE ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -238,7 +249,7 @@
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
 
-        /* ========= addToCart (se deja tu flujo + fallback estándar) ========= */
+        /* ========= Se mantiene tu addToCart previo (con fallback a /shop/cart/update_json) ========= */
         async function addToCart(){
           var variantId = ($val("spw_variant_id","")||"").trim();
           if (!variantId) { try { var qs=new URLSearchParams(window.location.search); variantId = qs.get('variant_id')||qs.get('product_id')||''; } catch(_e){} }
@@ -264,7 +275,6 @@
               variant_id: variantId, qty, tech, svg_color: svgColor, notes
             });
           }
-
           if(!r1.ok){
             try{
               var fd=new FormData();
@@ -276,7 +286,6 @@
               if(r.ok){ r1={ok:true,data:{cart_url:'/shop/cart',line_id:(data&&data.line_id)||''}}; }
             }catch(_e){}
           }
-
           if(!r1 || !r1.ok){ alert("No se pudo añadir al carrito."); return; }
 
           try{
@@ -295,7 +304,7 @@
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
 
-        /* ========= Descarga iOS/Android/desktop sin controladores ========= */
+        /* ========= Descarga iOS/Android/desktop ========= */
         function dataURLToBlob(dataUrl){
           var arr=dataUrl.split(','), mime=arr[0].match(/:(.*?);/)[1], bstr=atob(arr[1]), n=bstr.length, u8=new Uint8Array(n);
           while(n--){ u8[n]=bstr.charCodeAt(n); }
@@ -304,21 +313,17 @@
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
-
             var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
             var isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 
-            // Intento 1: descarga directa (desktop / Android)
             var a = document.createElement("a");
             a.href = dataUrl; a.download = "personalizacion.png";
             document.body.appendChild(a); a.click(); a.remove();
 
-            // Si iOS/Safari ignora a.download, abrimos en nueva pestaña como Blob URL (usuario guarda desde el visor)
             if (isIOS || isSafari) {
               var blob = dataURLToBlob(dataUrl);
               var url = (window.URL || window.webkitURL).createObjectURL(blob);
-              window.open(url, "_blank"); // visor nativo -> "Guardar imagen"
-              // No revocar inmediatamente para que Safari cargue
+              window.open(url, "_blank");
               setTimeout(function(){ (window.URL||window.webkitURL).revokeObjectURL(url); }, 120000);
             }
           }catch(e){
@@ -363,98 +368,99 @@
     </t>
   </template>
 
-  <!-- ====== INYECCIÓN: PREVIEW EN CARRITO (móvil/desktop) ====== -->
+  <!-- ====== INYECCIÓN: PREVIEW EN CARRITO ====== -->
   <template id="spw_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript">
         //<![CDATA[
         (function(){
+          if (!/\/shop\/cart/.test(location.pathname)) return;
+
           function topLevelRows(){
+            // Filas de línea (temas distintos)
             var rows = Array.from(document.querySelectorAll('[data-line-id]'))
               .filter(function(el){ return !el.parentElement || !el.parentElement.closest('[data-line-id]'); });
             if (rows.length) return rows;
             return Array.from(document.querySelectorAll('.o_cart_product, .js_cart_lines > tr, .js_cart_lines > div'));
           }
-          function getProductIdFromRow(row){
-            var pid = row.getAttribute('data-product-id');
-            if(!pid){
-              var el = row.querySelector('[data-product-id]');
-              if(el) pid = el.getAttribute('data-product-id');
+
+          function tryPlace(row){
+            if (!row || row.dataset.spwPreviewPlaced === '1') return;
+            var lineId = row.getAttribute('data-line-id');
+            if(!lineId){ return; }
+
+            // Objetivos habituales en Odoo
+            var qtyCell =
+              row.querySelector('.td-qty, .o_wsale_cart_item_qty, .o_wsale_cart_quantity, .css_quantity, .quantity, .o_qty');
+            var infoCell =
+              row.querySelector('.o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_information, .td-product_name');
+            var imgCell =
+              row.querySelector('.o_wsale_product_img, .o_cart_product_img, .o_wsale_product_image, .o_cart_product_thumbnail');
+
+            var target = qtyCell || infoCell || imgCell || row;
+
+            // Crea IMG y prueba primero el endpoint del servidor (anti-cache)
+            var img = document.createElement('img');
+            img.alt = 'Personalización';
+            img.className = 'spw-preview';
+            img.style.maxWidth='110px';
+            img.style.border='1px solid #eee';
+            img.style.borderRadius='6px';
+            img.style.display = (target===imgCell) ? 'block' : 'inline-block';
+            img.style.verticalAlign = 'top';
+            if (target===imgCell) {
+              img.style.marginTop = '6px';
+            } else if (target===infoCell) {
+              img.style.float = 'left';
+              img.style.margin = '0 10px 6px 0';
+            } else if (target===qtyCell) {
+              img.style.marginTop = '6px';
             }
-            if(!pid){
-              var a = row.querySelector('a[href*="/shop/product"]');
-              if(a){
-                var href = a.getAttribute('href')||'';
-                var m = href.match(/-(\d+)(?:[/?#]|$)/);
-                if(m) pid = m[1];
-              }
+
+            var serverUrl = '/spw/line_preview/' + lineId + '.png?_=' + Date.now();
+            var placed = false;
+
+            img.onload = function(){ placed = true; };
+            img.onerror = function(){
+              // Fallback a sessionStorage (si hay datos locales)
+              if (placed) return;
+              try {
+                var list = JSON.parse(sessionStorage.getItem('spw_previews')||'[]')||[];
+                var hit = (list||[]).find(function(it){ return String(it.line_id)===String(lineId) && it.du; });
+                if (hit && hit.du) {
+                  img.onerror = null;
+                  img.src = hit.du;
+                } else {
+                  // Nada que mostrar para esta línea
+                  img.remove();
+                }
+              } catch(_e){ img.remove(); }
+            };
+
+            // Insertar antes de fijar src para que cargue en DOM
+            if (target===infoCell) {
+              target.insertBefore(img, target.firstChild);
+            } else {
+              target.appendChild(img);
             }
-            return pid ? parseInt(pid,10) : null;
+            row.dataset.spwPreviewPlaced = '1';
+
+            // Dispara carga desde servidor
+            img.src = serverUrl;
           }
 
           function placeAll(){
-            if (!/\/shop\/cart/.test(location.pathname)) return;
-
-            var list = [];
-            try { list = JSON.parse(sessionStorage.getItem('spw_previews') || '[]') || []; } catch(_e){ list = []; }
-
-            var usedByProduct = {};
-            topLevelRows().forEach(function(row){
-              if (row.querySelector('.spw-preview')) return; // evita duplicado visual
-              var lid = row.getAttribute('data-line-id') || '';
-              var pid = getProductIdFromRow(row);
-
-              var hit = null;
-              if(lid){
-                hit = (list||[]).find(function(it){ return String(it.line_id)===String(lid) && it.du; });
-              }
-              if(!hit && pid){
-                var candidates = (list||[]).filter(function(it){ return Number(it.product_id)===Number(pid) && it.du; })
-                                           .sort(function(a,b){ return a.t-b.t; });
-                var idx = usedByProduct[pid] || 0;
-                hit = candidates[idx] || null;
-                if (hit) usedByProduct[pid] = idx + 1;
-              }
-              if(!hit || !hit.du) return;
-
-              var qtyCell =
-                row.querySelector('.td-qty, .o_wsale_cart_item_qty, .o_wsale_cart_quantity, .css_quantity, .quantity, .o_qty');
-              var infoCell =
-                row.querySelector('.o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_information, .td-product_name');
-              var imgCell =
-                row.querySelector('.o_wsale_product_img, .o_cart_product_img, .o_wsale_product_image, .o_cart_product_thumbnail');
-
-              var target = qtyCell || infoCell || imgCell || row;
-
-              var img = document.createElement('img');
-              img.src = hit.du;
-              img.alt = 'Personalización';
-              img.className = 'spw-preview';
-              img.style.maxWidth = '110px';
-              img.style.border = '1px solid #eee';
-              img.style.borderRadius = '6px';
-              img.style.display = (target===imgCell) ? 'block' : 'inline-block';
-              img.style.verticalAlign = 'top';
-              if (target===imgCell) {
-                img.style.marginTop = '6px';
-              } else if (target===infoCell) {
-                img.style.float = 'left';
-                img.style.margin = '0 10px 6px 0';
-              } else if (target===qtyCell) {
-                img.style.marginTop = '6px';
-              }
-
-              if (target===infoCell) {
-                target.insertBefore(img, target.firstChild);
-              } else {
-                target.appendChild(img);
-              }
-            });
+            topLevelRows().forEach(tryPlace);
           }
 
-          var run = function(){ placeAll(); setTimeout(placeAll, 600); };
-          if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', run); } else { run(); }
-          try { new MutationObserver(placeAll).observe(document.body, {childList:true, subtree:true}); } catch(_e){}
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function(){ placeAll(); setTimeout(placeAll, 600); });
+          } else {
+            placeAll(); setTimeout(placeAll, 600);
+          }
+          try {
+            new MutationObserver(function(){ placeAll(); }).observe(document.body, {childList:true, subtree:true});
+          } catch(_e){}
         })();
         //]]>
       </script>
