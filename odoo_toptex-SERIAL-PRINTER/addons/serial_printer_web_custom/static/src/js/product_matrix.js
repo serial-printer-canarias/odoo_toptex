@@ -9,10 +9,9 @@ function onReady(fn) {
 // === Buscar los bloques de atributos (Color, Talla) en la ficha ===
 function getAttributeBlocks(scope) {
     const blocks = [];
-    // Soporta distintas plantillas: busca contenedores con radios y nombre del atributo
+    // Contenedores posibles de atributos (Odoo 18 y themes)
     const containers = Array.from(
         scope.querySelectorAll(
-            // Odoo 18 (varios casos habituales)
             '[data-attribute_name], .js_attribute, .o_product_configurator [name], .js_attributes > div'
         )
     );
@@ -21,47 +20,48 @@ function getAttributeBlocks(scope) {
         const name = (
             el.getAttribute("data-attribute_name") ||
             el.querySelector(".attribute_name, legend, .o_attr_title")?.textContent ||
-            el.getAttribute("name") ||
-            ""
+            el.getAttribute("name") || ""
         ).trim().toLowerCase();
 
         const radios = Array.from(el.querySelectorAll('input[type="radio"]'));
         if (!radios.length) return;
 
-        const options = radios.map((inp) => {
-            const id =
-                parseInt(
-                    inp.dataset.valueId ||
-                    inp.dataset.attributeValueId ||
-                    inp.value ||
-                    "0",
-                    10
-                ) || 0;
+        const options = radios
+            .map((inp) => {
+                const id =
+                    parseInt(
+                        inp.dataset.valueId ||
+                        inp.dataset.attributeValueId ||
+                        inp.value || "0",
+                        10
+                    ) || 0;
 
-            const txt = (
-                inp.closest("label")?.textContent ||
-                inp.getAttribute("title") ||
-                ""
-            ).replace(/\s+/g, " ").trim();
+                const txt = (
+                    inp.closest("label")?.textContent ||
+                    inp.getAttribute("title") || ""
+                ).replace(/\s+/g, " ").trim();
 
-            // intentamos capturar miniatura si existiera (no se usa aún, pero no rompe)
-            const imgEl =
-                inp.closest("label")?.querySelector("img") ||
-                inp.parentElement?.querySelector("img");
-            const img = imgEl?.src || "";
+                // Intentar capturar imagen del swatch si existe
+                const imgEl =
+                    inp.closest("label")?.querySelector("img") ||
+                    inp.parentElement?.querySelector("img");
+                const img = imgEl?.src || "";
 
-            return id ? { id, text: txt, img } : null;
-        }).filter(Boolean);
+                return id ? { id, text: txt, img } : null;
+            })
+            .filter(Boolean);
 
-        if (options.length) blocks.push({ name, options, el });
+        if (options.length) {
+            // guardamos también el elemento para usarlo como ancla
+            blocks.push({ name, options, el });
+        }
     });
 
     // Detecta color y talla por nombre
     const color = blocks.find((b) => /(color|colour|colou?r|c[oó]lor)/i.test(b.name));
     const size  = blocks.find((b) => /(size|talla|talle|taille|größe|maat)/i.test(b.name));
-
     if (size) size.options = sortSizes(size.options);
-    return { color, size, blocks };
+    return { color, size };
 }
 
 // === Ordenar tallas: numéricas (6,8,10...) o estándar (XS, S, M...) ===
@@ -80,17 +80,18 @@ function sortSizes(opts) {
 }
 
 // === Construye el HTML de la matriz (solo UI) ===
-function renderGrid(color, size) {
+function renderGrid(color, size, fallbackImg) {
     let thead = '<thead><tr><th class="sp-sticky-left">Color</th>';
     size.options.forEach((s) => { thead += `<th>${escapeHtml(s.text)}</th>`; });
     thead += "</tr></thead>";
 
     let tbody = "<tbody>";
     color.options.forEach((c) => {
+        const imgSrc = c.img || fallbackImg || "";
         tbody += `<tr>
             <th class="sp-sticky-left">
                 <div class="sp-color">
-                    <img class="sp-color__img" alt="" src="${c.img || ""}"/>
+                    <img class="sp-color__img" alt="" src="${imgSrc}"/>
                     <span>${escapeHtml(c.text)}</span>
                 </div>
             </th>`;
@@ -137,36 +138,38 @@ function ensureMatrix() {
         return;
     }
 
-    // ******* ÚNICO CAMBIO IMPORTANTE *******
-    // En lugar de insertar "dentro" de los atributos, la insertamos
-    // INMEDIATAMENTE DESPUÉS del bloque de atributos.
-    const attrsBox =
-        page.querySelector(".js_attributes") ||
-        page.querySelector("form.o_wsale_product_configurator") ||
-        page;
+    // Miniatura fallback = imagen principal del producto si no hay swatch con <img>
+    const fallbackImg =
+        page.querySelector(".o_wsale_product_img img, .product_detail_img img")?.src || "";
 
-    const html = renderGrid(color, size);
+    const html = renderGrid(color, size, fallbackImg);
     const tmp = document.createElement("div");
     tmp.innerHTML = html;
     const matrixEl = tmp.firstElementChild;
 
-    // Si tenemos el contenedor de atributos, insertamos después
-    if (attrsBox && attrsBox !== page) {
+    // === POSICIÓN: justo DESPUÉS del bloque de atributos ===
+    // Buscamos primero el contenedor de atributos; si no, form del configurador.
+    const attrsBox =
+        page.querySelector(".js_attributes") ||
+        color?.el?.closest(".js_attributes") ||
+        size?.el?.closest(".js_attributes") ||
+        color?.el?.closest("form.o_wsale_product_configurator, .o_product_configurator") ||
+        size?.el?.closest("form.o_wsale_product_configurator, .o_product_configurator");
+
+    if (attrsBox) {
         attrsBox.insertAdjacentElement("afterend", matrixEl);
     } else {
-        // Fallback: al final de la página del producto
+        // Último recurso: lo añadimos al final de la columna principal
         page.appendChild(matrixEl);
     }
 
     document.body.classList.add("sp-matrix-active");
-    console.log("[SP] Matrix lista (solo UI, baseline).");
+    console.log("[SP] Matrix lista (UI) insertada tras atributos.");
 }
 
 // === Arranque ===
 onReady(() => {
     ensureMatrix();
-
-    // Si el usuario cambia radios, reconstruimos (por si el tema cambia el DOM)
     const page = document.querySelector(".o_wsale_product_page");
     if (!page) return;
     page.addEventListener("change", (ev) => {
