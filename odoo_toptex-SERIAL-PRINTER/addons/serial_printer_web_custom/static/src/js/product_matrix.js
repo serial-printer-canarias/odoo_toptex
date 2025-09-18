@@ -1,172 +1,214 @@
-/** @odoo-module **/
+/** Odoo 18 – Serial Printer – Product Matrix
+ *  Paso actual: colocar la matriz justo debajo de los atributos y
+ *  mostrar miniatura por color. Sin tocar carrito/precio/stock.
+ */
+odoo.define('serial_printer_web_custom.product_matrix', [], function () {
+  'use strict';
 
-// === Utilidad: ejecutar cuando el DOM está listo ===
-function onReady(fn) {
-    if (document.readyState !== "loading") fn();
-    else document.addEventListener("DOMContentLoaded", fn);
-}
+  // Utilidad: ejecutar cuando el DOM está listo
+  function onReady(fn) {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
+    else fn();
+  }
 
-// === Buscar los bloques de atributos (Color, Talla) en la ficha ===
-function getAttributeBlocks(scope) {
+  // Lee los bloques de atributos (Color, Talla, …) de forma tolerante a plantilla
+  function readAttributeBlocks(scope) {
+    const rows = Array.from(
+      scope.querySelectorAll('.js_attributes .o_variant_row, .o_wsale_product_configurator .o_variant_row')
+    );
     const blocks = [];
-    // Soporta distintas plantillas: busca contenedores con radios y nombre del atributo
-    const containers = Array.from(
-        scope.querySelectorAll(
-            // Odoo 18 (varios casos habituales)
-            '[data-attribute_name], .js_attribute, .o_product_configurator [name], .js_attributes > div'
-        )
-    );
 
-    containers.forEach((el) => {
-        const name =
-            (el.getAttribute("data-attribute_name") ||
-                el.querySelector(".attribute_name, legend, .o_attr_title")?.textContent ||
-                el.getAttribute("name") ||
-                "")
-                .trim()
-                .toLowerCase();
+    rows.forEach((row) => {
+      const name =
+        (row.querySelector('.o_variant_label, .o_attribute_label, label')?.textContent || '')
+          .trim()
+          .toLowerCase();
 
-        const radios = Array.from(el.querySelectorAll('input[type="radio"]'));
-        if (!radios.length) return;
+      const radios = Array.from(row.querySelectorAll('input[type="radio"]'));
+      const options = radios
+        .map((inp) => {
+          const li = inp.closest('li') || inp.parentElement || row;
+          // Texto visible del color/talla
+          const txt =
+            (li.querySelector('label')?.textContent ||
+              li.textContent ||
+              inp.getAttribute('data-value_name') ||
+              '') // algunos temas lo llevan en data-value_name
+              .trim();
 
-        const options = radios
-            .map((inp) => {
-                const id =
-                    parseInt(
-                        inp.dataset.valueId ||
-                            inp.dataset.attributeValueId ||
-                            inp.value ||
-                            "0",
-                        10
-                    ) || 0;
-                const txt =
-                    (inp.closest("label")?.textContent ||
-                        inp.getAttribute("title") ||
-                        "")
-                        .replace(/\s+/g, " ")
-                        .trim();
-                return id ? { id, text: txt } : null;
-            })
-            .filter(Boolean);
+          // Capturar miniatura si existe
+          let img = '';
+          const imgEl = li.querySelector('img');
+          if (imgEl && imgEl.src) {
+            img = imgEl.src;
+          } else {
+            // algunos temas ponen el color como background-image
+            const colorEl =
+              li.querySelector('.css_attribute_color, .o_attribute_color, .o_attribute_value_color') ||
+              li.querySelector('[style*="background-image"]');
+            if (colorEl) {
+              const bg = getComputedStyle(colorEl).backgroundImage || '';
+              const m = /url\(["']?(.*?)["']?\)/.exec(bg);
+              if (m && m[1]) img = m[1];
+            }
+          }
 
-        if (options.length) blocks.push({ name, options });
+          const valId = parseInt(inp.dataset.valueId || inp.getAttribute('data-value-id') || '0', 10);
+          return valId ? { id: valId, text: txt, input: inp, img } : null;
+        })
+        .filter(Boolean);
+
+      if (name && options.length) blocks.push({ name, options, row });
     });
 
-    // Detecta color y talla por nombre
-    const color = blocks.find((b) =>
-        /(color|colour|colou?r|c[oó]lor)/i.test(b.name)
-    );
-    const size = blocks.find((b) =>
-        /(size|talla|talle|taille|größe|maat)/i.test(b.name)
-    );
+    return blocks;
+  }
 
-    if (size) size.options = sortSizes(size.options);
+  // Detección de bloques de color y talla (multilenguaje: color/talla/size/…)
+  function pickColorAndSize(blocks) {
+    const isColor = (n) => /(color|colour|couleur)/i.test(n);
+    const isSize = (n) => /(talla|size|taille|tamanho|maß)/i.test(n);
+
+    let color = blocks.find((b) => isColor(b.name));
+    let size = blocks.find((b) => isSize(b.name));
+
+    // Si no detecta por nombre, coge los dos primeros por orden
+    if (!color && blocks[0]) color = blocks[0];
+    if (!size && blocks[1]) size = blocks[1];
+
     return { color, size };
-}
+  }
 
-// === Ordenar tallas: numéricas (6,8,10...) o estándar (XS, S, M...) ===
-function sortSizes(opts) {
-    const std = [
-        "2XS","XXS","XS","S","M","L","XL","2XL","XXL","3XL","4XL","5XL","6XL","7XL","8XL",
-    ];
-    return [...opts].sort((a, b) => {
-        // Si ambas son numéricas (p. ej., 6 UK, 8 UK), ordena por número
-        const na = parseFloat(a.text);
-        const nb = parseFloat(b.text);
-        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+  // Construye la tabla HTML (sin lógica de carrito aún)
+  function renderMatrix(color, size) {
+    const wrap = document.createElement('div');
+    wrap.id = 'sp-matrix';
+    wrap.className = 'sp-matrix-active';
 
-        // Si ambas son estándar
-        const ia = std.indexOf(a.text.toUpperCase());
-        const ib = std.indexOf(b.text.toUpperCase());
-        if (ia >= 0 && ib >= 0) return ia - ib;
+    const table = document.createElement('table');
+    table.className = 'sp-matrix__table';
 
-        // Fallback al orden alfabético natural
-        return a.text.localeCompare(b.text, undefined, { numeric: true });
+    // CABECERA
+    const thead = document.createElement('thead');
+    const trH = document.createElement('tr');
+
+    const thColor = document.createElement('th');
+    thColor.className = 'sp-sticky-left';
+    thColor.textContent = 'Color';
+    trH.appendChild(thColor);
+
+    size.options.forEach((opt) => {
+      const th = document.createElement('th');
+      th.textContent = opt.text || '';
+      trH.appendChild(th);
     });
-}
 
-// === Construye el HTML de la matriz (solo UI) ===
-function renderGrid(color, size) {
-    let thead = '<thead><tr><th class="sp-sticky-left">Color</th>';
-    size.options.forEach((s) => {
-        thead += `<th>${escapeHtml(s.text)}</th>`;
-    });
-    thead += "</tr></thead>";
+    thead.appendChild(trH);
+    table.appendChild(thead);
 
-    let tbody = "<tbody>";
+    // CUERPO
+    const tbody = document.createElement('tbody');
+
     color.options.forEach((c) => {
-        tbody += `<tr>
-            <th class="sp-sticky-left">
-                <div class="sp-color">
-                    <img class="sp-color__img" alt="" />
-                    <span>${escapeHtml(c.text)}</span>
-                </div>
-            </th>`;
-        size.options.forEach((s) => {
-            tbody += `<td>
-                <div class="sp-cell">
-                    <input class="sp-qty" type="number" min="0" step="1" inputmode="numeric"
-                           placeholder="0" data-color="${c.id}" data-size="${s.id}">
-                    <div class="sp-meta"></div>
-                </div>
-            </td>`;
-        });
-        tbody += "</tr>";
+      const tr = document.createElement('tr');
+
+      // Columna fija izquierda (miniatura + nombre)
+      const tdLeft = document.createElement('td');
+      tdLeft.className = 'sp-sticky-left';
+      const rowInfo = document.createElement('div');
+      rowInfo.className = 'sp-color';
+
+      const img = document.createElement('img');
+      img.className = 'sp-color__img';
+      img.alt = c.text || '';
+      img.src = c.img || document.querySelector('.product_detail_img img')?.src || '';
+      rowInfo.appendChild(img);
+
+      const nameEl = document.createElement('span');
+      nameEl.textContent = c.text || '';
+      rowInfo.appendChild(nameEl);
+
+      tdLeft.appendChild(rowInfo);
+      tr.appendChild(tdLeft);
+
+      // Celdas de cantidades (de momento inputs vacíos)
+      size.options.forEach(() => {
+        const td = document.createElement('td');
+        td.className = 'sp-cell';
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = '0';
+        input.step = '1';
+        input.value = '';
+        input.className = 'sp-qty';
+        td.appendChild(input);
+        tr.appendChild(td);
+      });
+
+      tbody.appendChild(tr);
     });
-    tbody += "</tbody>";
 
-    return `
-      <div id="sp-matrix" class="sp-matrix-box">
-        <table class="sp-matrix__table">${thead}${tbody}</table>
-        <p class="sp-help">Indica cantidades por color y talla.</p>
-      </div>
-    `;
-}
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    return wrap;
+  }
 
-function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, (c) => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;",
-    }[c]));
-}
-
-// === Inserta/actualiza la matriz en la ficha ===
-function ensureMatrix() {
-    const page = document.querySelector(".o_wsale_product_page");
-    if (!page) return;
-
-    // Evita duplicados
-    const existing = page.querySelector("#sp-matrix");
-    if (existing) existing.remove();
-
-    const { color, size } = getAttributeBlocks(page);
-    if (!color || !size) {
-        console.info("[SP] Matrix: faltan atributos Color y/o Talla. No se pinta.");
-        document.body.classList.remove("sp-matrix-active");
-        return;
+  // Inserta la matriz justo DESPUÉS del bloque de atributos (más arriba),
+  // con varios “anchors” de respaldo según el tema/plantilla.
+  function insertMatrix(container, pageScope) {
+    const anchors = [
+      '.js_product .js_attributes',          // estándar
+      '.o_wsale_product_configurator',       // configurador
+      '.o_wsale_product_information',        // algunos temas
+      '.o_wsale_product_page',               // fallback (muy genérico)
+    ];
+    for (const sel of anchors) {
+      const el = pageScope.querySelector(sel);
+      if (el) {
+        el.insertAdjacentElement('afterend', container);
+        return true;
+      }
     }
+    // último recurso: al principio del contenido
+    pageScope.prepend(container);
+    return true;
+  }
 
-    const host =
-        page.querySelector(".js_attributes") ||
-        page.querySelector("form.o_wsale_product_configurator") ||
-        page;
+  // Evitar renders duplicados
+  function alreadyRendered(scope) {
+    return !!scope.querySelector('#sp-matrix');
+  }
 
-    host.insertAdjacentHTML("beforeend", renderGrid(color, size));
-    document.body.classList.add("sp-matrix-active");
+  // Orquestador
+  function ensureMatrix() {
+    const page = document.querySelector('.o_wsale_product_page');
+    if (!page || alreadyRendered(page)) return;
 
-    console.log("[SP] Matrix lista (solo UI).");
-}
+    const blocks = readAttributeBlocks(page);
+    if (!blocks.length) return;
 
-// === Arranque ===
-onReady(() => {
-    ensureMatrix();
-    // Si el usuario cambia algo en radios (poco común porque los ocultamos), reconstruimos
-    const page = document.querySelector(".o_wsale_product_page");
-    if (!page) return;
-    page.addEventListener("change", (ev) => {
-        if (ev.target.matches('input[type="radio"]')) ensureMatrix();
-    });
+    const { color, size } = pickColorAndSize(blocks);
+    if (!color || !size) return;
+
+    const matrixEl = renderMatrix(color, size);
+    insertMatrix(matrixEl, page);
+
+    // clase en <body> para que el SCSS pueda ocultar radios si se desea
+    document.body.classList.add('sp-matrix-active');
+  }
+
+  onReady(ensureMatrix);
+
+  // Si algo de la página reemplaza la zona de atributos (por ejemplo al cambiar variante),
+  // volvemos a montar la matriz automáticamente.
+  const obs = new MutationObserver(() => {
+    const page = document.querySelector('.o_wsale_product_page');
+    if (page && !alreadyRendered(page)) ensureMatrix();
+  });
+  onReady(() => {
+    const product = document.querySelector('.o_wsale_product_page');
+    if (product) obs.observe(product, { childList: true, subtree: true });
+  });
+
+  return {};
 });
