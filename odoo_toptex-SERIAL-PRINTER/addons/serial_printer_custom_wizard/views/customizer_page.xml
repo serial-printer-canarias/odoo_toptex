@@ -15,16 +15,17 @@
         <div class="row g-4">
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
-              <!-- Base same-origin para evitar CORS -->
+
+              <!-- Base same-origin para evitar CORS en canvas -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
 
-              <!-- Imagen visible -->
+              <!-- Imagen visible del producto -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
 
-              <!-- Overlay -->
+              <!-- Overlay del logo -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
           </div>
@@ -141,7 +142,7 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (personalizador + guardado de preview) ====== -->
+      <!-- ====== JS INLINE ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -170,13 +171,16 @@
         function applyTransform(){
           var logo = $("#spw_logo_preview"); if(!logo) return;
           var base = $("#spw_product_img");  if(!base) return;
+
           var sizePx = parseInt($val("spw_size","100"),10);
           var posX   = parseInt($val("spw_pos_x","0"),10);
           var posY   = parseInt($val("spw_pos_y","10"),10);
           var rot    = parseInt($val("spw_rotation","0"),10);
+
           var bw = base.clientWidth, bh = base.clientHeight;
           var leftPx = bw*(0.5 + posX/100);
           var topPx  = bh*(0.6 + posY/100);
+
           var st = logo.style;
           st.position="absolute";
           st.left = leftPx + "px";
@@ -193,24 +197,29 @@
                         ($("#spw_product_img")||{}).getAttribute("src");
           if(!baseSrc) throw new Error("Sin imagen base.");
           var baseIm = await loadImage(baseSrc);
+
           var canvas = document.createElement("canvas");
           var ctx = canvas.getContext("2d");
           canvas.width  = baseIm.naturalWidth  || baseIm.width;
           canvas.height = baseIm.naturalHeight || baseIm.height;
+
           ctx.drawImage(baseIm, 0, 0, canvas.width, canvas.height);
 
-          var logoEl = document.getElementById("spw_logo_preview");
+          var logoEl = $("#spw_logo_preview");
           if(logoEl && logoEl.src){
-            var baseEl = document.getElementById("spw_product_img");
+            var baseEl = $("#spw_product_img");
             var bw = baseEl.clientWidth,  bh = baseEl.clientHeight;
             var br = baseEl.getBoundingClientRect();
             var lr = logoEl.getBoundingClientRect();
+
             var cx = ((lr.left + lr.width/2) - br.left) / bw * canvas.width;
             var cy = ((lr.top  + lr.height/2) - br.top ) / bh * canvas.height;
             var drawW = (lr.width / bw) * canvas.width;
+
             var logoIm = await loadImage(logoEl.src);
             var ratio = (logoIm.naturalHeight || logoIm.height) / (logoIm.naturalWidth || logoIm.width);
             var drawH = drawW * ratio;
+
             var rot = (parseInt($val("spw_rotation","0"),10) * Math.PI)/180;
             ctx.save(); ctx.translate(cx, cy); ctx.rotate(rot);
             ctx.drawImage(logoIm, -drawW/2, -drawH/2, drawW, drawH);
@@ -229,7 +238,7 @@
             });
             var txt = await resp.text();
             var data=null; try{ data = JSON.parse(txt); }catch(e){}
-            return {ok: !!(data && (data.ok===true || data.ok==='true')), data:data, status:resp.status, raw:txt};
+            return {ok: !!(data && (data.ok===true || data.ok==="true")), data:data, status:resp.status, raw:txt};
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
         async function postForm(url, payload){
@@ -239,19 +248,21 @@
             var resp = await fetch(url, { method: "POST", body: fd, credentials:"same-origin" });
             var txt = await resp.text();
             var data=null; try{ data = JSON.parse(txt); }catch(e){}
-            return {ok: resp.ok && (!!data ? (data.ok===true || data.ok==='true') : true), data:data||{}, status:resp.status, raw:txt};
+            return {ok: resp.ok && (!!data ? (data.ok===true || data.ok==="true") : true), data:data||{}, status:resp.status, raw:txt};
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
 
-        /* ==== ÚNICO CAMBIO: selectores de tech/svg corregidos ==== */
+        /* ===== ÚNICO CAMBIO FUNCIONAL EN CUSTOMIZER: selectores corregidos ===== */
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
+
           var techEl   = document.querySelector("input[name='spw_tech']:checked");
           var svgEl    = document.querySelector("input[name='spw_svg_color']:checked");
           var tech     = techEl ? techEl.value : "";
           var svgColor = svgEl ? svgEl.value : "";
           var notes=($val("spw_notes","")||"").trim();
+
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
           var pngB64=""; 
@@ -341,63 +352,79 @@
     </t>
   </template>
 
-  <!-- ====== INYECCIÓN EN CARRITO (sin cambios) ====== -->
+  <!-- ============ INYECCIÓN LIGERA EN CARRITO (una preview por línea, al lado de cantidad) ============ -->
   <template id="spw_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript">
         //<![CDATA[
         (function(){
+          "use strict";
           try{
             if (!/\/shop\/cart/.test(location.pathname)) return;
             if (window.__SPW_CART_PREVIEW_LOADED__) return;
             window.__SPW_CART_PREVIEW_LOADED__ = true;
 
             function qsa(sel, root){ try{ return Array.from((root||document).querySelectorAll(sel)); }catch(_){ return []; } }
+            function one(sel, root){ try{ return (root||document).querySelector(sel); }catch(_){ return null; } }
+
             function getLineId(row){
               return (row && (row.getAttribute('data-line-id')
-                   || (row.querySelector('input[name="line_id"]')||{}).value
+                   || (one('input[name="line_id"]', row)||{}).value
                    || (row.dataset && row.dataset.lineId) || '')) || '';
             }
             function getProductId(row){
               return (row && (row.getAttribute('data-product-id')
-                   || (row.querySelector('input[name="product_id"]')||{}).value
+                   || (one('input[name="product_id"]', row)||{}).value
                    || (row.dataset && row.dataset.productId) || '')) || '';
             }
+
+            // Dónde insertar (preferimos al lado de la cantidad)
+            function qtyCell(row){
+              return one('.css_quantity, .o_wsale_product_quantity, .o_cart_product_quantity, .oe_cart input[name="add_qty"]', row)
+                     || one('.o_wsale_cart_item_qty, .o_cart_line_qty', row);
+            }
             function infoCell(row){
-              return row.querySelector('.o_wsale_cart_item_info, .o_wsale_product_information, .o_cart_product_information, .o_wsale_product_info, .o_cart_product_name')
-                     || row.querySelector('.o_wsale_product_img, .o_cart_product_img')
+              return one('.o_wsale_cart_item_info, .o_wsale_product_information, .o_cart_product_information, .o_wsale_product_info, .o_cart_product_name', row)
+                     || one('.o_wsale_product_img, .o_cart_product_img', row)
                      || row;
             }
-            function ensureOne(row){
+
+            function ensureImage(row){
               const lid = getLineId(row);
               const pid = getProductId(row);
-              const unique = 'spw-prev-' + (lid ? 'lid-' + lid : 'pid-' + pid);
-              qsa('img.spw-preview', row).forEach(function(n){
-                if (n.id !== unique) n.remove();
-              });
-              let img = row.querySelector('#'+CSS.escape(unique));
+              const key = 'spw-prev-' + (lid ? ('lid-'+lid) : ('pid-'+pid||'x'));
+
+              // Elimina duplicados en esta fila
+              qsa('img.spw-preview', row).forEach(function(n){ if (n.id && n.id !== key) n.remove(); });
+
+              let img = one('#'+CSS.escape(key), row);
               if (!img){
                 img = document.createElement('img');
-                img.id = unique;
+                img.id = key;
                 img.className = 'spw-preview';
-                img.alt='Personalización';
-                img.style.maxWidth='110px';
-                img.style.border='1px solid #eee';
-                img.style.borderRadius='6px';
-                img.style.display='inline-block';
-                img.style.verticalAlign='top';
-                img.style.margin='6px 8px 0 0';
-                const tgt = infoCell(row);
-                (tgt || row).appendChild(img);
+                img.alt = 'Personalización';
+                img.style.maxWidth = '110px';
+                img.style.border = '1px solid #eee';
+                img.style.borderRadius = '6px';
+                img.style.margin = '0 8px 0 0';
+                img.style.verticalAlign = 'middle';
+
+                const qty = qtyCell(row);
+                if (qty && qty.parentNode){
+                  qty.parentNode.insertBefore(img, qty); // 👉 junto a la cantidad
+                }else{
+                  (infoCell(row) || row).appendChild(img);
+                }
               }
               return img;
             }
-            function readStorage(){
+
+            function readList(){
               try{ return JSON.parse(sessionStorage.getItem('spw_previews')||'[]')||[]; }catch(_){ return []; }
             }
             function loadFromStorage(img, lid, pid){
               try{
-                const list = readStorage();
+                const list = readList();
                 let hit = lid ? list.find(it => String(it.line_id)===String(lid) && it.du) : null;
                 if (!hit && pid){
                   for (let i=list.length-1;i>=0;i--){
@@ -406,50 +433,68 @@
                 }
                 const du = hit ? hit.du : (sessionStorage.getItem('spw_last_png')||'');
                 if (du){ img.src = du; } else { img.remove(); }
-              }catch(_){ img.remove(); }
+              }catch(_e){ img.remove(); }
             }
-            function placeOne(row){
-              if (!row) return;
+
+            function paintRow(row){
               const lid = getLineId(row);
               const pid = getProductId(row);
-              const img = ensureOne(row);
+              const img = ensureImage(row);
 
-              let okServer=false;
+              let ok=false;
               if (lid){
-                img.onload=function(){ okServer=true; };
-                img.onerror=function(){ if(!okServer) loadFromStorage(img, lid, pid); };
+                img.onload=function(){ ok=true; };
+                img.onerror=function(){ if(!ok) loadFromStorage(img, lid, pid); };
                 img.src='/spw/line_preview/' + encodeURIComponent(lid) + '.png?_=' + Date.now();
               } else {
                 loadFromStorage(img, lid, pid);
               }
             }
-            function allRows(){
-              const rows = new Set();
-              qsa('[data-line-id]').forEach(r=>rows.add(r));
-              qsa('input[name="line_id"]').forEach(inp=>{
-                const r = inp.closest('tr, .o_wsale_cart_line, .o_wsale_cart_item, .o_cart_product, .row, .card, li, div');
-                if (r) rows.add(r);
-              });
-              if (!rows.size) qsa('.o_wsale_cart_item, .o_wsale_cart_line, .o_cart_product, .js_cart_lines > tr, .js_cart_lines > div').forEach(r=>rows.add(r));
-              return Array.from(rows);
-            }
-            function placeAll(){ allRows().forEach(placeOne); }
 
+            function rows(){
+              const set = new Set();
+              qsa('[data-line-id]').forEach(r=>set.add(r));
+              qsa('.js_cart_lines tr').forEach(r=>set.add(r));
+              qsa('.o_wsale_cart_item, .o_wsale_cart_line, .o_cart_product').forEach(r=>set.add(r));
+              return Array.from(set);
+            }
+
+            function paintAll(){
+              rows().forEach(paintRow);
+            }
+
+            // Primera carga + pequeños reintentos
             function burst(){
-              placeAll();
-              setTimeout(placeAll, 200);
-              setTimeout(placeAll, 700);
+              paintAll();
+              setTimeout(paintAll, 220);
+              setTimeout(paintAll, 800);
             }
-            document.addEventListener('DOMContentLoaded', burst);
-            if (document.readyState !== 'loading') burst();
+            if (document.readyState === 'loading'){
+              document.addEventListener('DOMContentLoaded', burst);
+            } else {
+              burst();
+            }
 
+            // Re-pintar cuando cambien cantidades o se re-renderice
             ['click','change','input'].forEach(ev=>{
               document.addEventListener(ev, function(e){
-                const row = e.target && (e.target.closest && e.target.closest('tr, .o_wsale_cart_item, .o_wsale_cart_line, .o_cart_product'));
-                if (row) setTimeout(function(){ placeOne(row); }, 150);
+                const r = e.target && e.target.closest && e.target.closest('.o_wsale_cart_item, .o_wsale_cart_line, .o_cart_product, tr');
+                if (r) setTimeout(function(){ paintRow(r); }, 120);
               }, true);
             });
-          }catch(_e){ /* never break cart */ }
+
+            // Observer por si Odoo refresca el bloque del carrito
+            const obs = new MutationObserver(function(muts){
+              for (const m of muts){
+                if (m.addedNodes && m.addedNodes.length){
+                  burst(); break;
+                }
+              }
+            });
+            const cartRoot = one('.js_cart, .o_cart, .oe_website_sale, body');
+            if (cartRoot) obs.observe(cartRoot, {childList:true, subtree:true});
+
+          }catch(_){ /* nunca romper el carrito */ }
         })();
         //]]>
       </script>
