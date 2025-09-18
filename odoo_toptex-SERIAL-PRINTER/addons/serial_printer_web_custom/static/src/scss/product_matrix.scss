@@ -1,4 +1,7 @@
-#sp-matrix { margin-top: 1rem; overflow-x: auto; }
+#sp-matrix {
+  margin-top: 1rem;
+  overflow-x: auto;
+}
 
 .sp-matrix__table {
   width: 100%;
@@ -23,16 +26,33 @@
   background: #fafafa;
 }
 
-.sp-sticky-left { position: sticky; left: 0; z-index: 2; background: #fafafa; min-width: 11rem; }
+.sp-sticky-left {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #fafafa;
+  min-width: 11rem;
+}
 
-.sp-color { display: flex; align-items: center; gap: .5rem; }
-.sp-color__img { width: 36px; height: 36px; border-radius: .35rem; object-fit: cover; border: 1px solid #ddd; }
+.sp-color {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.sp-color__img {
+  width: 36px;
+  height: 36px;
+  border-radius: .35rem;
+  object-fit: cover;
+  border: 1px solid #ddd;
+  background: #f5f5f5;
+}
 
 .sp-cell { display: flex; flex-direction: column; gap: .15rem; }
 .sp-qty  { width: 100%; text-align: center; }
 .sp-meta { font-size: .75rem; line-height: 1.1; opacity: .9; }
-
 .sp-unavailable { opacity: .4; }
 
-/* Oculta radios originales sólo cuando la matriz está activa */
+/* Oculta radios originales solo cuando la matriz está activa */
 .sp-matrix-active .js_product .js_attributes { display: none !important; }
