@@ -6,7 +6,18 @@ function onReady(fn) {
     else document.addEventListener("DOMContentLoaded", fn);
 }
 
-// === Buscar los bloques de atributos (Color, Talla) en la ficha ===
+// === Dónde anclar la tabla (debajo de los atributos) ===
+function getAttrsContainer(page) {
+    return (
+        page.querySelector(".js_attributes") ||
+        page.querySelector("form.o_wsale_product_configurator .js_attributes") ||
+        page.querySelector("form.o_wsale_product_configurator") ||
+        page.querySelector(".o_wsale_product_configurator") ||
+        null
+    );
+}
+
+// === Buscar bloques de atributos (Color, Talla) ===
 function getAttributeBlocks(scope) {
     const blocks = [];
     const containers = Array.from(
@@ -36,10 +47,12 @@ function getAttributeBlocks(scope) {
 
             const txt = (
                 inp.closest("label")?.textContent ||
-                inp.getAttribute("title") || ""
+                (inp.id ? (scope.querySelector(`label[for="${inp.id}"]`)?.textContent || "") : "") ||
+                inp.getAttribute("title") ||
+                ""
             ).replace(/\s+/g, " ").trim();
 
-            return id ? { id, text: txt, _radio: inp } : null;
+            return id ? { id, text: txt } : null;
         }).filter(Boolean);
 
         if (options.length) blocks.push({ name, options });
@@ -48,34 +61,65 @@ function getAttributeBlocks(scope) {
     const color = blocks.find((b) => /(color|colour|colou?r|c[oó]lor)/i.test(b.name));
     const size  = blocks.find((b) => /(size|talla|talle|taille|größe|maat)/i.test(b.name));
     if (size) size.options = sortSizes(size.options);
+
     return { color, size };
 }
 
-// === Ordena tallas (numéricas o estándar) ===
+// === Ordenar tallas (numéricas o estándar) ===
 function sortSizes(opts) {
     const std = ["2XS","XXS","XS","S","M","L","XL","2XL","XXL","3XL","4XL","5XL","6XL","7XL","8XL"];
     return [...opts].sort((a, b) => {
         const na = parseFloat(a.text), nb = parseFloat(b.text);
         if (!isNaN(na) && !isNaN(nb)) return na - nb;
+
         const ia = std.indexOf(a.text.toUpperCase());
         const ib = std.indexOf(b.text.toUpperCase());
         if (ia >= 0 && ib >= 0) return ia - ib;
+
         return a.text.localeCompare(b.text, undefined, { numeric: true });
     });
 }
 
+// === Miniatura para un color: busca <img> o background en el label ===
+function getColorThumbSrc(page, colorId) {
+    const sel = `input[type="radio"][data-value-id="${colorId}"],
+                 input[type="radio"][data-attribute-value-id="${colorId}"]`;
+    const inp = page.querySelector(sel);
+    if (inp) {
+        const label = inp.closest("label") || (inp.id ? page.querySelector(`label[for="${inp.id}"]`) : null);
+        if (label) {
+            const im = label.querySelector("img");
+            if (im?.src) return im.src;
+
+            const bg = getComputedStyle(label).backgroundImage;
+            const m = bg && bg !== "none" ? bg.match(/url\(["']?([^"')]+)["']?\)/) : null;
+            if (m?.[1]) return m[1];
+        }
+    }
+    // Fallback: imagen principal visible
+    const gallery = page.querySelector('.o_carousel_product .carousel-item.active img, img.js_product_img, img[class*="product"]');
+    return gallery?.src || "";
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+}
+
 // === HTML de la matriz (solo UI) ===
-function renderGrid(color, size) {
+function renderGrid(page, color, size) {
     let thead = '<thead><tr><th class="sp-sticky-left">Color</th>';
     size.options.forEach((s) => { thead += `<th>${escapeHtml(s.text)}</th>`; });
     thead += "</tr></thead>";
 
     let tbody = "<tbody>";
     color.options.forEach((c) => {
+        const thumb = getColorThumbSrc(page, c.id);
         tbody += `<tr data-color-id="${c.id}">
             <th class="sp-sticky-left">
                 <div class="sp-color">
-                    <img class="sp-color__img" alt="" />
+                    <img class="sp-color__img" src="${thumb}" alt="">
                     <span>${escapeHtml(c.text)}</span>
                 </div>
             </th>`;
@@ -100,113 +144,32 @@ function renderGrid(color, size) {
     `;
 }
 
-function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, (c) => ({
-        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-    }[c]));
-}
-
-// === Miniatura por color (label > img, o cualquier hijo con background-image, o data-*) ===
-function findColorImageSrc(colorId, scope) {
-    const input = scope.querySelector(
-        `input[type="radio"][data-value-id="${colorId}"],
-         input[type="radio"][data-attribute-value-id="${colorId}"],
-         input[type="radio"][value="${colorId}"]`
-    );
-    if (!input) return null;
-
-    const label = scope.querySelector(`label[for="${input.id}"]`) || input.closest("label");
-    if (!label) return null;
-
-    // 1) <img> dentro del label
-    const img = label.querySelector("img");
-    if (img?.src) return img.src;
-
-    // 2) Algún hijo con background-image
-    const withBg = Array.from(label.querySelectorAll("*")).find((n) => {
-        const bg = getComputedStyle(n).backgroundImage;
-        return bg && bg !== "none" && /url\(/i.test(bg);
-    });
-    if (withBg) {
-        const bg = getComputedStyle(withBg).backgroundImage;
-        const m = /url\(["']?(.*?)["']?\)/.exec(bg);
-        if (m?.[1]) return m[1];
-    }
-
-    // 3) Atributos data comunes
-    const dataUrl = label.dataset.imageUrl || label.dataset.img || input.dataset.img || "";
-    if (dataUrl) return dataUrl;
-
-    return null;
-}
-
-function fillColorThumbs(page) {
-    const rows = page.querySelectorAll("#sp-matrix tr[data-color-id]");
-    const mainImg = page.querySelector(
-        ".o_wsale_product_images img, #o-carousel-product .carousel-item.active img, .o_gallery_img"
-    );
-    const fallback = mainImg?.src || "";
-    rows.forEach((tr) => {
-        const cid = tr.getAttribute("data-color-id");
-        const src = findColorImageSrc(cid, page) || fallback;
-        const imgEl = tr.querySelector(".sp-color__img");
-        if (imgEl && src) imgEl.src = src;
-    });
-}
-
-// === Insertar la matriz: preferencia 1) justo después de los atributos ===
-function placeMatrix(html, page) {
-    const attrs = page.querySelector(".js_attributes");
-    if (attrs) {
-        attrs.insertAdjacentHTML("afterend", html);
-        return true;
-    }
-    // 2) antes del botón Add to Cart (por si falla lo anterior)
-    const btn = page.querySelector(
-        'button[name="add_to_cart"], button[name="add"], a.js_add_to_cart, .o_wsale_product_btn .btn-primary, .o_add_to_cart'
-    );
-    if (btn) {
-        btn.insertAdjacentHTML("beforebegin", html);
-        return true;
-    }
-    // 3) último recurso
-    page.insertAdjacentHTML("beforeend", html);
-    return false;
-}
-
-// === Evitar duplicados y pintar ===
+// === Inserta/actualiza matriz (debajo de los atributos; sin duplicados) ===
 function ensureMatrix() {
     const page = document.querySelector(".o_wsale_product_page");
     if (!page) return;
 
-    page.querySelectorAll("#sp-matrix").forEach((n) => n.remove());
+    // Limpia duplicados
+    page.querySelectorAll("#sp-matrix").forEach((el) => el.remove());
 
     const { color, size } = getAttributeBlocks(page);
     if (!color || !size) {
-        console.info("[SP] Matrix: faltan atributos Color y/o Talla. No se pinta.");
-        document.body.classList.remove("sp-matrix-active");
+        console.info("[SP] Matrix: faltan Color y/o Talla. No se pinta.");
         return;
     }
 
-    const html = renderGrid(color, size);
-    placeMatrix(html, page);
-    fillColorThumbs(page);
-
-    document.body.classList.add("sp-matrix-active");
-    console.log("[SP] Matrix lista (UI).");
+    const anchor = getAttrsContainer(page) || page;
+    anchor.insertAdjacentHTML("afterend", renderGrid(page, color, size));
+    console.log("[SP] Matrix renderizada debajo de atributos.");
 }
 
-// === Arranque (un solo listener) ===
+// === Arranque ===
 onReady(() => {
+    ensureMatrix();
     const page = document.querySelector(".o_wsale_product_page");
     if (!page) return;
-
-    ensureMatrix();
-
-    if (!page.dataset.spMatrixBound) {
-        page.dataset.spMatrixBound = "1";
-        page.addEventListener("change", (ev) => {
-            if (ev.target.matches('input[type="radio"]')) ensureMatrix();
-        });
-    }
+    // Si cambian radios, re-pintamos
+    page.addEventListener("change", (ev) => {
+        if (ev.target.matches('input[type="radio"]')) ensureMatrix();
+    });
 });
