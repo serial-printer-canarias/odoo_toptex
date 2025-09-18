@@ -1,169 +1,172 @@
-/** Odoo 18 – Frontend **/
-odoo.define('serial_printer_web_custom.product_matrix', [
-    'web.public.widget',     // <- SOLO esta dependencia. Nada de web.ajax.
-], function (require) {
-    'use strict';
+/** @odoo-module **/
 
-    const publicWidget = require('web.public.widget');
+// === Utilidad: ejecutar cuando el DOM está listo ===
+function onReady(fn) {
+    if (document.readyState !== "loading") fn();
+    else document.addEventListener("DOMContentLoaded", fn);
+}
 
-    // ---------- Utils ----------
-    function onReady(fn) {
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', fn);
-        } else {
-            fn();
-        }
-    }
+// === Buscar los bloques de atributos (Color, Talla) en la ficha ===
+function getAttributeBlocks(scope) {
+    const blocks = [];
+    // Soporta distintas plantillas: busca contenedores con radios y nombre del atributo
+    const containers = Array.from(
+        scope.querySelectorAll(
+            // Odoo 18 (varios casos habituales)
+            '[data-attribute_name], .js_attribute, .o_product_configurator [name], .js_attributes > div'
+        )
+    );
 
-    // Orden “inteligente” de tallas (XXS..5XL y números: 6,8,10…)
-    function sizeKey(txt) {
-        const t = String(txt || '').trim().toUpperCase();
-        const map = {
-            'XXS': 0, 'XS': 1, 'S': 2, 'M': 3, 'L': 4, 'XL': 5,
-            '2XL': 6, 'XXL': 6, '3XL': 7, '4XL': 8, '5XL': 9,
-        };
-        if (t in map) return map[t];
-        const m = t.match(/(\d+)/);
-        return m ? parseInt(m[1], 10) : 9999;
-    }
+    containers.forEach((el) => {
+        const name =
+            (el.getAttribute("data-attribute_name") ||
+                el.querySelector(".attribute_name, legend, .o_attr_title")?.textContent ||
+                el.getAttribute("name") ||
+                "")
+                .trim()
+                .toLowerCase();
 
-    // Localiza grupos de atributos (Color, Talla) en distintas plantillas
-    function getAttributeBlocks(scope) {
-        const blocks = [];
-        const groupCandidates = scope.querySelectorAll(
-            '[data-attribute_name], .js_attribute, .o_variant_attribute, .variant_attribute'
-        );
+        const radios = Array.from(el.querySelectorAll('input[type="radio"]'));
+        if (!radios.length) return;
 
-        groupCandidates.forEach((el) => {
-            // Nombre del grupo
-            const name =
-                (el.getAttribute('data-attribute_name') || '') ||
-                (el.querySelector('.attribute_name, .o_variant_label, legend, .form-label, label')?.textContent || '');
-            const radios = Array.from(el.querySelectorAll('input[type="radio"]'));
-            if (!radios.length) return;
+        const options = radios
+            .map((inp) => {
+                const id =
+                    parseInt(
+                        inp.dataset.valueId ||
+                            inp.dataset.attributeValueId ||
+                            inp.value ||
+                            "0",
+                        10
+                    ) || 0;
+                const txt =
+                    (inp.closest("label")?.textContent ||
+                        inp.getAttribute("title") ||
+                        "")
+                        .replace(/\s+/g, " ")
+                        .trim();
+                return id ? { id, text: txt } : null;
+            })
+            .filter(Boolean);
 
-            const options = radios.map((inp) => {
-                const id = parseInt(inp.dataset.valueId || inp.value || '0', 10) || null;
-                const lab = el.querySelector(`label[for="${inp.id}"]`) || inp.closest('label');
-                const text = (lab ? lab.textContent : (inp.value || '')).replace(/\s+/g, ' ').trim();
-                return id ? { id, text, input: inp } : null;
-            }).filter(Boolean);
-
-            if (options.length) {
-                blocks.push({
-                    name: (name || '').trim(),
-                    options,
-                    el,
-                });
-            }
-        });
-        return blocks;
-    }
-
-    // Crea el HTML de la tabla
-    function renderGrid(color, size) {
-        // Ordenar tallas
-        size.options.sort((a, b) => sizeKey(a.text) - sizeKey(b.text));
-
-        let thead = `<th class="sp-sticky-left"></th>`;
-        size.options.forEach((s) => {
-            thead += `<th><div class="sp-meta"><strong>${s.text}</strong></div></th>`;
-        });
-
-        const rows = color.options.map((c) => {
-            let tds = `<td class="sp-sticky-left">
-                <div class="sp-color">
-                    <span class="sp-color__name">${c.text}</span>
-                </div>
-            </td>`;
-            size.options.forEach((s) => {
-                // De momento no calculamos el variant_id aquí; lo conectamos en el paso 4.
-                tds += `<td>
-                    <div class="sp-cell">
-                        <input type="number" min="0" step="1" value="0"
-                               class="sp-qty"
-                               data-color-id="${c.id}"
-                               data-size-id="${s.id}">
-                        <div class="sp-meta"></div>
-                    </div>
-                </td>`;
-            });
-            return `<tr>${tds}</tr>`;
-        }).join('');
-
-        return `
-        <div id="sp-matrix" class="mt-3">
-            <table class="sp-matrix__table">
-                <thead><tr>${thead}</tr></thead>
-                <tbody>${rows}</tbody>
-            </table>
-            <div class="mt-2">
-                <button type="button" class="btn btn-primary sp-matrix-add">
-                    Añadir selección
-                </button>
-                <small class="text-muted ms-2">Indica cantidades por color y talla.</small>
-            </div>
-        </div>`;
-    }
-
-    // ---------- Widget ----------
-    publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
-        selector: '.o_wsale_product_page',
-
-        start() {
-            onReady(() => this._mountMatrix());
-            return this._super(...arguments);
-        },
-
-        _mountMatrix() {
-            // Evitar duplicados
-            if (document.getElementById('sp-matrix')) return;
-
-            const root = this.el || document;
-            const attrsWrap =
-                root.querySelector('.js_product .js_attributes') ||
-                root.querySelector('.o_wsale_product_configurator') ||
-                root.querySelector('.js_product');
-
-            if (!attrsWrap) {
-                console.warn('[SP] No se encontraron atributos en la página.');
-                return;
-            }
-
-            const blocks = getAttributeBlocks(attrsWrap);
-            if (!blocks.length) {
-                console.warn('[SP] No se detectaron grupos de atributos.');
-                return;
-            }
-
-            // Detectar COLOR y TALLA por nombre (con fallback por orden)
-            const colorBlock =
-                blocks.find((b) => /colou?r/i.test(b.name)) || blocks[0];
-            const sizeBlock =
-                blocks.find((b) => /(talla|size|taille|größe|maat)/i.test(b.name)) || blocks[1];
-
-            if (!colorBlock || !sizeBlock) {
-                console.warn('[SP] Faltan bloques de Color o Talla.', { blocks });
-                return;
-            }
-
-            // Oculta los radios originales sólo cuando la matriz está activa
-            this.el.classList.add('sp-matrix-active');
-
-            // Insertar la tabla justo debajo de los atributos
-            const html = renderGrid(colorBlock, sizeBlock);
-            const holder = document.createElement('div');
-            holder.innerHTML = html;
-            attrsWrap.parentNode.insertBefore(holder, attrsWrap.nextSibling);
-
-            // (Paso 4) Conectaremos aquí el click de ".sp-matrix-add" para añadir al carrito.
-            holder.querySelector('.sp-matrix-add')?.addEventListener('click', () => {
-                alert('UI lista. En el siguiente paso conectamos el carrito.');
-            });
-
-            console.log('[SP] Matrix montada');
-        },
+        if (options.length) blocks.push({ name, options });
     });
 
-    return publicWidget.registry.SerialPrinterMatrix;
+    // Detecta color y talla por nombre
+    const color = blocks.find((b) =>
+        /(color|colour|colou?r|c[oó]lor)/i.test(b.name)
+    );
+    const size = blocks.find((b) =>
+        /(size|talla|talle|taille|größe|maat)/i.test(b.name)
+    );
+
+    if (size) size.options = sortSizes(size.options);
+    return { color, size };
+}
+
+// === Ordenar tallas: numéricas (6,8,10...) o estándar (XS, S, M...) ===
+function sortSizes(opts) {
+    const std = [
+        "2XS","XXS","XS","S","M","L","XL","2XL","XXL","3XL","4XL","5XL","6XL","7XL","8XL",
+    ];
+    return [...opts].sort((a, b) => {
+        // Si ambas son numéricas (p. ej., 6 UK, 8 UK), ordena por número
+        const na = parseFloat(a.text);
+        const nb = parseFloat(b.text);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+
+        // Si ambas son estándar
+        const ia = std.indexOf(a.text.toUpperCase());
+        const ib = std.indexOf(b.text.toUpperCase());
+        if (ia >= 0 && ib >= 0) return ia - ib;
+
+        // Fallback al orden alfabético natural
+        return a.text.localeCompare(b.text, undefined, { numeric: true });
+    });
+}
+
+// === Construye el HTML de la matriz (solo UI) ===
+function renderGrid(color, size) {
+    let thead = '<thead><tr><th class="sp-sticky-left">Color</th>';
+    size.options.forEach((s) => {
+        thead += `<th>${escapeHtml(s.text)}</th>`;
+    });
+    thead += "</tr></thead>";
+
+    let tbody = "<tbody>";
+    color.options.forEach((c) => {
+        tbody += `<tr>
+            <th class="sp-sticky-left">
+                <div class="sp-color">
+                    <img class="sp-color__img" alt="" />
+                    <span>${escapeHtml(c.text)}</span>
+                </div>
+            </th>`;
+        size.options.forEach((s) => {
+            tbody += `<td>
+                <div class="sp-cell">
+                    <input class="sp-qty" type="number" min="0" step="1" inputmode="numeric"
+                           placeholder="0" data-color="${c.id}" data-size="${s.id}">
+                    <div class="sp-meta"></div>
+                </div>
+            </td>`;
+        });
+        tbody += "</tr>";
+    });
+    tbody += "</tbody>";
+
+    return `
+      <div id="sp-matrix" class="sp-matrix-box">
+        <table class="sp-matrix__table">${thead}${tbody}</table>
+        <p class="sp-help">Indica cantidades por color y talla.</p>
+      </div>
+    `;
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+    }[c]));
+}
+
+// === Inserta/actualiza la matriz en la ficha ===
+function ensureMatrix() {
+    const page = document.querySelector(".o_wsale_product_page");
+    if (!page) return;
+
+    // Evita duplicados
+    const existing = page.querySelector("#sp-matrix");
+    if (existing) existing.remove();
+
+    const { color, size } = getAttributeBlocks(page);
+    if (!color || !size) {
+        console.info("[SP] Matrix: faltan atributos Color y/o Talla. No se pinta.");
+        document.body.classList.remove("sp-matrix-active");
+        return;
+    }
+
+    const host =
+        page.querySelector(".js_attributes") ||
+        page.querySelector("form.o_wsale_product_configurator") ||
+        page;
+
+    host.insertAdjacentHTML("beforeend", renderGrid(color, size));
+    document.body.classList.add("sp-matrix-active");
+
+    console.log("[SP] Matrix lista (solo UI).");
+}
+
+// === Arranque ===
+onReady(() => {
+    ensureMatrix();
+    // Si el usuario cambia algo en radios (poco común porque los ocultamos), reconstruimos
+    const page = document.querySelector(".o_wsale_product_page");
+    if (!page) return;
+    page.addEventListener("change", (ev) => {
+        if (ev.target.matches('input[type="radio"]')) ensureMatrix();
+    });
 });
