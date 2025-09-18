@@ -15,8 +15,7 @@
         <div class="row g-4">
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
-
-              <!-- Base same-origin para evitar CORS al renderizar -->
+              <!-- Base same-origin para evitar CORS -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
@@ -25,7 +24,7 @@
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
 
-              <!-- Overlay del logo -->
+              <!-- Overlay -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
           </div>
@@ -142,7 +141,7 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (mantenemos tu lógica; añadimos solo lo imprescindible) ====== -->
+      <!-- ====== JS INLINE (defensivo y sin romper otras páginas) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -312,31 +311,35 @@
         }
 
         function init(){
-          var logoInput=document.getElementById("spw_logo_input");
-          var logoEl=document.getElementById("spw_logo_preview");
-          if(logoInput){
-            logoInput.addEventListener("change", async function(ev){
-              var f = ev.target.files && ev.target.files[0]; if(!f) return;
-              var du = await readAsDataURL(f);
-              logoEl.src = du;
-              applyTransform();
+          try{
+            var logoInput=document.getElementById("spw_logo_input");
+            var logoEl=document.getElementById("spw_logo_preview");
+            if(logoInput){
+              logoInput.addEventListener("change", async function(ev){
+                try{
+                  var f = ev.target.files && ev.target.files[0]; if(!f) return;
+                  var du = await readAsDataURL(f);
+                  logoEl.src = du;
+                  applyTransform();
+                }catch(_){}
+              });
+            }
+            ["spw_size","spw_pos_x","spw_pos_y","spw_rotation"].forEach(function(id){
+              var el=document.getElementById(id); if(el) el.addEventListener("input", applyTransform);
             });
-          }
-          ["spw_size","spw_pos_x","spw_pos_y","spw_rotation"].forEach(function(id){
-            var el=document.getElementById(id); if(el) el.addEventListener("input", applyTransform);
-          });
-          window.spwReset=function(){
-            document.getElementById("spw_size").value=100;
-            document.getElementById("spw_pos_x").value=0;
-            document.getElementById("spw_pos_y").value=10;
-            document.getElementById("spw_rotation").value=0;
+            window.spwReset=function(){
+              document.getElementById("spw_size").value=100;
+              document.getElementById("spw_pos_x").value=0;
+              document.getElementById("spw_pos_y").value=10;
+              document.getElementById("spw_rotation").value=0;
+              applyTransform();
+            };
+
+            var dl=document.getElementById("spw_download_png"); if(dl){ dl.addEventListener("click", function(){ downloadPNGiOSSafe(); }); }
+            var add=document.getElementById("spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
+
             applyTransform();
-          };
-
-          var dl=document.getElementById("spw_download_png"); if(dl){ dl.addEventListener("click", function(){ downloadPNGiOSSafe(); }); }
-          var add=document.getElementById("spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
-
-          applyTransform();
+          }catch(_){}
         }
 
         if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded", init); } else { init(); }
@@ -345,109 +348,107 @@
     </t>
   </template>
 
-  <!-- ====== INYECCIÓN: PREVIEW EN CARRITO (robusta, UNA por línea) ====== -->
+  <!-- ====== INYECCIÓN ULTRA-DEFENSIVA: PREVIEW EN CARRITO ====== -->
   <template id="spw_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript">
         //<![CDATA[
         (function(){
-          if (!/\/shop\/cart/.test(location.pathname)) return;
+          try{
+            if (!/\/shop\/cart/.test(location.pathname)) return;
 
-          function findRows(){
-            const set = new Set();
-
-            // 1) Temas con data-line-id
-            document.querySelectorAll('[data-line-id]').forEach(el => set.add(el));
-
-            // 2) Temas que usan input[name="line_id"]
-            document.querySelectorAll('input[name="line_id"]').forEach(inp => {
-              const row = inp.closest('tr, .o_wsale_cart_line, .o_wsale_cart_item, .o_cart_product, .card, .row, li, div');
-              if (row) set.add(row);
-            });
-
-            // 3) Fallback por clases comunes
-            if (!set.size) {
-              document.querySelectorAll('.o_wsale_cart_line, .o_wsale_cart_item, .o_cart_product, .js_cart_line, .js_cart_lines > tr, .js_cart_lines > div')
-                .forEach(el => set.add(el));
+            function qsa(sel, root){ try{ return Array.from((root||document).querySelectorAll(sel)); }catch(_){ return []; } }
+            function getLineId(row){
+              return (row && (row.getAttribute('data-line-id') || (row.querySelector('input[name="line_id"]')||{}).value || '')) || '';
             }
-            return Array.from(set);
-          }
-
-          function getLineId(row){
-            return row.getAttribute('data-line-id')
-                || (row.querySelector('input[name="line_id"]')||{}).value
-                || '';
-          }
-          function getProductId(row){
-            return row.getAttribute('data-product-id')
-                || (row.querySelector('input[name="product_id"]')||{}).value
-                || '';
-          }
-
-          function targetCell(row){
-            return row.querySelector('.td-qty, .o_wsale_cart_item_qty, .o_wsale_cart_quantity, .css_quantity, .quantity, .o_qty')
-                || row.querySelector('.o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_information, .o_cart_product_name')
-                || row.querySelector('.o_wsale_product_img, .o_cart_product_img, .o_wsale_product_image, .o_cart_product_thumbnail')
-                || row;
-          }
-
-          function loadFromStorage(img, lid, pid){
-            try{
-              const list = JSON.parse(sessionStorage.getItem('spw_previews')||'[]')||[];
-              let hit = lid ? list.find(it => String(it.line_id)===String(lid) && it.du) : null;
-              if (!hit && pid){
-                for (let i=list.length-1;i>=0;i--){
-                  if (String(list[i].product_id)===String(pid) && list[i].du){ hit=list[i]; break; }
+            function getProductId(row){
+              return (row && (row.getAttribute('data-product-id') || (row.querySelector('input[name="product_id"]')||{}).value || '')) || '';
+            }
+            function targetCell(row){
+              return row.querySelector('.td-qty, .o_wsale_cart_item_qty, .o_wsale_cart_quantity, .css_quantity, .quantity, .o_qty')
+                  || row.querySelector('.o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_information, .o_cart_product_name')
+                  || row.querySelector('.o_wsale_product_img, .o_cart_product_img, .o_wsale_product_image, .o_cart_product_thumbnail')
+                  || row;
+            }
+            function findRows(){
+              const set=new Set();
+              qsa('[data-line-id]').forEach(el=>set.add(el));
+              qsa('input[name="line_id"]').forEach(inp=>{
+                const r = inp.closest('tr, .o_wsale_cart_line, .o_wsale_cart_item, .o_cart_product, .card, .row, li, div');
+                if (r) set.add(r);
+              });
+              if (!set.size) qsa('.o_wsale_cart_line, .o_wsale_cart_item, .o_cart_product, .js_cart_line, .js_cart_lines > tr, .js_cart_lines > div').forEach(el=>set.add(el));
+              return Array.from(set);
+            }
+            function readStorage(){
+              try{
+                const list = JSON.parse(sessionStorage.getItem('spw_previews')||'[]')||[];
+                const lastDU = sessionStorage.getItem('spw_last_png')||'';
+                const lastPID = sessionStorage.getItem('spw_last_product_id')||'';
+                return {list, lastDU, lastPID};
+              }catch(_){ return {list:[], lastDU:'', lastPID:''}; }
+            }
+            function loadFromStorage(img, lid, pid){
+              try{
+                const st = readStorage();
+                let hit = lid ? st.list.find(it => String(it.line_id)===String(lid) && it.du) : null;
+                if (!hit && pid){
+                  for (let i=st.list.length-1;i>=0;i--){
+                    if (String(st.list[i].product_id)===String(pid) && st.list[i].du){ hit=st.list[i]; break; }
+                  }
                 }
+                if (!hit && st.lastDU && (!pid || String(st.lastPID)===String(pid))) {
+                  img.src = st.lastDU; return;
+                }
+                if (hit && hit.du){ img.src = hit.du; } else { img.remove(); }
+              }catch(_e){ img.remove(); }
+            }
+            function placeOne(row){
+              if (!row) return;
+              // Evitar duplicados
+              qsa('img.spw-preview', row).forEach(n => n.remove());
+
+              const lid = getLineId(row);
+              const pid = getProductId(row);
+
+              const img = document.createElement('img');
+              img.alt='Personalización';
+              img.className='spw-preview';
+              img.style.maxWidth='110px';
+              img.style.border='1px solid #eee';
+              img.style.borderRadius='6px';
+              img.style.display='inline-block';
+              img.style.verticalAlign='top';
+              img.style.margin='6px 0 0 8px';
+
+              const tgt = targetCell(row);
+              if (tgt && (tgt.className||'').match(/(qty|quantity)/)) {
+                tgt.appendChild(img);
+              } else if (tgt && (tgt.className||'').match(/(info|information)/)) {
+                tgt.insertBefore(img, tgt.firstChild);
+              } else if (tgt) {
+                tgt.appendChild(img);
+              } else {
+                row.appendChild(img);
               }
-              if (!hit && list.length) hit = list[list.length-1];
-              if (hit && hit.du){ img.src = hit.du; } else { img.remove(); }
-            }catch(_e){ img.remove(); }
-          }
 
-          function placeOne(row){
-            // Evitar duplicados en esa fila
-            row.querySelectorAll('img.spw-preview').forEach(x => x.remove());
-
-            const lid = getLineId(row);
-            const pid = getProductId(row);
-
-            const img = document.createElement('img');
-            img.alt = 'Personalización';
-            img.className = 'spw-preview';
-            img.style.maxWidth='110px';
-            img.style.border='1px solid #eee';
-            img.style.borderRadius='6px';
-            img.style.display='inline-block';
-            img.style.verticalAlign='top';
-            img.style.margin='6px 0 0 8px';
-
-            const tgt = targetCell(row);
-            if (tgt && (tgt.className||'').match(/(qty|quantity)/)) {
-              tgt.appendChild(img);
-            } else if (tgt && (tgt.className||'').match(/(info|information)/)) {
-              tgt.insertBefore(img, tgt.firstChild);
-            } else if (tgt) {
-              tgt.appendChild(img);
-            } else {
-              row.appendChild(img);
+              let okServer=false;
+              if (lid){
+                img.onload=function(){ okServer=true; };
+                img.onerror=function(){ if(!okServer) loadFromStorage(img, lid, pid); };
+                img.src='/spw/line_preview/' + encodeURIComponent(lid) + '.png?_=' + Date.now();
+              } else {
+                loadFromStorage(img, lid, pid);
+              }
             }
+            function placeAll(){ findRows().forEach(placeOne); }
 
-            let okServer = false;
-            if (lid) {
-              img.onload = function(){ okServer = true; };
-              img.onerror = function(){ if (!okServer) loadFromStorage(img, lid, pid); };
-              img.src = '/spw/line_preview/' + encodeURIComponent(lid) + '.png?_=' + Date.now();
-            } else {
-              loadFromStorage(img, lid, pid);
-            }
+            const run=function(){ placeAll(); setTimeout(placeAll, 600); };
+            if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', run); else run();
+            try{ new MutationObserver(placeAll).observe(document.body, {childList:true, subtree:true}); }catch(_){}
+          }catch(_err){
+            // Silencioso: nunca rompemos la página
           }
-
-          function placeAll(){ findRows().forEach(placeOne); }
-
-          const run = function(){ placeAll(); setTimeout(placeAll, 600); };
-          if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run); else run();
-          try{ new MutationObserver(placeAll).observe(document.body, {childList:true, subtree:true}); }catch(_e){}
         })();
         //]]>
       </script>
