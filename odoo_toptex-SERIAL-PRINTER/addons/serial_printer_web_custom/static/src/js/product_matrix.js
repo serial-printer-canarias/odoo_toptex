@@ -1,197 +1,175 @@
-/** Odoo 18 – SERIAL PRINTER
- *  Baseline estable: pinta la matriz Color x Talla debajo de los atributos.
- *  No usa dependencias ([]) para evitar errores del loader.
- *  No toca carrito/precio/stock todavía.
- */
-odoo.define('serial_printer_web_custom.product_matrix', [], function () {
-  'use strict';
+/** @odoo-module **/
 
-  // -------- utilidades ----------
-  function onReady(fn) {
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
-    else fn();
-  }
-  const $ = (sel, root = document) => root.querySelector(sel);
-  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+// === Utilidad: ejecutar cuando el DOM está listo ===
+function onReady(fn) {
+    if (document.readyState !== "loading") fn();
+    else document.addEventListener("DOMContentLoaded", fn);
+}
 
-  function alreadyRendered(scope) {
-    return !!$('#sp-matrix', scope);
-  }
-
-  // Lee filas de atributos (Color/Talla) de forma tolerante al tema
-  function readAttributeBlocks(scope) {
-    const rows = $$(
-      '.js_attributes .o_variant_row, .o_wsale_product_configurator .o_variant_row',
-      scope
-    );
+// === Buscar los bloques de atributos (Color, Talla) en la ficha ===
+function getAttributeBlocks(scope) {
     const blocks = [];
+    // Soporta distintas plantillas: busca contenedores con radios y nombre del atributo
+    const containers = Array.from(
+        scope.querySelectorAll(
+            // Odoo 18 (varios casos habituales)
+            '[data-attribute_name], .js_attribute, .o_product_configurator [name], .js_attributes > div'
+        )
+    );
 
-    rows.forEach((row) => {
-      const name = (
-        $('.o_variant_label, .o_attribute_label, label', row)?.textContent || ''
-      ).trim().toLowerCase();
+    containers.forEach((el) => {
+        const name = (
+            el.getAttribute("data-attribute_name") ||
+            el.querySelector(".attribute_name, legend, .o_attr_title")?.textContent ||
+            el.getAttribute("name") ||
+            ""
+        ).trim().toLowerCase();
 
-      const radios = $$('input[type="radio"]', row);
-      if (!radios.length) return;
+        const radios = Array.from(el.querySelectorAll('input[type="radio"]'));
+        if (!radios.length) return;
 
-      const options = radios
-        .map((inp) => {
-          const li = inp.closest('li') || inp.parentElement || row;
-          const text =
-            ($('label', li)?.textContent ||
-              li.textContent ||
-              inp.getAttribute('data-value_name') ||
-              '').trim();
+        const options = radios.map((inp) => {
+            const id =
+                parseInt(
+                    inp.dataset.valueId ||
+                    inp.dataset.attributeValueId ||
+                    inp.value ||
+                    "0",
+                    10
+                ) || 0;
 
-          // id del valor (varía por tema)
-          const id = parseInt(
-            inp.dataset.valueId || inp.getAttribute('data-value-id') || inp.value || '0',
-            10
-          );
-          if (!id) return null;
+            const txt = (
+                inp.closest("label")?.textContent ||
+                inp.getAttribute("title") ||
+                ""
+            ).replace(/\s+/g, " ").trim();
 
-          // intentar miniatura (si existe)
-          let img = '';
-          const imgEl = $('img', li);
-          if (imgEl && imgEl.src) img = imgEl.src;
-          return { id, text, img, input: inp };
-        })
-        .filter(Boolean);
+            // intentamos capturar miniatura si existiera (no se usa aún, pero no rompe)
+            const imgEl =
+                inp.closest("label")?.querySelector("img") ||
+                inp.parentElement?.querySelector("img");
+            const img = imgEl?.src || "";
 
-      if (name && options.length) blocks.push({ name, options, row });
+            return id ? { id, text: txt, img } : null;
+        }).filter(Boolean);
+
+        if (options.length) blocks.push({ name, options, el });
     });
 
-    return blocks;
-  }
+    // Detecta color y talla por nombre
+    const color = blocks.find((b) => /(color|colour|colou?r|c[oó]lor)/i.test(b.name));
+    const size  = blocks.find((b) => /(size|talla|talle|taille|größe|maat)/i.test(b.name));
 
-  function pickColorAndSize(blocks) {
-    const isColor = (n) => /(color|colour|couleur)/i.test(n);
-    const isSize  = (n) => /(talla|size|taille|tamanho|maß)/i.test(n);
+    if (size) size.options = sortSizes(size.options);
+    return { color, size, blocks };
+}
 
-    let color = blocks.find((b) => isColor(b.name)) || blocks[0] || null;
-    let size  = blocks.find((b) => isSize(b.name))  || blocks[1] || null;
+// === Ordenar tallas: numéricas (6,8,10...) o estándar (XS, S, M...) ===
+function sortSizes(opts) {
+    const std = ["2XS","XXS","XS","S","M","L","XL","2XL","XXL","3XL","4XL","5XL","6XL","7XL","8XL"];
+    return [...opts].sort((a, b) => {
+        const na = parseFloat(a.text), nb = parseFloat(b.text);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
 
-    return { color, size };
-  }
+        const ia = std.indexOf(a.text.toUpperCase());
+        const ib = std.indexOf(b.text.toUpperCase());
+        if (ia >= 0 && ib >= 0) return ia - ib;
 
-  // -------- render matriz ----------
-  function renderMatrix(color, size) {
-    const wrap  = document.createElement('div');
-    wrap.id     = 'sp-matrix';
-    wrap.className = 'sp-matrix-active';
-
-    const table = document.createElement('table');
-    table.className = 'sp-matrix__table';
-
-    // thead
-    const thead = document.createElement('thead');
-    const trH = document.createElement('tr');
-    const th0 = document.createElement('th');
-    th0.className = 'sp-sticky-left';
-    th0.textContent = 'Color';
-    trH.appendChild(th0);
-    size.options.forEach((opt) => {
-      const th = document.createElement('th');
-      th.textContent = opt.text || '';
-      trH.appendChild(th);
+        return a.text.localeCompare(b.text, undefined, { numeric: true });
     });
-    thead.appendChild(trH);
-    table.appendChild(thead);
+}
 
-    // tbody
-    const tbody = document.createElement('tbody');
+// === Construye el HTML de la matriz (solo UI) ===
+function renderGrid(color, size) {
+    let thead = '<thead><tr><th class="sp-sticky-left">Color</th>';
+    size.options.forEach((s) => { thead += `<th>${escapeHtml(s.text)}</th>`; });
+    thead += "</tr></thead>";
+
+    let tbody = "<tbody>";
     color.options.forEach((c) => {
-      const tr = document.createElement('tr');
-
-      // celda fija izquierda (miniatura + nombre)
-      const tdLeft = document.createElement('td');
-      tdLeft.className = 'sp-sticky-left';
-      const info = document.createElement('div');
-      info.className = 'sp-color';
-
-      const img = document.createElement('img');
-      img.className = 'sp-color__img';
-      img.alt = c.text || '';
-      img.src = c.img || ($('.product_detail_img img')?.src || '');
-      info.appendChild(img);
-
-      const name = document.createElement('span');
-      name.textContent = c.text || '';
-      info.appendChild(name);
-
-      tdLeft.appendChild(info);
-      tr.appendChild(tdLeft);
-
-      // celdas cantidad (baseline: inputs vacíos)
-      size.options.forEach(() => {
-        const td = document.createElement('td');
-        td.className = 'sp-cell';
-        const input = document.createElement('input');
-        input.type = 'number';
-        input.min = '0';
-        input.step = '1';
-        input.value = '';
-        input.className = 'sp-qty';
-        td.appendChild(input);
-        tr.appendChild(td);
-      });
-
-      tbody.appendChild(tr);
+        tbody += `<tr>
+            <th class="sp-sticky-left">
+                <div class="sp-color">
+                    <img class="sp-color__img" alt="" src="${c.img || ""}"/>
+                    <span>${escapeHtml(c.text)}</span>
+                </div>
+            </th>`;
+        size.options.forEach((s) => {
+            tbody += `<td>
+                <div class="sp-cell">
+                    <input class="sp-qty" type="number" min="0" step="1" inputmode="numeric"
+                           placeholder="0" data-color="${c.id}" data-size="${s.id}">
+                    <div class="sp-meta"></div>
+                </div>
+            </td>`;
+        });
+        tbody += "</tr>";
     });
-    table.appendChild(tbody);
-    wrap.appendChild(table);
-    return wrap;
-  }
+    tbody += "</tbody>";
 
-  function insertMatrix(container, scope) {
-    // la colocamos justo después del bloque de atributos si existe,
-    // si no, debajo del configurador, y si no, al final de la ficha
-    const anchors = [
-      '.js_product .js_attributes',
-      '.o_wsale_product_configurator',
-      '.o_wsale_product_information',
-    ];
-    for (const sel of anchors) {
-      const el = $(sel, scope);
-      if (el) {
-        el.insertAdjacentElement('afterend', container);
-        return;
-      }
-    }
-    // fallback
-    const body = $('.o_wsale_product_page') || scope;
-    body.appendChild(container);
-  }
+    return `
+      <div id="sp-matrix" class="sp-matrix-box">
+        <table class="sp-matrix__table">${thead}${tbody}</table>
+        <p class="sp-help">Indica cantidades por color y talla.</p>
+      </div>
+    `;
+}
 
-  function buildOnce() {
-    const page = $('.o_wsale_product_page');
-    if (!page || alreadyRendered(page)) return;
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+}
 
-    const blocks = readAttributeBlocks(page);
-    if (!blocks.length) return;
-
-    const { color, size } = pickColorAndSize(blocks);
-    if (!color || !size) return;
-
-    const matrix = renderMatrix(color, size);
-    insertMatrix(matrix, page);
-
-    // Si quieres ocultar la UI original, activa esta clase (el SCSS ya tiene la regla comentada)
-    // document.body.classList.add('sp-matrix-active');
-  }
-
-  // montar al cargar
-  onReady(buildOnce);
-
-  // y reintentar si la página cambia dinámicamente
-  onReady(() => {
-    const page = $('.o_wsale_product_page');
+// === Inserta/actualiza la matriz en la ficha ===
+function ensureMatrix() {
+    const page = document.querySelector(".o_wsale_product_page");
     if (!page) return;
-    const mo = new MutationObserver(() => {
-      if (!alreadyRendered(page)) buildOnce();
-    });
-    mo.observe(page, { childList: true, subtree: true });
-  });
 
-  return {};
+    // Evita duplicados
+    const existing = page.querySelector("#sp-matrix");
+    if (existing) existing.remove();
+
+    const { color, size } = getAttributeBlocks(page);
+    if (!color || !size) {
+        console.info("[SP] Matrix: faltan atributos Color y/o Talla. No se pinta.");
+        document.body.classList.remove("sp-matrix-active");
+        return;
+    }
+
+    // ******* ÚNICO CAMBIO IMPORTANTE *******
+    // En lugar de insertar "dentro" de los atributos, la insertamos
+    // INMEDIATAMENTE DESPUÉS del bloque de atributos.
+    const attrsBox =
+        page.querySelector(".js_attributes") ||
+        page.querySelector("form.o_wsale_product_configurator") ||
+        page;
+
+    const html = renderGrid(color, size);
+    const tmp = document.createElement("div");
+    tmp.innerHTML = html;
+    const matrixEl = tmp.firstElementChild;
+
+    // Si tenemos el contenedor de atributos, insertamos después
+    if (attrsBox && attrsBox !== page) {
+        attrsBox.insertAdjacentElement("afterend", matrixEl);
+    } else {
+        // Fallback: al final de la página del producto
+        page.appendChild(matrixEl);
+    }
+
+    document.body.classList.add("sp-matrix-active");
+    console.log("[SP] Matrix lista (solo UI, baseline).");
+}
+
+// === Arranque ===
+onReady(() => {
+    ensureMatrix();
+
+    // Si el usuario cambia radios, reconstruimos (por si el tema cambia el DOM)
+    const page = document.querySelector(".o_wsale_product_page");
+    if (!page) return;
+    page.addEventListener("change", (ev) => {
+        if (ev.target.matches('input[type="radio"]')) ensureMatrix();
+    });
 });
