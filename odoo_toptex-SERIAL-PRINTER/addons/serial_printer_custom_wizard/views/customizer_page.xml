@@ -141,7 +141,7 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (defensivo) ====== -->
+      <!-- ====== JS INLINE (personalizador + guardado de preview) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -177,13 +177,14 @@
           var bw = base.clientWidth, bh = base.clientHeight;
           var leftPx = bw*(0.5 + posX/100);
           var topPx  = bh*(0.6 + posY/100);
-          logo.style.position="absolute";
-          logo.style.left = leftPx + "px";
-          logo.style.top  = topPx  + "px";
-          logo.style.transform = "translate(-50%, -50%) rotate("+rot+"deg)";
-          logo.style.width = sizePx + "px";
+          var st = logo.style;
+          st.position="absolute";
+          st.left = leftPx + "px";
+          st.top  = topPx  + "px";
+          st.transform = "translate(-50%, -50%) rotate("+rot+"deg)";
+          st.width = sizePx + "px";
           logo.classList.remove("d-none");
-          logo.style.opacity = "1";
+          st.opacity = "1";
         }
 
         async function renderPNGDataURL(){
@@ -350,21 +351,24 @@
 
             function qsa(sel, root){ try{ return Array.from((root||document).querySelectorAll(sel)); }catch(_){ return []; } }
             function getLineId(row){
-              return (row && (row.getAttribute('data-line-id') || (row.querySelector('input[name="line_id"]')||{}).value || '')) || '';
+              return (row && (row.getAttribute('data-line-id')
+                   || (row.querySelector('input[name="line_id"]')||{}).value
+                   || (row.dataset && row.dataset.lineId) || '')) || '';
             }
             function getProductId(row){
-              return (row && (row.getAttribute('data-product-id') || (row.querySelector('input[name="product_id"]')||{}).value || '')) || '';
+              return (row && (row.getAttribute('data-product-id')
+                   || (row.querySelector('input[name="product_id"]')||{}).value
+                   || (row.dataset && row.dataset.productId) || '')) || '';
             }
             function targetCell(row){
-              return row.querySelector('.td-qty, .o_wsale_cart_item_qty, .o_wsale_cart_quantity, .css_quantity, .quantity, .o_qty')
-                  || row.querySelector('.o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_information, .o_cart_product_name')
+              // Preferimos la celda de cantidad; si no existe, nos apoyamos en la info del producto
+              return row.querySelector('.css_quantity, .td-qty, .o_wsale_cart_item_qty, .o_wsale_cart_quantity, .input-group-quantity')
+                  || row.querySelector('.o_wsale_product_information, .o_wsale_cart_item_info, .o_cart_product_information, .o_cart_product_name, .o_wsale_product_info')
                   || row.querySelector('.o_wsale_product_img, .o_cart_product_img, .o_wsale_product_image, .o_cart_product_thumbnail')
                   || row;
             }
             function readStorage(){
-              try{
-                return JSON.parse(sessionStorage.getItem('spw_previews')||'[]')||[];
-              }catch(_){ return []; }
+              try{ return JSON.parse(sessionStorage.getItem('spw_previews')||'[]')||[]; }catch(_){ return []; }
             }
             function loadFromStorage(img, lid, pid){
               try{
@@ -385,7 +389,9 @@
             }
             function placeOne(row){
               if (!row) return;
-              qsa('img.spw-preview', row).forEach(n => n.remove()); // evita duplicados
+              // Evita duplicados dentro de la misma línea
+              qsa('img.spw-preview', row).forEach(n => n.remove());
+
               const lid = getLineId(row);
               const pid = getProductId(row);
 
@@ -397,10 +403,19 @@
               img.style.borderRadius='6px';
               img.style.display='inline-block';
               img.style.verticalAlign='top';
-              img.style.margin='6px 0 0 8px';
+              img.style.margin='6px 8px 0 8px';
 
               const tgt = targetCell(row);
-              (tgt||row).appendChild(img);
+              if (tgt) {
+                // Si hay cantidad, la miniatura va a su lado izquierdo
+                try{
+                  tgt.parentNode.insertBefore(img, tgt);
+                }catch(_){
+                  (tgt||row).appendChild(img);
+                }
+              } else {
+                row.appendChild(img);
+              }
 
               let okServer=false;
               if (lid){
@@ -411,24 +426,38 @@
                 loadFromStorage(img, lid, pid);
               }
             }
-            function placeAll(){
-              // Estructuras habituales de Odoo: filas con data-line-id o inputs
+            function allRows(){
               const rows = new Set();
               qsa('[data-line-id]').forEach(r=>rows.add(r));
               qsa('input[name="line_id"]').forEach(inp=>{
                 const r = inp.closest('tr, .o_wsale_cart_line, .o_wsale_cart_item, .o_cart_product, .row, .card, li, div');
                 if (r) rows.add(r);
               });
-              if (!rows.size) qsa('.o_wsale_cart_line, .o_wsale_cart_item, .o_cart_product, .js_cart_lines > tr, .js_cart_lines > div').forEach(r=>rows.add(r));
-              Array.from(rows).forEach(placeOne);
+              if (!rows.size) qsa('.o_wsale_cart_item, .o_wsale_cart_line, .o_cart_product, .js_cart_lines > tr, .js_cart_lines > div').forEach(r=>rows.add(r));
+              return Array.from(rows);
+            }
+            function placeAll(){
+              allRows().forEach(placeOne);
             }
 
-            // Ejecuta una vez y reintenta suavemente (sin observers)
-            document.addEventListener('DOMContentLoaded', function(){
-              try{ placeAll(); setTimeout(placeAll, 400); setTimeout(placeAll, 900); }catch(_){}
+            // Ejecuta varias pasadas para cubrir render diferido
+            function burst(){
+              placeAll();
+              setTimeout(placeAll, 250);
+              setTimeout(placeAll, 700);
+              setTimeout(placeAll, 1500);
+            }
+            document.addEventListener('DOMContentLoaded', burst);
+            if (document.readyState !== 'loading') burst();
+
+            // Re-intentar cuando cambie cantidad (Odoo suele disparar eventos)
+            ['click','change','input'].forEach(ev=>{
+              document.addEventListener(ev, function(e){
+                const row = e.target && (e.target.closest && e.target.closest('tr, .o_wsale_cart_item, .o_wsale_cart_line, .o_cart_product'));
+                if (row) setTimeout(function(){ placeOne(row); }, 200);
+              }, true);
             });
-            if (document.readyState !== 'loading'){ try{ placeAll(); setTimeout(placeAll, 400); setTimeout(placeAll, 900); }catch(_){} }
-          }catch(_e){ /* nunca romper */ }
+          }catch(_e){ /* nunca romper el carrito */ }
         })();
         //]]>
       </script>
