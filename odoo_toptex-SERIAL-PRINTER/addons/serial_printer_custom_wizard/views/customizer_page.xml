@@ -246,8 +246,8 @@
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
-          var tech=( (document.querySelector("input[name='spw_tech']:checked")||{}).value )||"";
-          var svgColor=( (document.querySelector("input[name='spw_svg_color']:checked")||{}).value )||"";
+          var tech=( (document.querySelector("input[name='spw_tech']:checked')||{}).value )||"";
+          var svgColor=( (document.querySelector("input[name='spw_svg_color']:checked')||{}).value )||"";
           var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
@@ -338,7 +338,7 @@
     </t>
   </template>
 
-  <!-- ====== INYECCIÓN ULTRA LIGERA EN CARRITO (una miniatura por línea) ====== -->
+  <!-- ====== INYECCIÓN EN CARRITO (1 miniatura por línea, nunca en +/-) ====== -->
   <template id="spw_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript">
@@ -360,12 +360,36 @@
                    || (row.querySelector('input[name="product_id"]')||{}).value
                    || (row.dataset && row.dataset.productId) || '')) || '';
             }
-            function targetCell(row){
-              // Preferimos la celda de cantidad; si no existe, nos apoyamos en la info del producto
-              return row.querySelector('.css_quantity, .td-qty, .o_wsale_cart_item_qty, .o_wsale_cart_quantity, .input-group-quantity')
-                  || row.querySelector('.o_wsale_product_information, .o_wsale_cart_item_info, .o_cart_product_information, .o_cart_product_name, .o_wsale_product_info')
-                  || row.querySelector('.o_wsale_product_img, .o_cart_product_img, .o_wsale_product_image, .o_cart_product_thumbnail')
-                  || row;
+            function infoCell(row){
+              // Contenedor de info, evitando la celda de cantidad
+              return row.querySelector('.o_wsale_cart_item_info, .o_wsale_product_information, .o_cart_product_information, .o_wsale_product_info, .o_cart_product_name')
+                     || row.querySelector('.o_wsale_product_img, .o_cart_product_img')
+                     || row;
+            }
+            function ensureOne(row){
+              const lid = getLineId(row);
+              const pid = getProductId(row);
+              const unique = 'spw-prev-' + (lid ? 'lid-' + lid : 'pid-' + pid);
+              // Elimina duplicados en toda la línea
+              qsa('img.spw-preview', row).forEach(function(n){
+                if (n.id !== unique) n.remove();
+              });
+              let img = row.querySelector('#'+CSS.escape(unique));
+              if (!img){
+                img = document.createElement('img');
+                img.id = unique;
+                img.className = 'spw-preview';
+                img.alt='Personalización';
+                img.style.maxWidth='110px';
+                img.style.border='1px solid #eee';
+                img.style.borderRadius='6px';
+                img.style.display='inline-block';
+                img.style.verticalAlign='top';
+                img.style.margin='6px 8px 0 0';
+                const tgt = infoCell(row);
+                (tgt || row).appendChild(img);
+              }
+              return img;
             }
             function readStorage(){
               try{ return JSON.parse(sessionStorage.getItem('spw_previews')||'[]')||[]; }catch(_){ return []; }
@@ -379,43 +403,15 @@
                     if (String(list[i].product_id)===String(pid) && list[i].du){ hit=list[i]; break; }
                   }
                 }
-                if (!hit){
-                  const du = sessionStorage.getItem('spw_last_png')||'';
-                  const p  = sessionStorage.getItem('spw_last_product_id')||'';
-                  if (du && (!pid || String(p)===String(pid))) { img.src = du; return; }
-                }
-                if (hit && hit.du){ img.src = hit.du; } else { img.remove(); }
+                const du = hit ? hit.du : (sessionStorage.getItem('spw_last_png')||'');
+                if (du){ img.src = du; } else { img.remove(); }
               }catch(_){ img.remove(); }
             }
             function placeOne(row){
               if (!row) return;
-              // Evita duplicados dentro de la misma línea
-              qsa('img.spw-preview', row).forEach(n => n.remove());
-
               const lid = getLineId(row);
               const pid = getProductId(row);
-
-              const img = document.createElement('img');
-              img.alt='Personalización';
-              img.className='spw-preview';
-              img.style.maxWidth='110px';
-              img.style.border='1px solid #eee';
-              img.style.borderRadius='6px';
-              img.style.display='inline-block';
-              img.style.verticalAlign='top';
-              img.style.margin='6px 8px 0 8px';
-
-              const tgt = targetCell(row);
-              if (tgt) {
-                // Si hay cantidad, la miniatura va a su lado izquierdo
-                try{
-                  tgt.parentNode.insertBefore(img, tgt);
-                }catch(_){
-                  (tgt||row).appendChild(img);
-                }
-              } else {
-                row.appendChild(img);
-              }
+              const img = ensureOne(row);
 
               let okServer=false;
               if (lid){
@@ -436,28 +432,24 @@
               if (!rows.size) qsa('.o_wsale_cart_item, .o_wsale_cart_line, .o_cart_product, .js_cart_lines > tr, .js_cart_lines > div').forEach(r=>rows.add(r));
               return Array.from(rows);
             }
-            function placeAll(){
-              allRows().forEach(placeOne);
-            }
+            function placeAll(){ allRows().forEach(placeOne); }
 
-            // Ejecuta varias pasadas para cubrir render diferido
             function burst(){
               placeAll();
-              setTimeout(placeAll, 250);
+              setTimeout(placeAll, 200);
               setTimeout(placeAll, 700);
-              setTimeout(placeAll, 1500);
             }
             document.addEventListener('DOMContentLoaded', burst);
             if (document.readyState !== 'loading') burst();
 
-            // Re-intentar cuando cambie cantidad (Odoo suele disparar eventos)
+            // Recolocar al cambiar cantidades o refrescar líneas
             ['click','change','input'].forEach(ev=>{
               document.addEventListener(ev, function(e){
                 const row = e.target && (e.target.closest && e.target.closest('tr, .o_wsale_cart_item, .o_wsale_cart_line, .o_cart_product'));
-                if (row) setTimeout(function(){ placeOne(row); }, 200);
+                if (row) setTimeout(function(){ placeOne(row); }, 150);
               }, true);
             });
-          }catch(_e){ /* nunca romper el carrito */ }
+          }catch(_e){ /* never break cart */ }
         })();
         //]]>
       </script>
