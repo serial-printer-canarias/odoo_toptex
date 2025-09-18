@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- ============ PÁGINA DEL PERSONALIZADOR ============ -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
@@ -15,17 +14,13 @@
         <div class="row g-4">
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
-
-              <!-- Base same-origin para evitar CORS al renderizar -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
 
-              <!-- Imagen visible -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
 
-              <!-- Overlay del logo -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
           </div>
@@ -35,7 +30,6 @@
               <div class="card-body">
                 <h5 class="card-title mb-3">Personalización</h5>
 
-                <!-- Subir logo -->
                 <div class="mb-3">
                   <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
                   <input id="spw_logo_input" class="form-control" type="file"
@@ -43,7 +37,6 @@
                   <small class="text-muted">Máx. 10MB.</small>
                 </div>
 
-                <!-- Técnica -->
                 <div class="mb-3">
                   <label class="form-label">Técnica</label>
                   <div class="d-flex gap-3 flex-wrap">
@@ -62,7 +55,6 @@
                   </div>
                 </div>
 
-                <!-- Color SVG -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
                   <div class="spw-color-row">
@@ -90,7 +82,6 @@
                   <div class="spw-help mt-1">Se aplica solo a logos SVG.</div>
                 </div>
 
-                <!-- Controles -->
                 <div class="mb-3">
                   <label for="spw_size" class="form-label">Tamaño</label>
                   <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
@@ -108,7 +99,6 @@
                   <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
                 </div>
 
-                <!-- Cantidad / Observaciones -->
                 <div class="mb-3">
                   <label for="spw_qty" class="form-label">Cantidad</label>
                   <input id="spw_qty" class="form-control" type="number" min="1" value="1"/>
@@ -119,7 +109,6 @@
                             placeholder="Indica instrucciones para el taller..."></textarea>
                 </div>
 
-                <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a id="spw_btn_reset" class="btn btn-outline-secondary" href="javascript:void(0)">Reset</a>
 
@@ -141,7 +130,6 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -235,7 +223,7 @@
             });
             var txt = await resp.text();
             var data=null; try{ data = JSON.parse(txt); }catch(e){}
-            return {ok: !!(data && (data.ok===true || data.ok==="true")), data:data, status:resp.status, raw:txt};
+            return {ok: !!(data && (data.ok===true || data.ok==='true')), data:data, status:resp.status, raw:txt};
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
         async function postForm(url, payload){
@@ -246,116 +234,96 @@
             var resp = await fetch(url, { method: "POST", body: fd, credentials:"same-origin", headers:{ "X-Requested-With":"XMLHttpRequest" } });
             var txt = await resp.text();
             var data=null; try{ data = JSON.parse(txt); }catch(e){}
-            return {ok: resp.ok && (!!data ? (data.ok===true || data.ok==="true") : true), data:data||{}, status:resp.status, raw:txt};
+            return {ok: resp.ok && (!!data ? (data.ok===true || data.ok==='true') : true), data:data||{}, status:resp.status, raw:txt};
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
 
-        /* ======================== SOLO CAMBIOS AQUÍ: addToCart con Fallback Odoo ======================== */
+        /* ========= addToCart (se deja tu flujo + fallback estándar) ========= */
         async function addToCart(){
-          // 0) Identificadores y datos
           var variantId = ($val("spw_variant_id","")||"").trim();
-          if (!variantId) {
-            try {
-              var qs = new URLSearchParams(window.location.search);
-              variantId = qs.get('variant_id') || qs.get('product_id') || '';
-            } catch(_e){}
-          }
+          if (!variantId) { try { var qs=new URLSearchParams(window.location.search); variantId = qs.get('variant_id')||qs.get('product_id')||''; } catch(_e){} }
           var qty=parseInt($val("spw_qty","1"),10)||1;
           var tech=( (document.querySelector("input[name='spw_tech']:checked")||{}).value )||"";
           var svgColor=( (document.querySelector("input[name='spw_svg_color']:checked")||{}).value )||"";
           var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
-          // 1) Generar preview + guardar en sesión (igual que antes)
           let pngB64=""; 
           try{
             const du = await renderPNGDataURL();
             sessionStorage.setItem('spw_last_product_id', String(variantId));
             sessionStorage.setItem('spw_last_png', du || '');
             pngB64 = du ? du.split('base64,')[1] : "";
-          }catch(e){ console.warn('[SPW] No se pudo generar PNG para attach:', e); }
+          }catch(e){}
 
-          // 2) Crear línea con tus endpoints
           let r1 = await postJSON("/spw/add_to_cart_meta", {
-            variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
+            variant_id: parseInt(variantId,10), qty, tech, svg_color: svgColor, notes
           });
           if(!r1.ok){
             r1 = await postForm("/spw/add_to_cart_meta_http", {
-              variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
+              variant_id: variantId, qty, tech, svg_color: svgColor, notes
             });
           }
 
-          // 3) FALLBACK ODOO: si falla lo anterior, usar /shop/cart/update_json
           if(!r1.ok){
             try{
-              var fd = new FormData();
+              var fd=new FormData();
               fd.append('product_id', String(parseInt(variantId,10)));
               fd.append('add_qty', String(qty));
               if (window.odoo && odoo.csrf_token) fd.append('csrf_token', odoo.csrf_token);
-              var r = await fetch('/shop/cart/update_json', {
-                method: 'POST',
-                body: fd,
-                credentials: 'same-origin',
-                headers: { 'X-Requested-With':'XMLHttpRequest' }
-              });
-              var txt = await r.text(); var data=null; try{ data = JSON.parse(txt); }catch(_){}
-              if (r.ok) {
-                r1 = { ok:true, data:{ cart_url:'/shop/cart', line_id: (data && data.line_id) || '' }, status:r.status, raw:txt };
-              } else {
-                r1 = { ok:false, data:{}, status:r.status, raw:txt };
-              }
-            }catch(e){
-              r1 = { ok:false, data:{}, status:0, raw:String(e) };
-            }
+              var r=await fetch('/shop/cart/update_json',{method:'POST',body:fd,credentials:'same-origin',headers:{'X-Requested-With':'XMLHttpRequest'}});
+              var txt=await r.text(); var data=null; try{ data=JSON.parse(txt);}catch(_){}
+              if(r.ok){ r1={ok:true,data:{cart_url:'/shop/cart',line_id:(data&&data.line_id)||''}}; }
+            }catch(_e){}
           }
 
-          if(!r1.ok){
-            console.error('[SPW] add_to_cart failed', r1);
-            alert("No se pudo añadir al carrito. Código: " + (r1.status || '?'));
-            return;
-          }
+          if(!r1 || !r1.ok){ alert("No se pudo añadir al carrito."); return; }
 
-          // 4) Guardar line_id (para asignar preview a la línea correcta)
-          try {
-            if (r1.data && r1.data.line_id) {
-              sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id));
-            }
-            // lista de previews (soporta varias líneas)
-            let list = [];
-            try{ list = JSON.parse(sessionStorage.getItem('spw_previews')||'[]') || []; }catch(_e){}
-            list.push({
-              line_id: r1.data && r1.data.line_id ? String(r1.data.line_id) : '',
-              product_id: parseInt(variantId,10)||0,
-              du: sessionStorage.getItem('spw_last_png') || '',
-              t: Date.now()
-            });
-            if (list.length>20) list = list.slice(-20);
+          try{
+            if (r1.data && r1.data.line_id) sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id));
+            let list=[]; try{ list=JSON.parse(sessionStorage.getItem('spw_previews')||'[]')||[]; }catch(_){}
+            list.push({ line_id: (r1.data&&r1.data.line_id)||'', product_id: parseInt(variantId,10)||0, du: sessionStorage.getItem('spw_last_png')||'', t: Date.now() });
+            if (list.length>20) list=list.slice(-20);
             sessionStorage.setItem('spw_previews', JSON.stringify(list));
-          } catch(_e){}
+          }catch(_e){}
 
-          // 5) Adjuntar PNG “completo” (no bloquea)
           if(pngB64){
-            let r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
-            if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
+            let r2=await postJSON("/spw/attach_png",{ line_id: r1.data.line_id, png_b64: pngB64 });
+            if(!r2.ok){ await postForm("/spw/attach_png_http",{ line_id: r1.data.line_id, png_b64: pngB64 }); }
           }
 
-          // 6) Ir al carrito
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
-        /* ================================================================================================== */
 
-        // Descarga compatible
+        /* ========= Descarga iOS/Android/desktop sin controladores ========= */
+        function dataURLToBlob(dataUrl){
+          var arr=dataUrl.split(','), mime=arr[0].match(/:(.*?);/)[1], bstr=atob(arr[1]), n=bstr.length, u8=new Uint8Array(n);
+          while(n--){ u8[n]=bstr.charCodeAt(n); }
+          return new Blob([u8], {type:mime});
+        }
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
+
+            var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+            var isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+            // Intento 1: descarga directa (desktop / Android)
             var a = document.createElement("a");
             a.href = dataUrl; a.download = "personalizacion.png";
-            if (typeof a.download === "undefined" || /iPad|iPhone|iPod/.test(navigator.userAgent)) {
-              window.open(dataUrl, "_blank");
-            } else {
-              document.body.appendChild(a); a.click(); a.remove();
+            document.body.appendChild(a); a.click(); a.remove();
+
+            // Si iOS/Safari ignora a.download, abrimos en nueva pestaña como Blob URL (usuario guarda desde el visor)
+            if (isIOS || isSafari) {
+              var blob = dataURLToBlob(dataUrl);
+              var url = (window.URL || window.webkitURL).createObjectURL(blob);
+              window.open(url, "_blank"); // visor nativo -> "Guardar imagen"
+              // No revocar inmediatamente para que Safari cargue
+              setTimeout(function(){ (window.URL||window.webkitURL).revokeObjectURL(url); }, 120000);
             }
-          }catch(e){ alert("No se pudo generar el PNG."); }
+          }catch(e){
+            alert("No se pudo generar el PNG.");
+          }
         }
 
         function init(){
@@ -395,40 +363,98 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN EN WEBSITE.LAYOUT (preview en carrito; se deja lo que ya tenías funcionando) ============ -->
+  <!-- ====== INYECCIÓN: PREVIEW EN CARRITO (móvil/desktop) ====== -->
   <template id="spw_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript">
         //<![CDATA[
         (function(){
-          function inject(){
-            try {
-              if (!/\/shop\/cart/.test(window.location.pathname)) return;
-              document.querySelectorAll('[data-line-id]').forEach(function(el){
-                if(el.querySelector('.spw-preview')) return; // evita duplicados
-                var id = el.getAttribute('data-line-id');
-                // Preferimos preview local guardado en sessionStorage
-                var list=[]; try{ list=JSON.parse(sessionStorage.getItem('spw_previews')||'[]')||[]; }catch(_e){}
-                var byLine = (list||[]).find(function(it){ return String(it.line_id)===String(id) && it.du; });
-                var du = byLine && byLine.du;
-                var img = document.createElement('img');
-                img.src = du || ('/spw/line_preview/' + id + '.png'); // fallback servidor si existiera
-                img.alt = 'Personalización';
-                img.className = 'spw-preview';
-                img.style.maxWidth='120px';
-                img.style.border='1px solid #e5e7eb';
-                img.style.borderRadius='6px';
-                img.style.marginLeft='8px';
-                var target = el.querySelector('.o_wsale_product_information, .o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_info, .o_wsale_product_img') || el;
+          function topLevelRows(){
+            var rows = Array.from(document.querySelectorAll('[data-line-id]'))
+              .filter(function(el){ return !el.parentElement || !el.parentElement.closest('[data-line-id]'); });
+            if (rows.length) return rows;
+            return Array.from(document.querySelectorAll('.o_cart_product, .js_cart_lines > tr, .js_cart_lines > div'));
+          }
+          function getProductIdFromRow(row){
+            var pid = row.getAttribute('data-product-id');
+            if(!pid){
+              var el = row.querySelector('[data-product-id]');
+              if(el) pid = el.getAttribute('data-product-id');
+            }
+            if(!pid){
+              var a = row.querySelector('a[href*="/shop/product"]');
+              if(a){
+                var href = a.getAttribute('href')||'';
+                var m = href.match(/-(\d+)(?:[/?#]|$)/);
+                if(m) pid = m[1];
+              }
+            }
+            return pid ? parseInt(pid,10) : null;
+          }
+
+          function placeAll(){
+            if (!/\/shop\/cart/.test(location.pathname)) return;
+
+            var list = [];
+            try { list = JSON.parse(sessionStorage.getItem('spw_previews') || '[]') || []; } catch(_e){ list = []; }
+
+            var usedByProduct = {};
+            topLevelRows().forEach(function(row){
+              if (row.querySelector('.spw-preview')) return; // evita duplicado visual
+              var lid = row.getAttribute('data-line-id') || '';
+              var pid = getProductIdFromRow(row);
+
+              var hit = null;
+              if(lid){
+                hit = (list||[]).find(function(it){ return String(it.line_id)===String(lid) && it.du; });
+              }
+              if(!hit && pid){
+                var candidates = (list||[]).filter(function(it){ return Number(it.product_id)===Number(pid) && it.du; })
+                                           .sort(function(a,b){ return a.t-b.t; });
+                var idx = usedByProduct[pid] || 0;
+                hit = candidates[idx] || null;
+                if (hit) usedByProduct[pid] = idx + 1;
+              }
+              if(!hit || !hit.du) return;
+
+              var qtyCell =
+                row.querySelector('.td-qty, .o_wsale_cart_item_qty, .o_wsale_cart_quantity, .css_quantity, .quantity, .o_qty');
+              var infoCell =
+                row.querySelector('.o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_information, .td-product_name');
+              var imgCell =
+                row.querySelector('.o_wsale_product_img, .o_cart_product_img, .o_wsale_product_image, .o_cart_product_thumbnail');
+
+              var target = qtyCell || infoCell || imgCell || row;
+
+              var img = document.createElement('img');
+              img.src = hit.du;
+              img.alt = 'Personalización';
+              img.className = 'spw-preview';
+              img.style.maxWidth = '110px';
+              img.style.border = '1px solid #eee';
+              img.style.borderRadius = '6px';
+              img.style.display = (target===imgCell) ? 'block' : 'inline-block';
+              img.style.verticalAlign = 'top';
+              if (target===imgCell) {
+                img.style.marginTop = '6px';
+              } else if (target===infoCell) {
+                img.style.float = 'left';
+                img.style.margin = '0 10px 6px 0';
+              } else if (target===qtyCell) {
+                img.style.marginTop = '6px';
+              }
+
+              if (target===infoCell) {
+                target.insertBefore(img, target.firstChild);
+              } else {
                 target.appendChild(img);
-              });
-            } catch(_e) {}
+              }
+            });
           }
-          if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', function(){ inject(); setTimeout(inject, 600); });
-          } else {
-            inject(); setTimeout(inject, 600);
-          }
+
+          var run = function(){ placeAll(); setTimeout(placeAll, 600); };
+          if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', run); } else { run(); }
+          try { new MutationObserver(placeAll).observe(document.body, {childList:true, subtree:true}); } catch(_e){}
         })();
         //]]>
       </script>
