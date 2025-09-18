@@ -12,3 +12,10 @@
 
 /* Oculta radios originales sólo cuando la matriz está activa */
 .sp-matrix-active .js_product .js_attributes { display: none !important; }
+
+/* Badge temporal de sonda */
+.sp-probe {
+  position: fixed; bottom: .75rem; right: .75rem;
+  background: #10b981; color:#fff; padding:.35rem .5rem; border-radius:.5rem;
+  font-size:.8rem; z-index: 9999; box-shadow:0 2px 8px rgba(0,0,0,.15);
+}
