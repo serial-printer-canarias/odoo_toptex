@@ -1,111 +1,131 @@
-/** Odoo 18 — Matriz Color x Talla (sin dependencias AMD) */
+/** Odoo 18 — Matriz Color x Talla (robusto) */
 odoo.define('serial_printer_web_custom.product_matrix', [], function (require) {
   'use strict';
 
   (function () {
-    // --- Sonda visual: confirma carga del asset
+    // ---- Sonda visual para confirmar que el JS se cargó
     try {
       if (!document.getElementById('sp-probe')) {
         const p = document.createElement('div');
         p.id = 'sp-probe';
-        p.className = 'sp-probe';
-        p.textContent = 'SP matrix asset cargado';
+        p.style.cssText =
+          'position:fixed;right:10px;bottom:10px;z-index:99999;background:#16a34a;color:#fff;padding:.25rem .5rem;border-radius:.4rem;font:12px/1.2 system-ui';
+        p.textContent = 'SP matrix JS';
         document.body.appendChild(p);
-        setTimeout(() => p.remove(), 1400);
+        setTimeout(() => p.remove(), 1200);
       }
       console.log('[SP][matrix] JS cargado');
-    } catch (e) {
-      console.warn('[SP][matrix] no se pudo pintar la sonda:', e);
-    }
+    } catch (_) {}
 
-    // --- Helpers
+    // ---- Helpers
     const onReady = (fn) => {
       if (document.readyState !== 'loading') fn();
       else document.addEventListener('DOMContentLoaded', fn);
     };
+    const qsa = (root, sel) => Array.from(root.querySelectorAll(sel));
 
     function getRoot() {
-      // Distintas plantillas: usa el que exista
       return (
         document.querySelector('#product_details') ||
         document.querySelector('.o_wsale_product_page') ||
         document.querySelector('.oe_website_sale') ||
-        document.querySelector('main')
+        document.querySelector('main') ||
+        document.body
       );
     }
 
-    // Orden “natural” de tallas: XXS < XS < S < M < L < XL < XXL < 3XL < 4XL < 5XL, luego numéricas
+    // Orden natural de tallas
     function sizeKey(txt) {
       const t = (txt || '').trim().toUpperCase();
       const map = { 'XXS': 0, 'XS': 1, 'S': 2, 'M': 3, 'L': 4, 'XL': 5, 'XXL': 6, '3XL': 7, '4XL': 8, '5XL': 9 };
       if (t in map) return map[t];
+      // 8 UK / 40 EU / 30 US -> tomar número
       const m = t.match(/\d+/);
       if (m) return 100 + parseInt(m[0], 10);
       return 200 + t.charCodeAt(0);
     }
 
     const isColorName = (n) => /(color|colour|colou?r|colorway)/i.test(n || '');
-    const isSizeName  = (n) => /(size|talla|taille|uk|eu|us)/i.test(n || '');
+    const isSizeName  = (n) => /(size|talla|taille|uk|eu|us|it|fr)/i.test(n || '');
+    const looksLikeSize = (v) =>
+      /^(XXS|XS|S|M|L|XL|XXL|[345]XL|\d+(\s?(UK|EU|US|IT|FR))?)$/i.test((v || '').trim());
 
-    /**
-     * Agrupa radios por atributo (por el name), toma etiqueta del grupo o del label.
-     * Devuelve [{ name, options:[{id,text,input}], el }, ...]
-     */
+    // ---- Lee grupos de atributos Color/Talla de la página
     function getAttributeGroups(scope) {
-      const allRadios = Array.from(scope.querySelectorAll('input[type="radio"][name^="attribute"]'));
-      if (!allRadios.length) return [];
+      // 1) localizar contenedores típicos de atributos
+      let containers = qsa(
+        scope,
+        [
+          '[data-attribute_name]',
+          '[data-attribute-name]',
+          '.js_attribute',
+          '.o_wsale_product_configurator_row',
+          '.o_product_variant_attribute',
+        ].join(',')
+      );
 
-      const byName = new Map();
-      for (const r of allRadios) {
-        if (!byName.has(r.name)) byName.set(r.name, []);
-        byName.get(r.name).push(r);
+      // 2) fallback: si no hay contenedores, agrupar por "name" de radios
+      if (!containers.length) {
+        const radios = qsa(scope, 'input[type="radio"]');
+        const byName = new Map();
+        for (const r of radios) {
+          if (!byName.has(r.name)) byName.set(r.name, []);
+          byName.get(r.name).push(r);
+        }
+        containers = Array.from(byName.values())
+          .filter((arr) => arr.length >= 2)
+          .map((arr) => arr[0].closest('div') || scope);
       }
 
+      // 3) construir grupos { name, options:[{id,text,input}], el }
       const groups = [];
-      for (const [name, radios] of byName.entries()) {
-        // Contenedor típico de un atributo
-        const groupEl =
-          radios[0].closest('.js_attribute') ||
-          radios[0].closest('.o_wsale_product_configurator_row') ||
-          radios[0].closest('[data-attribute-name]') ||
-          radios[0].closest('div');
+      for (const el of containers) {
+        const name =
+          el.getAttribute?.('data-attribute_name') ||
+          el.getAttribute?.('data-attribute-name') ||
+          (el.querySelector('.o_variant_label, .attribute_name, legend') || {}).textContent ||
+          '';
 
-        const labelEl =
-          (groupEl && (groupEl.querySelector('.o_variant_label') || groupEl.querySelector('.attribute_name'))) || null;
-
-        const groupName = (
-          (groupEl && groupEl.getAttribute('data-attribute-name')) ||
-          (labelEl && labelEl.textContent) ||
-          name
-        ).trim();
-
+        const radios = qsa(el, 'input[type="radio"]');
         const options = radios
           .map((inp) => {
+            // id del valor
             const id = parseInt(
-              inp.value || inp.dataset.valueId || inp.dataset.variantId || inp.dataset.attributeValueId || '0',
+              inp.value ||
+                inp.getAttribute('data-value_id') ||
+                inp.getAttribute('data-value-id') ||
+                inp.getAttribute('data-attribute_value_id') ||
+                inp.getAttribute('data-attribute-value-id') ||
+                '0',
               10
             );
-            const lblByFor = (groupEl && groupEl.querySelector(`label[for="${inp.id}"]`)) || null;
-            const txt =
-              (lblByFor && lblByFor.textContent) ||
-              (inp.closest('label') && inp.closest('label').textContent) ||
+            // texto visible del valor
+            const lbl =
+              (inp.id && el.querySelector(`label[for="${inp.id}"]`)) ||
+              inp.closest('label') ||
+              inp.parentElement?.querySelector?.('.badge, .name, .variant-name');
+            const text = (
+              (lbl && lbl.textContent) ||
               inp.getAttribute('data-value_name') ||
-              '';
-            const text = (txt || '').trim();
+              inp.getAttribute('data-value-name') ||
+              ''
+            ).trim();
+
             return id && text ? { id, text, input: inp } : null;
           })
           .filter(Boolean);
 
-        if (options.length) groups.push({ name: groupName, options, el: groupEl });
+        if (options.length) groups.push({ name: (name || '').trim(), options, el });
       }
 
-      // Log de diagnóstico
-      console.log('[SP][matrix] grupos detectados:',
-        groups.map(g => ({ name: g.name, options: g.options.map(o => o.text) }))
+      console.log(
+        '[SP][matrix] grupos detectados:',
+        groups.map((g) => ({ name: g.name, options: g.options.map((o) => o.text) }))
       );
       return groups;
     }
 
+    // ---- Render de la tabla
     function renderGrid(color, size) {
       const wrap = document.createElement('div');
       wrap.id = 'sp-matrix';
@@ -113,12 +133,11 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function (require) {
       const table = document.createElement('table');
       table.className = 'sp-matrix__table';
 
-      // Cabecera
+      // cabecera
       const thead = document.createElement('thead');
       const trh = document.createElement('tr');
       const th0 = document.createElement('th');
       th0.className = 'sp-sticky-left';
-      th0.textContent = '';
       trh.appendChild(th0);
 
       size.options.sort((a, b) => sizeKey(a.text) - sizeKey(b.text));
@@ -130,7 +149,7 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function (require) {
       thead.appendChild(trh);
       table.appendChild(thead);
 
-      // Cuerpo
+      // cuerpo
       const tbody = document.createElement('tbody');
       for (const c of color.options) {
         const tr = document.createElement('tr');
@@ -155,21 +174,20 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function (require) {
       }
       table.appendChild(tbody);
 
-      // Botón de acción
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn btn-primary mt-2';
       btn.textContent = 'Añadir selección';
       btn.addEventListener('click', () => {
-        const cells = Array.from(table.querySelectorAll('td.sp-cell'));
+        const cells = qsa(table, 'td.sp-cell');
         for (const cell of cells) {
           const qty = parseInt(cell.querySelector('.sp-qty').value || '0', 10);
           if (!qty) continue;
 
-          const c = color.options.find(o => String(o.id) === cell.dataset.colorId);
-          const s = size.options.find(o => String(o.id) === cell.dataset.sizeId);
-          if (c?.input) c.input.click();
-          if (s?.input) s.input.click();
+          const c = color.options.find((o) => String(o.id) === cell.dataset.colorId);
+          const s = size.options.find((o) => String(o.id) === cell.dataset.sizeId);
+          c?.input?.click();
+          s?.input?.click();
 
           const qtyInput = document.querySelector('.o_wsale_product_page input[name="add_qty"]');
           if (qtyInput) qtyInput.value = String(qty);
@@ -177,7 +195,7 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function (require) {
           const addBtn = document.querySelector(
             '.o_wsale_product_page .o_add_to_cart, .o_wsale_product_page [data-add-to-cart]'
           );
-          if (addBtn) addBtn.click();
+          addBtn?.click();
         }
       });
 
@@ -186,54 +204,61 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function (require) {
       return wrap;
     }
 
-    /** Devuelve true si creó la tabla; false si aún no. */
+    // ---- Punto de entrada
     function ensureMatrix() {
       const root = getRoot();
-      if (!root) { console.warn('[SP][matrix] root no encontrado'); return false; }
+      if (!root) return false;
       if (root.querySelector('#sp-matrix')) return true;
 
-      // ámbito preferente de atributos
       const scope =
         root.querySelector('.js_product .js_attributes') ||
         root.querySelector('.js_attributes') ||
+        root.querySelector('.o_wsale_product_configurator') ||
         root;
 
       const groups = getAttributeGroups(scope);
-      if (!groups.length) { console.warn('[SP][matrix] sin grupos de atributo'); return false; }
+      if (!groups.length) return false;
 
-      let color = groups.find(g => isColorName(g.name));
-      let size  = groups.find(g => isSizeName(g.name));
+      // 1º intentar por nombre
+      let color = groups.find((g) => isColorName(g.name));
+      let size  = groups.find((g) => isSizeName(g.name));
 
-      // Si no detecta por nombre, usa heurística: 2 grupos => 1º color, 2º talla
+      // 2º heurística por contenido
       if (!color || !size) {
-        if (groups.length >= 2) {
-          [color, size] = [groups[0], groups[1]];
-          console.warn('[SP][matrix] usando heurística de grupos (no match por nombre):',
-            color?.name, size?.name);
-        }
+        const score = (g) => g.options.reduce((a, o) => a + (looksLikeSize(o.text) ? 1 : 0), 0);
+        const sorted = [...groups].sort((a, b) => score(b) - score(a));
+        if (!size && sorted.length) size = sorted[0];
+        if (!color) color = groups.find((g) => g !== size) || groups[0];
+        console.warn('[SP][matrix] usando heurística — Color:', color?.name, 'Size:', size?.name);
       }
-      if (!color || !size) { console.warn('[SP][matrix] falta Color o Talla'); return false; }
 
-      // inserta justo debajo del bloque de atributos
-      const anchor = root.querySelector('.js_attributes, .o_wsale_product_configurator, .product_price') || root;
+      if (!color || !size) return false;
+
+      const anchor =
+        root.querySelector('.js_attributes') ||
+        root.querySelector('.o_wsale_product_configurator') ||
+        root.querySelector('.product_price') ||
+        root;
+
       const matrix = renderGrid(color, size);
       anchor.parentNode.insertBefore(matrix, anchor.nextSibling);
       root.classList.add('sp-matrix-active');
 
-      console.log('[SP][matrix] matriz creada ✔ — Color:', color.name, 'Talla:', size.name);
+      console.log('[SP][matrix] matriz creada ✔', { color: color.name, size: size.name });
+      // expón diagnóstico por si hace falta
+      window._sp_diag = { groups, color, size };
       return true;
     }
 
-    // Reintenta hasta que la DOM de la ficha esté lista (y si se rehace por cambio de variante)
     let tries = 0;
     const tick = () => {
-      const done = ensureMatrix();
-      if (done || tries++ > 40) clearInterval(timer);
+      const ok = ensureMatrix();
+      if (ok || tries++ > 50) clearInterval(timer);
     };
     onReady(tick);
     const timer = setInterval(tick, 300);
 
-    // Si el DOM cambia (owl/website events), vuelve a intentar
+    // Si la ficha se re-renderiza, volver a intentar
     const mo = new MutationObserver(() => ensureMatrix());
     mo.observe(document.body, { childList: true, subtree: true });
   })();
