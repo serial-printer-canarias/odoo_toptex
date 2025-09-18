@@ -142,7 +142,7 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (mínimo para volver a lo que funcionaba) ====== -->
+      <!-- ====== JS INLINE (sin tocar tu lógica; solo utilidades ya usadas) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -250,31 +250,28 @@
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
 
-        /* ========= addToCart (mantenido) ========= */
         async function addToCart(){
-          var variantId = ($val("spw_variant_id","")||"").trim();
+          var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
           var tech=( (document.querySelector("input[name='spw_tech']:checked")||{}).value )||"";
           var svgColor=( (document.querySelector("input[name='spw_svg_color']:checked")||{}).value )||"";
           var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
-          let pngB64=""; 
+          var pngB64=""; 
           try{
-            const du = await renderPNGDataURL();
+            var du = await renderPNGDataURL();
             sessionStorage.setItem('spw_last_product_id', String(variantId));
             sessionStorage.setItem('spw_last_png', du || '');
             pngB64 = du ? du.split('base64,')[1] : "";
           }catch(e){}
 
-          let r1 = await postJSON("/spw/add_to_cart_meta", {
-            variant_id: parseInt(variantId,10), qty, tech, svg_color: svgColor, notes
+          var r1 = await postJSON("/spw/add_to_cart_meta", {
+            variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
           });
-          if(!r1.ok){
-            r1 = await postForm("/spw/add_to_cart_meta_http", {
-              variant_id: variantId, qty, tech, svg_color: svgColor, notes
-            });
-          }
+          if(!r1.ok){ r1 = await postForm("/spw/add_to_cart_meta_http", {
+            variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
+          }); }
           if(!r1 || !r1.ok){ alert("No se pudo añadir al carrito."); return; }
 
           try{
@@ -286,14 +283,13 @@
           }catch(_e){}
 
           if(pngB64){
-            let r2=await postJSON("/spw/attach_png",{ line_id: r1.data.line_id, png_b64: pngB64 });
-            if(!r2.ok){ await postForm("/spw/attach_png_http",{ line_id: r1.data.line_id, png_b64: pngB64 }); }
+            var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
+            if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
           }
 
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
 
-        /* ========= Descarga sencilla (abre pestaña en iOS si no descarga) ========= */
         function dataURLToBlob(dataUrl){
           var arr=dataUrl.split(','), mime=arr[0].match(/:(.*?);/)[1], bstr=atob(arr[1]), n=bstr.length, u8=new Uint8Array(n);
           while(n--){ u8[n]=bstr.charCodeAt(n); }
@@ -306,7 +302,6 @@
             a.href = dataUrl; a.download = "personalizacion.png";
             document.body.appendChild(a); a.click(); a.remove();
 
-            // iOS/Safari fallback: abrir en nueva pestaña
             if (!('download' in HTMLAnchorElement.prototype) || /iPad|iPhone|iPod/.test(navigator.userAgent)) {
               var blob = dataURLToBlob(dataUrl);
               var url = (window.URL || window.webkitURL).createObjectURL(blob);
@@ -350,58 +345,116 @@
     </t>
   </template>
 
-  <!-- ====== INYECCIÓN: PREVIEW EN CARRITO (sessionStorage, una por línea) ====== -->
+  <!-- ====== INYECCIÓN: PREVIEW EN CARRITO (una por línea, server -> storage) ====== -->
   <template id="spw_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript">
         //<![CDATA[
         (function(){
-          function rows(){
-            var r = Array.from(document.querySelectorAll('[data-line-id]'));
-            if (r.length) return r;
-            return Array.from(document.querySelectorAll('.o_cart_product, .js_cart_lines > tr, .js_cart_lines > div'));
+          if (!/\/shop\/cart/.test(location.pathname)) return;
+
+          // Localiza filas de carrito aunque el tema no ponga data-line-id
+          function findRows(){
+            const set = new Set();
+            // 1) Temas que sí añaden data-line-id
+            document.querySelectorAll('[data-line-id]').forEach(el => set.add(el));
+            // 2) Temas que usan input[name="line_id"]
+            document.querySelectorAll('input[name="line_id"]').forEach(inp => {
+              const row = inp.closest('tr, .o_cart_product, .card, .row, li, div');
+              if (row) set.add(row);
+            });
+            // 3) Fallback genérico
+            if (!set.size) document.querySelectorAll('.o_cart_product, .js_cart_lines > tr, .js_cart_lines > div').forEach(el => set.add(el));
+            return Array.from(set);
+          }
+
+          function getLineId(row){
+            return row.getAttribute('data-line-id')
+                || (row.querySelector('input[name="line_id"]')||{}).value
+                || '';
+          }
+          function getProductId(row){
+            return row.getAttribute('data-product-id')
+                || (row.querySelector('input[name="product_id"]')||{}).value
+                || '';
           }
           function targetCell(row){
             return row.querySelector('.td-qty, .o_wsale_cart_item_qty, .o_wsale_cart_quantity, .css_quantity, .quantity, .o_qty')
-                   || row.querySelector('.o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_information')
-                   || row.querySelector('.o_wsale_product_img, .o_cart_product_img, .o_wsale_product_image, .o_cart_product_thumbnail')
-                   || row;
+                || row.querySelector('.o_wsale_cart_item_info, .o_cart_product_information, .o_wsale_product_information')
+                || row.querySelector('.o_wsale_product_img, .o_cart_product_img, .o_wsale_product_image, .o_cart_product_thumbnail')
+                || row;
           }
-          function place(){
-            if (!/\/shop\/cart/.test(location.pathname)) return;
-            var list=[]; try{ list=JSON.parse(sessionStorage.getItem('spw_previews')||'[]')||[]; }catch(_){}
-            rows().forEach(function(row){
-              if (row.querySelector('img.spw-preview')) return; // evita duplicado
-              var lid = row.getAttribute('data-line-id') || '';
-              if (!lid) return;
-              var hit = list.find(function(it){ return String(it.line_id)===String(lid) && it.du; });
-              if (!hit || !hit.du) return;
 
-              var tgt = targetCell(row);
-              var img = document.createElement('img');
-              img.src = hit.du;
-              img.alt = 'Personalización';
-              img.className = 'spw-preview';
-              img.style.maxWidth='110px';
-              img.style.border='1px solid #eee';
-              img.style.borderRadius='6px';
-              img.style.display='inline-block';
-              img.style.verticalAlign='top';
-              img.style.margin='6px 0 0 8px';
+          function placeOne(row){
+            if (row.querySelector('img.spw-preview')) return; // evita duplicados
+            const lid = getLineId(row);
+            const pid = getProductId(row);
 
-              // Si el target es info, ponlo al inicio para que quede al lado
-              if (tgt && (tgt.className||'').match(/(info|information)/)) {
-                tgt.insertBefore(img, tgt.firstChild);
-              } else if (tgt) {
-                tgt.appendChild(img);
-              } else {
-                row.appendChild(img);
+            // img base
+            const img = document.createElement('img');
+            img.alt = 'Personalización';
+            img.className = 'spw-preview';
+            img.style.maxWidth='110px';
+            img.style.border='1px solid #eee';
+            img.style.borderRadius='6px';
+            img.style.display='inline-block';
+            img.style.verticalAlign='top';
+            img.style.margin='6px 0 0 8px';
+
+            const tgt = targetCell(row);
+            if (tgt && (tgt.className||'').match(/(info|information)/)) {
+              tgt.insertBefore(img, tgt.firstChild);
+            } else if (tgt) {
+              tgt.appendChild(img);
+            } else {
+              row.appendChild(img);
+            }
+
+            let loadedFromServer = false;
+
+            // 1) Intento servidor si tenemos line_id
+            if (lid) {
+              img.onload = function(){ loadedFromServer = true; };
+              img.onerror = function(){ if (!loadedFromServer) loadFromStorage(img, lid, pid); };
+              img.src = '/spw/line_preview/' + encodeURIComponent(lid) + '.png?_=' + Date.now();
+            } else {
+              loadFromStorage(img, lid, pid);
+            }
+          }
+
+          function loadFromStorage(img, lid, pid){
+            try{
+              const list = JSON.parse(sessionStorage.getItem('spw_previews')||'[]')||[];
+              // Preferir coincidencia por line_id
+              let hit = lid ? list.find(it => String(it.line_id)===String(lid) && it.du) : null;
+              // Si no hay line_id o no coincide, intentar por product_id (último)
+              if (!hit && pid){
+                for (let i=list.length-1;i>=0;i--){
+                  if (String(list[i].product_id)===String(pid) && list[i].du){ hit=list[i]; break; }
+                }
               }
-            });
+              // Último recurso: el último añadido
+              if (!hit && list.length) hit = list[list.length-1];
+
+              if (hit && hit.du){
+                img.src = hit.du;
+              }else{
+                img.remove(); // nada que mostrar
+              }
+            }catch(_e){ img.remove(); }
           }
-          var run=function(){ place(); setTimeout(place, 600); };
-          if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', run); else run();
-          try{ new MutationObserver(place).observe(document.body,{childList:true,subtree:true}); }catch(_e){}
+
+          function placeAll(){
+            findRows().forEach(placeOne);
+          }
+
+          const run = function(){ placeAll(); setTimeout(placeAll, 600); };
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', run);
+          } else {
+            run();
+          }
+          try{ new MutationObserver(placeAll).observe(document.body, {childList:true, subtree:true}); }catch(_e){}
         })();
         //]]>
       </script>
