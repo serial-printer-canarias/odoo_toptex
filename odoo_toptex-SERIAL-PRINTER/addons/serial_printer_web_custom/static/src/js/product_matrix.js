@@ -1,60 +1,60 @@
-/** Odoo 18 – Serial Printer – Product Matrix
- *  Paso actual: colocar la matriz justo debajo de los atributos y
- *  mostrar miniatura por color. Sin tocar carrito/precio/stock.
+/** Odoo 18 – SERIAL PRINTER
+ *  Baseline estable: pinta la matriz Color x Talla debajo de los atributos.
+ *  No usa dependencias ([]) para evitar errores del loader.
+ *  No toca carrito/precio/stock todavía.
  */
 odoo.define('serial_printer_web_custom.product_matrix', [], function () {
   'use strict';
 
-  // Utilidad: ejecutar cuando el DOM está listo
+  // -------- utilidades ----------
   function onReady(fn) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
     else fn();
   }
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-  // Lee los bloques de atributos (Color, Talla, …) de forma tolerante a plantilla
+  function alreadyRendered(scope) {
+    return !!$('#sp-matrix', scope);
+  }
+
+  // Lee filas de atributos (Color/Talla) de forma tolerante al tema
   function readAttributeBlocks(scope) {
-    const rows = Array.from(
-      scope.querySelectorAll('.js_attributes .o_variant_row, .o_wsale_product_configurator .o_variant_row')
+    const rows = $$(
+      '.js_attributes .o_variant_row, .o_wsale_product_configurator .o_variant_row',
+      scope
     );
     const blocks = [];
 
     rows.forEach((row) => {
-      const name =
-        (row.querySelector('.o_variant_label, .o_attribute_label, label')?.textContent || '')
-          .trim()
-          .toLowerCase();
+      const name = (
+        $('.o_variant_label, .o_attribute_label, label', row)?.textContent || ''
+      ).trim().toLowerCase();
 
-      const radios = Array.from(row.querySelectorAll('input[type="radio"]'));
+      const radios = $$('input[type="radio"]', row);
+      if (!radios.length) return;
+
       const options = radios
         .map((inp) => {
           const li = inp.closest('li') || inp.parentElement || row;
-          // Texto visible del color/talla
-          const txt =
-            (li.querySelector('label')?.textContent ||
+          const text =
+            ($('label', li)?.textContent ||
               li.textContent ||
               inp.getAttribute('data-value_name') ||
-              '') // algunos temas lo llevan en data-value_name
-              .trim();
+              '').trim();
 
-          // Capturar miniatura si existe
+          // id del valor (varía por tema)
+          const id = parseInt(
+            inp.dataset.valueId || inp.getAttribute('data-value-id') || inp.value || '0',
+            10
+          );
+          if (!id) return null;
+
+          // intentar miniatura (si existe)
           let img = '';
-          const imgEl = li.querySelector('img');
-          if (imgEl && imgEl.src) {
-            img = imgEl.src;
-          } else {
-            // algunos temas ponen el color como background-image
-            const colorEl =
-              li.querySelector('.css_attribute_color, .o_attribute_color, .o_attribute_value_color') ||
-              li.querySelector('[style*="background-image"]');
-            if (colorEl) {
-              const bg = getComputedStyle(colorEl).backgroundImage || '';
-              const m = /url\(["']?(.*?)["']?\)/.exec(bg);
-              if (m && m[1]) img = m[1];
-            }
-          }
-
-          const valId = parseInt(inp.dataset.valueId || inp.getAttribute('data-value-id') || '0', 10);
-          return valId ? { id: valId, text: txt, input: inp, img } : null;
+          const imgEl = $('img', li);
+          if (imgEl && imgEl.src) img = imgEl.src;
+          return { id, text, img, input: inp };
         })
         .filter(Boolean);
 
@@ -64,74 +64,65 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function () {
     return blocks;
   }
 
-  // Detección de bloques de color y talla (multilenguaje: color/talla/size/…)
   function pickColorAndSize(blocks) {
     const isColor = (n) => /(color|colour|couleur)/i.test(n);
-    const isSize = (n) => /(talla|size|taille|tamanho|maß)/i.test(n);
+    const isSize  = (n) => /(talla|size|taille|tamanho|maß)/i.test(n);
 
-    let color = blocks.find((b) => isColor(b.name));
-    let size = blocks.find((b) => isSize(b.name));
-
-    // Si no detecta por nombre, coge los dos primeros por orden
-    if (!color && blocks[0]) color = blocks[0];
-    if (!size && blocks[1]) size = blocks[1];
+    let color = blocks.find((b) => isColor(b.name)) || blocks[0] || null;
+    let size  = blocks.find((b) => isSize(b.name))  || blocks[1] || null;
 
     return { color, size };
   }
 
-  // Construye la tabla HTML (sin lógica de carrito aún)
+  // -------- render matriz ----------
   function renderMatrix(color, size) {
-    const wrap = document.createElement('div');
-    wrap.id = 'sp-matrix';
+    const wrap  = document.createElement('div');
+    wrap.id     = 'sp-matrix';
     wrap.className = 'sp-matrix-active';
 
     const table = document.createElement('table');
     table.className = 'sp-matrix__table';
 
-    // CABECERA
+    // thead
     const thead = document.createElement('thead');
     const trH = document.createElement('tr');
-
-    const thColor = document.createElement('th');
-    thColor.className = 'sp-sticky-left';
-    thColor.textContent = 'Color';
-    trH.appendChild(thColor);
-
+    const th0 = document.createElement('th');
+    th0.className = 'sp-sticky-left';
+    th0.textContent = 'Color';
+    trH.appendChild(th0);
     size.options.forEach((opt) => {
       const th = document.createElement('th');
       th.textContent = opt.text || '';
       trH.appendChild(th);
     });
-
     thead.appendChild(trH);
     table.appendChild(thead);
 
-    // CUERPO
+    // tbody
     const tbody = document.createElement('tbody');
-
     color.options.forEach((c) => {
       const tr = document.createElement('tr');
 
-      // Columna fija izquierda (miniatura + nombre)
+      // celda fija izquierda (miniatura + nombre)
       const tdLeft = document.createElement('td');
       tdLeft.className = 'sp-sticky-left';
-      const rowInfo = document.createElement('div');
-      rowInfo.className = 'sp-color';
+      const info = document.createElement('div');
+      info.className = 'sp-color';
 
       const img = document.createElement('img');
       img.className = 'sp-color__img';
       img.alt = c.text || '';
-      img.src = c.img || document.querySelector('.product_detail_img img')?.src || '';
-      rowInfo.appendChild(img);
+      img.src = c.img || ($('.product_detail_img img')?.src || '');
+      info.appendChild(img);
 
-      const nameEl = document.createElement('span');
-      nameEl.textContent = c.text || '';
-      rowInfo.appendChild(nameEl);
+      const name = document.createElement('span');
+      name.textContent = c.text || '';
+      info.appendChild(name);
 
-      tdLeft.appendChild(rowInfo);
+      tdLeft.appendChild(info);
       tr.appendChild(tdLeft);
 
-      // Celdas de cantidades (de momento inputs vacíos)
+      // celdas cantidad (baseline: inputs vacíos)
       size.options.forEach(() => {
         const td = document.createElement('td');
         td.className = 'sp-cell';
@@ -147,41 +138,33 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function () {
 
       tbody.appendChild(tr);
     });
-
     table.appendChild(tbody);
     wrap.appendChild(table);
     return wrap;
   }
 
-  // Inserta la matriz justo DESPUÉS del bloque de atributos (más arriba),
-  // con varios “anchors” de respaldo según el tema/plantilla.
-  function insertMatrix(container, pageScope) {
+  function insertMatrix(container, scope) {
+    // la colocamos justo después del bloque de atributos si existe,
+    // si no, debajo del configurador, y si no, al final de la ficha
     const anchors = [
-      '.js_product .js_attributes',          // estándar
-      '.o_wsale_product_configurator',       // configurador
-      '.o_wsale_product_information',        // algunos temas
-      '.o_wsale_product_page',               // fallback (muy genérico)
+      '.js_product .js_attributes',
+      '.o_wsale_product_configurator',
+      '.o_wsale_product_information',
     ];
     for (const sel of anchors) {
-      const el = pageScope.querySelector(sel);
+      const el = $(sel, scope);
       if (el) {
         el.insertAdjacentElement('afterend', container);
-        return true;
+        return;
       }
     }
-    // último recurso: al principio del contenido
-    pageScope.prepend(container);
-    return true;
+    // fallback
+    const body = $('.o_wsale_product_page') || scope;
+    body.appendChild(container);
   }
 
-  // Evitar renders duplicados
-  function alreadyRendered(scope) {
-    return !!scope.querySelector('#sp-matrix');
-  }
-
-  // Orquestador
-  function ensureMatrix() {
-    const page = document.querySelector('.o_wsale_product_page');
+  function buildOnce() {
+    const page = $('.o_wsale_product_page');
     if (!page || alreadyRendered(page)) return;
 
     const blocks = readAttributeBlocks(page);
@@ -190,24 +173,24 @@ odoo.define('serial_printer_web_custom.product_matrix', [], function () {
     const { color, size } = pickColorAndSize(blocks);
     if (!color || !size) return;
 
-    const matrixEl = renderMatrix(color, size);
-    insertMatrix(matrixEl, page);
+    const matrix = renderMatrix(color, size);
+    insertMatrix(matrix, page);
 
-    // clase en <body> para que el SCSS pueda ocultar radios si se desea
-    document.body.classList.add('sp-matrix-active');
+    // Si quieres ocultar la UI original, activa esta clase (el SCSS ya tiene la regla comentada)
+    // document.body.classList.add('sp-matrix-active');
   }
 
-  onReady(ensureMatrix);
+  // montar al cargar
+  onReady(buildOnce);
 
-  // Si algo de la página reemplaza la zona de atributos (por ejemplo al cambiar variante),
-  // volvemos a montar la matriz automáticamente.
-  const obs = new MutationObserver(() => {
-    const page = document.querySelector('.o_wsale_product_page');
-    if (page && !alreadyRendered(page)) ensureMatrix();
-  });
+  // y reintentar si la página cambia dinámicamente
   onReady(() => {
-    const product = document.querySelector('.o_wsale_product_page');
-    if (product) obs.observe(product, { childList: true, subtree: true });
+    const page = $('.o_wsale_product_page');
+    if (!page) return;
+    const mo = new MutationObserver(() => {
+      if (!alreadyRendered(page)) buildOnce();
+    });
+    mo.observe(page, { childList: true, subtree: true });
   });
 
   return {};
