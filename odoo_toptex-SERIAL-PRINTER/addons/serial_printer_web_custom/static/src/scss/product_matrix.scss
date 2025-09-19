@@ -23,6 +23,7 @@
   z-index: 3;
   background: #f8f8f8;
   font-weight: 600;
+  text-align: center;
 }
 
 .sp-sticky-left {
@@ -40,10 +41,10 @@
 }
 .sp-cell { display: flex; flex-direction: column; gap: .25rem; }
 .sp-qty  { width: 100%; text-align: center; border-radius: .6rem; }
-.sp-meta { font-size: .75rem; line-height: 1.1; opacity: .9; }
+.sp-meta { font-size: .75rem; line-height: 1.1; opacity: .9; min-height: 1.1em; }
 .sp-help { margin-top: .5rem; color: #555; }
 
-/* Mantenemos visibles los radios originales */
+/* No ocultamos los radios: el cliente los quiere visibles */
 .sp-matrix-active .js_product .js_attributes { display: block; }
 
 @media (max-width: 768px) {
