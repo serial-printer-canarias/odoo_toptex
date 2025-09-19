@@ -9,7 +9,6 @@ function onReady(fn) {
 // ================== Buscar bloques de atributos ==================
 function getAttributeBlocks(scope) {
     const blocks = [];
-    // contenedores típicos de Odoo 18
     const containers = Array.from(
         scope.querySelectorAll('[data-attribute_name], .js_attribute, .o_product_configurator [name], .js_attributes > div')
     );
@@ -26,21 +25,15 @@ function getAttributeBlocks(scope) {
         if (!radios.length) return;
 
         const options = radios.map((inp) => {
-            const id = (
-                parseInt(inp.dataset.valueId || inp.dataset.attributeValueId || inp.value || "0", 10) || 0
-            );
-            const txt = (
-                inp.closest("label")?.textContent ||
-                inp.getAttribute("title") ||
-                ""
-            ).replace(/\s+/g, " ").trim();
+            const id = (parseInt(inp.dataset.valueId || inp.dataset.attributeValueId || inp.value || "0", 10) || 0);
+            const txt = (inp.closest("label")?.textContent || inp.getAttribute("title") || "")
+                .replace(/\s+/g, " ").trim();
             return id ? { id, text: txt, _radio: inp } : null;
         }).filter(Boolean);
 
         if (options.length) blocks.push({ name, options, _el: el });
     });
 
-    // detectar color / talla
     const color = blocks.find((b) => /(color|colour|colou?r|c[oó]lor)/i.test(b.name));
     const size  = blocks.find((b) => /(size|talla|talle|taille|größe|maat)/i.test(b.name));
 
@@ -108,15 +101,12 @@ function commonAncestor(el1, el2) {
     if (!el1) return el2 || null;
     if (!el2) return el1 || null;
     const set = new Set();
-    let a = el1;
-    while (a) { set.add(a); a = a.parentElement; }
-    let b = el2;
-    while (b) { if (set.has(b)) return b; b = b.parentElement; }
+    for (let a = el1; a; a = a.parentElement) set.add(a);
+    for (let b = el2; b; b = b.parentElement) if (set.has(b)) return b;
     return null;
 }
 
 function findAnchor(page, colorEl, sizeEl) {
-    // Preferimos el ancestro común de color y talla (suele ser el bloque de atributos)
     const both = commonAncestor(colorEl, sizeEl);
     if (both) return both;
     return page.querySelector(".js_attributes") ||
@@ -124,35 +114,45 @@ function findAnchor(page, colorEl, sizeEl) {
            page;
 }
 
-// ================== Miniatura por color ==================
+// ================== Miniatura por color (mejorada) ==================
 function getColorThumbSrc(page, colorId) {
+    // 1) Localiza el radio del color
     const radio = page.querySelector(
         `input[type="radio"][data-value-id="${colorId}"], input[type="radio"][data-attribute-value-id="${colorId}"]`
     );
-    if (radio) {
-        const lbl = radio.closest("label") || page.querySelector(`label[for="${radio.id}"]`);
-        const img = lbl?.querySelector("img");
-        if (img?.src) return img.src;
+    const lbl = radio ? (radio.closest("label") || page.querySelector(`label[for="${radio.id}"]`)) : null;
 
-        // ¿background-image en el label?
-        const styleEl = lbl?.querySelector('[style*="background-image"]') || lbl;
-        const bg = styleEl?.style?.backgroundImage;
-        if (bg && bg !== "none") {
-            const url = bg.slice(4, -1).replace(/["']/g, "");
-            if (url) return url;
-        }
+    // 2) Imagen directa dentro del label
+    const imgInLabel = lbl?.querySelector("img");
+    if (imgInLabel?.src) return imgInLabel.src;
+
+    // 3) Atributos de datos frecuentes
+    const dataCandidates = [
+        "img", "image", "src", "original", "thumbnail", "thumb", "colorImage", "valueImage"
+    ];
+    for (const key of dataCandidates) {
+        const v = radio?.dataset?.[key] || lbl?.dataset?.[key];
+        if (v) return v;
     }
-    // Fallback: imagen principal actual
-    const main = page.querySelector(".o_gallery_img_current img, .product_media img");
-    return main?.src || "";
+
+    // 4) background-image en label o swatch interno
+    const bgHost = lbl?.querySelector('[style*="background-image"]') || lbl;
+    if (bgHost?.style?.backgroundImage && bgHost.style.backgroundImage !== "none") {
+        const url = bgHost.style.backgroundImage.slice(4, -1).replace(/["']/g, "");
+        if (url) return url;
+    }
+
+    // 5) URL directa al modelo product.attribute.value (seguro aunque no haya imagen -> placeholder)
+    return `/web/image/product.attribute.value/${colorId}/image_1920/64x64`;
 }
 
 function fillColorThumbs(page, color) {
     color.options.forEach((c) => {
-        const row = page.querySelector(`#sp-matrix tr[data-color-id="${c.id}"] img.sp-color__img`);
-        if (!row) return;
-        const src = getColorThumbSrc(page, c.id);
-        if (src) row.src = src;
+        const img = page.querySelector(`#sp-matrix tr[data-color-id="${c.id}"] img.sp-color__img`);
+        if (!img) return;
+        img.src = getColorThumbSrc(page, c.id);
+        img.loading = "lazy";
+        img.decoding = "async";
     });
 }
 
@@ -166,7 +166,7 @@ function ensureMatrix() {
         const page = document.querySelector(".o_wsale_product_page");
         if (!page) return;
 
-        // eliminar TODAS las matrices previas (evita duplicados)
+        // evita duplicados
         document.querySelectorAll("#sp-matrix").forEach((el) => el.remove());
 
         const { color, size } = getAttributeBlocks(page);
@@ -175,7 +175,6 @@ function ensureMatrix() {
             return;
         }
 
-        // ancla: justo después del bloque de atributos
         const anchor = findAnchor(page, color._el, size._el);
         if (!anchor) return;
 
@@ -193,7 +192,6 @@ function ensureMatrix() {
 onReady(() => {
     ensureMatrix();
 
-    // Recalcular cuando cambien radios (con debounce)
     const page = document.querySelector(".o_wsale_product_page");
     if (!page) return;
     page.addEventListener("change", (ev) => {
