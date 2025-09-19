@@ -141,7 +141,7 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (iOS download + redirección con spw_line_id) ====== -->
+      <!-- ====== JS INLINE (descarga iOS + redirección con spw_line_id) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -352,7 +352,7 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN EN website.layout: preview por línea (dedupe global y contenedor visible) ============ -->
+  <!-- ============ INYECCIÓN EN website.layout: preview por línea (robusto en móvil/escritorio) ============ -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript"><![CDATA[
@@ -372,36 +372,52 @@
               return u.searchParams.get('line_id');
             }catch(_){ return null; }
           }
-          function getLineId(line){
-            if(!line) return null;
-            return line.getAttribute('data-line-id')
-                || ((q('input[name="line_id"]', line)||{}).value)
-                || parseLineIdFromHref(line)
-                || null;
+          function parseLineIdFromForms(line){
+            try{
+              var f = q('form[action*="/shop/cart"][action*="update"]', line) || q('form[action*="/shop/cart/update"]', line);
+              if(!f) return null;
+              var inp = q('input[name="line_id"]', f);
+              return inp && inp.value || null;
+            }catch(_){ return null; }
           }
 
-          // Busca contenedores de línea y deja solo el más externo (evita líneas anidadas)
+          function getLineId(line){
+            if(!line) return null;
+            var id =
+              line.getAttribute('data-line-id') ||
+              line.getAttribute('data-id') ||
+              line.getAttribute('data-cart-line-id') ||
+              line.getAttribute('data-line') ||
+              ((q('input[name="line_id"]', line)||{}).value) ||
+              parseLineIdFromForms(line) ||
+              parseLineIdFromHref(line) ||
+              null;
+            return id;
+          }
+
+          // Busca contenedores de línea y deja solo el más externo (evita líneas anidadas/duplicadas)
           function findLines(){
-            var nodes = qa(".o_wsale_cart_item, tr.js_cart_line, .js_cart_lines .row, [data-line-id], .card.js_cart_item")
+            var nodes = qa(".o_wsale_cart_item, tr.js_cart_line, .js_cart_lines .row, [data-line-id], .card.js_cart_item, .o_cart_line, .card")
                         .filter(function(n){ return !!getLineId(n); });
             return nodes.filter(function(n){
               return !nodes.some(function(m){ return m!==n && m.contains(n); });
             });
           }
 
-          // Devuelve un contenedor cercano a la cantidad que esté VISIBLE; si no, la línea
+          // Contenedor visible cercano a la cantidad; si no hay, usa la línea
           function holderFor(line){
             var cands = []
               .concat(qa(".o_wsale_cart_quantity", line))
               .concat(qa("div[name='quantity']", line))
               .concat(qa(".css_quantity", line))
-              .concat(qa(".input-group", line));
+              .concat(qa(".input-group", line))
+              .concat(qa(".o_wsale_quantity", line));
             var vis = cands.find(function(el){ return el && el.offsetParent !== null; });
             return vis || line;
           }
 
           function insertPreview(line, src, lineId, hex){
-            // Deduplicación GLOBAL por line_id (por si hay clones/plantillas ocultas)
+            // Deduplicación GLOBAL por line_id
             qa('.spw-preview[data-line="'+lineId+'"]').forEach(function(el){ el.remove(); });
 
             var wrap = document.createElement("div");
@@ -437,7 +453,6 @@
             }
 
             var anchor = holderFor(line);
-            // Intenta ponerlo justo DESPUÉS del bloque de cantidad visible
             if (anchor && anchor !== line) {
               anchor.insertAdjacentElement('afterend', wrap);
             } else {
@@ -479,7 +494,7 @@
               insertPreview(line, url, id, null);
             });
 
-            // Limpia la sesión tras pintar la línea que acabamos de crear
+            // Limpia la sesión tras pintar la línea creada
             if (wanted && lastId && wanted === lastId) {
               try{
                 sessionStorage.removeItem('spw_last_line_id');
