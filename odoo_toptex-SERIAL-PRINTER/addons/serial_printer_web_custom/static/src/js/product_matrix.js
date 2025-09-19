@@ -121,34 +121,6 @@ function findAnchor(page, colorEl, sizeEl) {
            page;
 }
 
-// ============ Miniaturas por color (placeholder si no hay) ============
-function getColorThumbSrc(page, colorId) {
-    const radio = page.querySelector(
-        `input[type="radio"][data-value-id="${colorId}"], input[type="radio"][data-attribute-value-id="${colorId}"]`
-    );
-    const lbl = radio ? (radio.closest("label") || page.querySelector(`label[for="${radio?.id}"]`)) : null;
-    const img = lbl?.querySelector("img");
-    if (img?.src) return img.src;
-
-    const bgHost = lbl?.querySelector('[style*="background-image"]') || lbl;
-    if (bgHost?.style?.backgroundImage && bgHost.style.backgroundImage !== "none") {
-        const url = bgHost.style.backgroundImage.slice(4, -1).replace(/["']/g, "");
-        if (url) return url;
-    }
-    // Placeholder/imagen del atributo (si existe) — si no, Odoo devuelve placeholder
-    return `/web/image/product.attribute.value/${colorId}/image_1920/64x64`;
-}
-function fillColorThumbs(page, color) {
-    color.options.forEach((c) => {
-        const img = page.querySelector(`#sp-matrix tr[data-color-id="${c.id}"] img.sp-color__img`);
-        if (img) {
-            img.src = getColorThumbSrc(page, c.id);
-            img.loading = "lazy";
-            img.decoding = "async";
-        }
-    });
-}
-
 // ============ Helpers: PT id / Pricelist / CSRF / JSON-RPC ============
 function getProductTemplateId(page) {
     return (
@@ -181,23 +153,26 @@ async function jsonRpc(url, params) {
     throw new Error(`RPC error: ${url}`);
 }
 
-// ============ Combination info (precio/stock/product_id) ============
+// Intenta varios endpoints según build
 async function getCombinationInfo(page, ptId, combination) {
     const payload = {
         product_template_id: parseInt(ptId, 10),
-        combination: combination,          // lista de ids de atributos (color, talla)
+        combination: combination,
         add_qty: 1,
         pricelist_id: getPricelistId(page),
     };
-    try {
-        return await jsonRpc("/shop/get_combination_info", payload);
-    } catch (e) {
-        // fallback (algunas builds nuevas)
-        return await jsonRpc("/sale/get_combination_info", payload);
+    const routes = [
+        "/shop/get_combination_info",
+        "/sale/get_combination_info",
+        "/shop/product/get_combination_info",
+    ];
+    let lastErr;
+    for (const r of routes) {
+        try { return await jsonRpc(r, payload); } catch (e) { lastErr = e; }
     }
+    throw lastErr || new Error("No get_combination_info route");
 }
 
-// ============ Add to cart (múltiples) ============
 async function addToCart(productId, qty, ptId, combination) {
     const params = {
         product_id: productId,
@@ -209,6 +184,49 @@ async function addToCart(productId, qty, ptId, combination) {
     return jsonRpc("/shop/cart/update_json", params);
 }
 
+// ============ Miniaturas por color ============
+// 1) Intentamos imagen del product.product (color + primera talla)
+// 2) Si falla, usamos imagen del valor de atributo (o placeholder)
+function getColorAttrImageSrc(page, colorId) {
+    const radio = page.querySelector(
+        `input[type="radio"][data-value-id="${colorId}"], input[type="radio"][data-attribute-value-id="${colorId}"]`
+    );
+    const lbl = radio ? (radio.closest("label") || page.querySelector(`label[for="${radio?.id}"]`)) : null;
+    const img = lbl?.querySelector("img");
+    if (img?.src) return img.src;
+
+    const bgHost = lbl?.querySelector('[style*="background-image"]') || lbl;
+    if (bgHost?.style?.backgroundImage && bgHost.style.backgroundImage !== "none") {
+        const url = bgHost.style.backgroundImage.slice(4, -1).replace(/["']/g, "");
+        if (url) return url;
+    }
+    return `/web/image/product.attribute.value/${colorId}/image_128`;
+}
+
+async function fillColorThumbs(page, color, size) {
+    const ptId = getProductTemplateId(page);
+    const firstSizeId = size?.options?.[0]?.id;
+    await Promise.all(color.options.map(async (c) => {
+        const imgEl = page.querySelector(`#sp-matrix tr[data-color-id="${c.id}"] img.sp-color__img`);
+        if (!imgEl) return;
+        imgEl.loading = "lazy";
+        imgEl.decoding = "async";
+        // 1) combinación real
+        if (ptId && firstSizeId) {
+            try {
+                const info = await getCombinationInfo(page, ptId, [c.id, firstSizeId]);
+                const pid = info?.product_id;
+                if (pid) {
+                    imgEl.src = `/web/image/product.product/${pid}/image_128`;
+                    return;
+                }
+            } catch { /* fall back below */ }
+        }
+        // 2) imagen del atributo color
+        imgEl.src = getColorAttrImageSrc(page, c.id);
+    }));
+}
+
 // ============ Pintar/actualizar matriz ============
 let _debounceTimer = null;
 function ensureMatrix() {
@@ -218,7 +236,7 @@ function ensureMatrix() {
         const page = document.querySelector(".o_wsale_product_page");
         if (!page) return;
 
-        // Evita duplicados de matriz
+        // Eliminar cualquier matriz previa (evita duplicados)
         document.querySelectorAll("#sp-matrix").forEach((el) => el.remove());
 
         const { color, size } = getAttributeBlocks(page);
@@ -229,14 +247,13 @@ function ensureMatrix() {
 
         const anchor = findAnchor(page, color._el, size._el);
         if (!anchor) return;
-
         anchor.insertAdjacentHTML("afterend", renderGrid(color, size));
         document.body.classList.add("sp-matrix-active");
 
-        // Miniaturas (placeholder si no hay imagen del atributo)
-        fillColorThumbs(page, color);
+        // Miniaturas reales (o fallback)
+        fillColorThumbs(page, color, size);
 
-        // Lazy precio/stock al enfocar una celda
+        // Precio/stock al enfocar
         const ptId = getProductTemplateId(page);
         page.querySelectorAll("#sp-matrix input.sp-qty").forEach((inp) => {
             inp.addEventListener("focus", async () => {
@@ -246,13 +263,15 @@ function ensureMatrix() {
                 const colorId = parseInt(inp.dataset.color, 10);
                 const sizeId  = parseInt(inp.dataset.size, 10);
                 try {
-                    const info = await getCombinationInfo(page, ptId, [colorId, sizeId]);
+                    let info;
+                    try { info = await getCombinationInfo(page, ptId, [colorId, sizeId]); }
+                    catch { info = await getCombinationInfo(page, ptId, [sizeId, colorId]); }
+
                     td.dataset.productId = info.product_id || "";
-                    meta.innerHTML = [
-                        info.price ? (`${info.price.toFixed ? info.price.toFixed(2) : info.price}`) : "",
-                        (info.product_qty || info.virtual_available || info.qty_available) ? 
-                            `Stock: ${info.product_qty ?? info.virtual_available ?? info.qty_available}` : ""
-                    ].filter(Boolean).join(" · ");
+                    const price = typeof info.price === "number" ? info.price.toFixed(2) : (info.price || "");
+                    const stock = (info.product_qty ?? info.virtual_available ?? info.qty_available);
+                    meta.innerHTML = [price ? (`${price}`) : "", (stock !== undefined ? `Stock: ${stock}` : "")]
+                        .filter(Boolean).join(" · ");
                     meta.dataset.loaded = "1";
                 } catch {
                     meta.innerHTML = "";
@@ -273,20 +292,19 @@ function ensureMatrix() {
                 const colorId = parseInt(el.dataset.color, 10);
                 const sizeId  = parseInt(el.dataset.size, 10);
                 try {
-                    // Aseguramos product_id con la combinación
-                    const info = await getCombinationInfo(page, ptId2, [colorId, sizeId]);
-                    const pid  = info.product_id;
+                    let info;
+                    try { info = await getCombinationInfo(page, ptId2, [colorId, sizeId]); }
+                    catch { info = await getCombinationInfo(page, ptId2, [sizeId, colorId]); }
+                    const pid  = info?.product_id;
                     if (pid) {
                         await addToCart(pid, q, ptId2, [colorId, sizeId]);
-                        el.value = ""; // limpiar después de añadir
+                        el.value = ""; // limpiar
                     }
                 } catch (e) {
-                    // si falla una combinación, seguimos con el resto
-                    // (no mostramos alertas para no molestar al usuario)
-                    console.warn("[SP] addToCart fallo combinación", colorId, sizeId, e);
+                    console.warn("[SP] fallo al añadir combinación", colorId, sizeId, e);
                 }
             }
-            // Refrescar mini carrito si existe
+            // Refrescar mini-carrito si existe
             document.querySelector(".js_cart")?.dispatchEvent(new Event("click", { bubbles: true }));
         });
 
@@ -299,7 +317,7 @@ function ensureMatrix() {
 onReady(() => {
     ensureMatrix();
 
-    // Reconstruir si cambian radios (evita duplicados porque siempre borramos antes)
+    // Reconstruir si cambian radios (siempre borramos antes, no duplica)
     const page = document.querySelector(".o_wsale_product_page");
     if (!page) return;
     page.addEventListener("change", (ev) => {
