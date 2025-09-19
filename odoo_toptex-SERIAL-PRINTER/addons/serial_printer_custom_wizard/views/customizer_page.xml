@@ -15,7 +15,6 @@
         <div class="row g-4">
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
-
               <!-- Base interna same-origin para evitar CORS al exportar PNG -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
@@ -299,23 +298,14 @@
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
 
-        // Descarga compatible iOS (abre pestaña mediante POST si Safari bloquea download)
+        // Descarga en iOS Safari: abrir en pestaña (luego Guardar imagen)
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
             var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
             var isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
             if (isIOS && isSafari) {
-              var form = document.createElement("form");
-              form.method = "POST";
-              form.action = "/spw/download_png";
-              form.target = "_blank";
-              var inp = document.createElement("input");
-              inp.type = "hidden"; inp.name = "png_b64"; inp.value = dataURLtoBase64(dataUrl);
-              form.appendChild(inp);
-              document.body.appendChild(form);
-              form.submit();
-              setTimeout(function(){ form.remove(); }, 1500);
+              window.open(dataUrl, "_blank");
             } else {
               var a = document.createElement("a");
               a.href = dataUrl; a.download = "personalizacion.png";
@@ -365,30 +355,43 @@
   <!-- ============ INYECCIÓN EN CARRITO: UNA PREVIEW SOLO EN SU LÍNEA ============ -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
-      <script type="text/javascript">
-        //<![CDATA[
+      <script type="text/javascript"><![CDATA[
         (function(){
+          function q(sel, root){return (root||document).querySelector(sel);}
+          function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
+
+          function parseLineIdFromHref(node){
+            try{
+              var a = node.closest('a[href*="line_id="]') || node.querySelector('a[href*="line_id="]');
+              if(!a) return null;
+              var u = new URL(a.href, location.origin);
+              return u.searchParams.get('line_id');
+            }catch(_){ return null; }
+          }
+
           function getLineId(line){
-            if (!line) return null;
+            if(!line) return null;
             return line.getAttribute('data-line-id')
-                || ((line.querySelector('input[name="line_id"]')||{}).value)
+                || ((q('input[name="line_id"]', line)||{}).value)
+                || parseLineIdFromHref(line)
                 || null;
           }
+
           function findLines(){
-            return Array.from(document.querySelectorAll(
-              ".js_cart_lines .row, .o_wsale_cart_item, [data-line-id]"
-            )).filter(function(n){ return !!getLineId(n); });
+            return qa(".js_cart_lines .row, .o_wsale_cart_item, tr.js_cart_line, [data-line-id]")
+              .filter(function(n){ return !!getLineId(n); });
           }
+
           function holderFor(line){
-            // Prioriza la columna de cantidad para que quede al lado de +/- ; fallback: info
-            return line.querySelector(".o_wsale_cart_quantity")
-                || line.querySelector(".o_wsale_cart_item_info, .o_wsale_product_information, .o_cart_product_information, .o_wsale_product_info")
+            return q(".o_wsale_cart_quantity", line)
+                || q(".o_wsale_cart_item_info, .o_wsale_product_information, .o_cart_product_information, .o_wsale_product_info", line)
                 || line;
           }
+
           function showPreviewFor(line){
             var id = getLineId(line); if(!id) return;
-            // Si ya la tiene, no duplicar
-            if (line.querySelector('.spw-preview[data-line="'+id+'"]')) return;
+            // Evitar duplicados en la misma línea
+            if (q('.spw-preview[data-line="'+id+'"]', line)) return;
 
             var img = new Image();
             img.className = "spw-preview";
@@ -403,36 +406,38 @@
             img.style.borderRadius = "6px";
             img.style.display = "block";
             img.style.marginTop = "6px";
-
-            // Si no hay adjunto, no ensuciar el DOM
             img.onerror = function(){ img.remove(); };
-
             holderFor(line).appendChild(img);
           }
+
           function inject(){
             if (!/\/shop\/cart/.test(location.pathname)) return;
-            findLines().forEach(showPreviewFor);
+            var lines = findLines();
+            // Limpieza de previews huérfanas (por recargas parciales)
+            qa(".spw-preview").forEach(function(im){
+              var lid = im.getAttribute("data-line");
+              var still = lines.some(function(l){ return getLineId(l) === lid; });
+              if(!still) im.remove();
+            });
+            lines.forEach(showPreviewFor);
           }
+
           function boot(){
             inject();
-            // Reinyecta al cambiar cantidades / borrar líneas (AJAX)
-            var root = document.querySelector(".js_cart_lines, .o_wsale_cart, main, body");
-            if (root){
-              var mo = new MutationObserver(function(){ inject(); });
-              mo.observe(root, {childList:true, subtree:true});
-            }
-            // Kicks extra por si el DOM tarda
+            var root = q(".js_cart_lines, .o_wsale_cart, main, body") || document.body;
+            var mo = new MutationObserver(function(){ inject(); });
+            mo.observe(root, {childList:true, subtree:true});
             setTimeout(inject, 400);
             setTimeout(inject, 1000);
           }
+
           if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', boot);
           } else {
             boot();
           }
         })();
-        //]]>
-      </script>
+      ]]></script>
     </xpath>
   </template>
 
