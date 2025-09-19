@@ -141,12 +141,13 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (iOS download + preview carrito robusto) ====== -->
+      <!-- ====== JS INLINE (iOS download + preview carrito robusto + swatch color) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
 
         function $(sel, root){return (root||document).querySelector(sel);}
+        function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
         function $val(id, d){ var el=$("#"+id); return el?el.value:d; }
 
         async function loadImage(src){
@@ -273,6 +274,7 @@
             var du = await renderPNGDataURL();
             sessionStorage.setItem('spw_last_product_id', String(variantId));
             sessionStorage.setItem('spw_last_png', du || '');
+            sessionStorage.setItem('spw_last_color', svgColor || '');
             pngB64 = du ? du.split('base64,')[1] : "";
           }catch(_){}
 
@@ -296,17 +298,16 @@
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
 
-        // ===== iOS Safari: descarga por POST; si no existe el endpoint, abre la imagen en nueva pestaña
+        // ===== iOS Safari: descarga por POST; si no existe, abrir en misma pestaña para guardar
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
-            var a = document.createElement("a");
-            a.href = dataUrl; a.download = "personalizacion.png";
-
             var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
             var isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 
             if (isIOS && isSafari) {
+              // Intento 1: endpoint POST (si está disponible en el servidor)
+              var ok = false;
               try {
                 var form = document.createElement("form");
                 form.method = "POST";
@@ -319,21 +320,22 @@
                 form.appendChild(inp);
                 document.body.appendChild(form);
                 form.submit();
+                ok = true;
                 setTimeout(function(){ form.remove(); }, 1200);
-              } catch(_e) {
-                var w = window.open("", "_blank");
-                if (w && !w.closed) {
-                  w.document.write("<meta name='viewport' content='width=device-width, initial-scale=1'>");
-                  w.document.write("<p style='font:14px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto'>Mantén pulsado para guardar:</p>");
-                  w.document.write("<img style='max-width:100%;height:auto' src='"+dataUrl+"'>");
-                } else {
-                  window.open(dataUrl, "_blank");
-                }
+              } catch(_e) { ok = false; }
+              // Intento 2: abrir la imagen en esta pestaña (el usuario puede pulsar/guardar)
+              if (!ok) {
+                window.location.href = dataUrl;
               }
-            } else if (typeof a.download === "undefined") {
-              window.open(dataUrl, "_blank");
             } else {
-              document.body.appendChild(a); a.click(); a.remove();
+              // Resto de navegadores
+              var a = document.createElement("a");
+              a.href = dataUrl; a.download = "personalizacion.png";
+              if (typeof a.download === "undefined") {
+                window.open(dataUrl, "_blank");
+              } else {
+                document.body.appendChild(a); a.click(); a.remove();
+              }
             }
           }catch(_){ alert("No se pudo generar el PNG."); }
         }
@@ -375,7 +377,7 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN UNIVERSAL EN website.layout (preview por línea, sin duplicados) ============ -->
+  <!-- ============ INYECCIÓN UNIVERSAL EN website.layout (preview por línea + swatch color, sin duplicados) ============ -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript"><![CDATA[
@@ -384,6 +386,7 @@
           function q(sel, root){return (root||document).querySelector(sel);}
           function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
 
+          // -------- Helpers de línea --------
           function parseLineIdFromHref(node){
             try{
               var a = node.closest('a[href*="line_id="]') || node.querySelector('a[href*="line_id="]');
@@ -392,7 +395,6 @@
               return u.searchParams.get('line_id');
             }catch(_){ return null; }
           }
-
           function getLineId(line){
             if(!line) return null;
             return line.getAttribute('data-line-id')
@@ -400,30 +402,87 @@
                 || parseLineIdFromHref(line)
                 || null;
           }
-
           function findLines(){
-            return qa(".js_cart_lines .row, .o_wsale_cart_item, tr.js_cart_line, [data-line-id]")
-              .filter(function(n){ return !!getLineId(n); });
+            // Cubrimos distintas maquetaciones de Odoo
+            var sel = ".js_cart_lines .row, .o_wsale_cart_item, tr.js_cart_line, [data-line-id], .card.js_cart_item";
+            return qa(sel).filter(function(n){ return !!getLineId(n); });
           }
-
           function holderFor(line){
+            // Contenedor junto a los botones +/- (varía por versión/tema)
             return q(".o_wsale_cart_quantity", line)
                 || q("div[name='quantity']", line)
                 || q(".css_quantity", line)
+                || q(".input-group-append", line)
                 || null;
           }
 
-          function showPreviewFor(line){
-            var id = getLineId(line); if(!id) return;
+          // -------- Color: convertir texto '#RRGGBB' en 'swatch' visual --------
+          var COLOR_NAMES = {
+            "#000000":"Negro","#FFFFFF":"Blanco","#D62828":"Rojo","#2060FF":"Azul","#2A9D8F":"Verde"
+          };
+          function enhanceColorText(root){
+            try{
+              qa("*", root).forEach(function(node){
+                if(!node.childNodes || !node.childNodes.length) return;
+                node.childNodes.forEach(function(c){
+                  if(c.nodeType === 3){ // texto
+                    var t = (c.nodeValue||"").trim();
+                    // Coincide con 'Color SVG: #xxxxxx' o similar
+                    var m = t.match(/(Color\s*SVG:?)\s*(#[0-9A-Fa-f]{6})/);
+                    if(m){
+                      var hex = m[2].toUpperCase();
+                      var wrap = document.createElement("span");
+                      wrap.style.display = "inline-flex";
+                      wrap.style.alignItems = "center";
+                      wrap.style.gap = "6px";
 
-            qa('.spw-preview[data-line="'+id+'"]').forEach(function(im){ im.remove(); });
+                      var label = document.createElement("span");
+                      label.textContent = m[1] + " ";
+
+                      var dot = document.createElement("span");
+                      dot.style.display = "inline-block";
+                      dot.style.width = "14px";
+                      dot.style.height = "14px";
+                      dot.style.borderRadius = "999px";
+                      dot.style.border = "1px solid #e5e7eb";
+                      dot.style.background = hex;
+
+                      var name = document.createElement("span");
+                      name.textContent = COLOR_NAMES[hex] ? (COLOR_NAMES[hex]+" ("+hex+")") : hex;
+
+                      wrap.appendChild(label);
+                      wrap.appendChild(dot);
+                      wrap.appendChild(name);
+
+                      var frag = document.createDocumentFragment();
+                      frag.appendChild(wrap);
+
+                      // Reemplaza solo ese trozo de texto
+                      var before = c.nodeValue.split(m[0])[0] || "";
+                      var after  = c.nodeValue.split(m[0])[1] || "";
+                      var partsFrag = document.createDocumentFragment();
+                      if(before){ partsFrag.appendChild(document.createTextNode(before)); }
+                      partsFrag.appendChild(frag);
+                      if(after){ partsFrag.appendChild(document.createTextNode(after)); }
+                      node.replaceChild(partsFrag, c);
+                    }
+                  }
+                });
+              });
+            }catch(_){}
+          }
+
+          // -------- Inserción del preview --------
+          function insertPreview(line, src, lineId){
+            // Evitar duplicados
+            qa('.spw-preview[data-line="'+lineId+'"]', line).forEach(function(im){ im.remove(); });
 
             var img = new Image();
             img.className = "spw-preview";
-            img.setAttribute("data-line", id);
+            img.setAttribute("data-line", lineId);
             img.alt = "Personalización";
             img.loading = "lazy";
-            img.src = "/spw/line_preview/" + encodeURIComponent(id) + ".png?_=" + Date.now();
+            img.src = src;
             img.style.maxWidth = "110px";
             img.style.height = "auto";
             img.style.border = "1px solid #e5e7eb";
@@ -440,17 +499,44 @@
             }
           }
 
+          function trySessionPreview(line, lineId){
+            try{
+              var lastId = sessionStorage.getItem('spw_last_line_id');
+              var dataUrl = sessionStorage.getItem('spw_last_png');
+              if (lastId && dataUrl && String(lastId) === String(lineId)) {
+                insertPreview(line, dataUrl, lineId);
+                return true;
+              }
+            }catch(_){}
+            return false;
+          }
+
+          function tryServerPreview(line, lineId){
+            var url = "/spw/line_preview/" + encodeURIComponent(lineId) + ".png?_=" + Date.now();
+            insertPreview(line, url, lineId);
+          }
+
           var schedulePending = false;
           function inject(){
             if (!/\/shop\/cart/.test(location.pathname)) return;
             try{
               var lines = findLines();
+              // Limpia huérfanos globales
               qa(".spw-preview").forEach(function(im){
                 var lid = im.getAttribute("data-line");
-                var still = lines.some(function(l){ return getLineId(l) === lid; });
-                if(!still) im.remove();
+                var keep = lines.some(function(l){ return getLineId(l) === lid; });
+                if(!keep) im.remove();
               });
-              lines.forEach(showPreviewFor);
+              lines.forEach(function(line){
+                var id = getLineId(line);
+                if (!id) return;
+                // Color visual
+                enhanceColorText(line);
+                // Preview (primero sesión, luego servidor)
+                if (!trySessionPreview(line, id)) {
+                  tryServerPreview(line, id);
+                }
+              });
             }catch(_){}
           }
           function schedule(){
