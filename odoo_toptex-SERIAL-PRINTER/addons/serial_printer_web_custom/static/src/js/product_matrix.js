@@ -1,29 +1,17 @@
 /** @odoo-module **/
 
-// === Utilidad: ejecutar cuando el DOM está listo ===
+// ================== Utilidad: DOM listo ==================
 function onReady(fn) {
     if (document.readyState !== "loading") fn();
     else document.addEventListener("DOMContentLoaded", fn);
 }
 
-// === Dónde anclar la tabla (debajo de los atributos) ===
-function getAttrsContainer(page) {
-    return (
-        page.querySelector(".js_attributes") ||
-        page.querySelector("form.o_wsale_product_configurator .js_attributes") ||
-        page.querySelector("form.o_wsale_product_configurator") ||
-        page.querySelector(".o_wsale_product_configurator") ||
-        null
-    );
-}
-
-// === Buscar bloques de atributos (Color, Talla) ===
+// ================== Buscar bloques de atributos ==================
 function getAttributeBlocks(scope) {
     const blocks = [];
+    // contenedores típicos de Odoo 18
     const containers = Array.from(
-        scope.querySelectorAll(
-            '[data-attribute_name], .js_attribute, .o_product_configurator [name], .js_attributes > div'
-        )
+        scope.querySelectorAll('[data-attribute_name], .js_attribute, .o_product_configurator [name], .js_attributes > div')
     );
 
     containers.forEach((el) => {
@@ -38,88 +26,53 @@ function getAttributeBlocks(scope) {
         if (!radios.length) return;
 
         const options = radios.map((inp) => {
-            const id = parseInt(
-                inp.dataset.valueId ||
-                inp.dataset.attributeValueId ||
-                inp.value || "0",
-                10
-            ) || 0;
-
+            const id = (
+                parseInt(inp.dataset.valueId || inp.dataset.attributeValueId || inp.value || "0", 10) || 0
+            );
             const txt = (
                 inp.closest("label")?.textContent ||
-                (inp.id ? (scope.querySelector(`label[for="${inp.id}"]`)?.textContent || "") : "") ||
                 inp.getAttribute("title") ||
                 ""
             ).replace(/\s+/g, " ").trim();
-
-            return id ? { id, text: txt } : null;
+            return id ? { id, text: txt, _radio: inp } : null;
         }).filter(Boolean);
 
-        if (options.length) blocks.push({ name, options });
+        if (options.length) blocks.push({ name, options, _el: el });
     });
 
+    // detectar color / talla
     const color = blocks.find((b) => /(color|colour|colou?r|c[oó]lor)/i.test(b.name));
     const size  = blocks.find((b) => /(size|talla|talle|taille|größe|maat)/i.test(b.name));
-    if (size) size.options = sortSizes(size.options);
 
+    if (size) size.options = sortSizes(size.options);
     return { color, size };
 }
 
-// === Ordenar tallas (numéricas o estándar) ===
+// ================== Ordenar tallas ==================
 function sortSizes(opts) {
     const std = ["2XS","XXS","XS","S","M","L","XL","2XL","XXL","3XL","4XL","5XL","6XL","7XL","8XL"];
     return [...opts].sort((a, b) => {
         const na = parseFloat(a.text), nb = parseFloat(b.text);
         if (!isNaN(na) && !isNaN(nb)) return na - nb;
-
         const ia = std.indexOf(a.text.toUpperCase());
         const ib = std.indexOf(b.text.toUpperCase());
         if (ia >= 0 && ib >= 0) return ia - ib;
-
         return a.text.localeCompare(b.text, undefined, { numeric: true });
     });
 }
 
-// === Miniatura para un color: busca <img> o background en el label ===
-function getColorThumbSrc(page, colorId) {
-    const sel = `input[type="radio"][data-value-id="${colorId}"],
-                 input[type="radio"][data-attribute-value-id="${colorId}"]`;
-    const inp = page.querySelector(sel);
-    if (inp) {
-        const label = inp.closest("label") || (inp.id ? page.querySelector(`label[for="${inp.id}"]`) : null);
-        if (label) {
-            const im = label.querySelector("img");
-            if (im?.src) return im.src;
-
-            const bg = getComputedStyle(label).backgroundImage;
-            const m = bg && bg !== "none" ? bg.match(/url\(["']?([^"')]+)["']?\)/) : null;
-            if (m?.[1]) return m[1];
-        }
-    }
-    // Fallback: imagen principal visible
-    const gallery = page.querySelector('.o_carousel_product .carousel-item.active img, img.js_product_img, img[class*="product"]');
-    return gallery?.src || "";
-}
-
-function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, (c) => ({
-        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-    }[c]));
-}
-
-// === HTML de la matriz (solo UI) ===
-function renderGrid(page, color, size) {
+// ================== Construir HTML matriz ==================
+function renderGrid(color, size) {
     let thead = '<thead><tr><th class="sp-sticky-left">Color</th>';
     size.options.forEach((s) => { thead += `<th>${escapeHtml(s.text)}</th>`; });
-    thead += "</tr></thead>";
+    thead += '</tr></thead>';
 
-    let tbody = "<tbody>";
+    let tbody = '<tbody>';
     color.options.forEach((c) => {
-        const thumb = getColorThumbSrc(page, c.id);
         tbody += `<tr data-color-id="${c.id}">
             <th class="sp-sticky-left">
                 <div class="sp-color">
-                    <img class="sp-color__img" src="${thumb}" alt="">
+                    <img class="sp-color__img" alt="" />
                     <span>${escapeHtml(c.text)}</span>
                 </div>
             </th>`;
@@ -127,14 +80,14 @@ function renderGrid(page, color, size) {
             tbody += `<td>
                 <div class="sp-cell">
                     <input class="sp-qty" type="number" min="0" step="1" inputmode="numeric"
-                           placeholder="0" data-color="${c.id}" data-size="${s.id}">
+                        placeholder="0" data-color="${c.id}" data-size="${s.id}">
                     <div class="sp-meta"></div>
                 </div>
             </td>`;
         });
-        tbody += "</tr>";
+        tbody += `</tr>`;
     });
-    tbody += "</tbody>";
+    tbody += '</tbody>';
 
     return `
       <div id="sp-matrix" class="sp-matrix-box">
@@ -144,32 +97,108 @@ function renderGrid(page, color, size) {
     `;
 }
 
-// === Inserta/actualiza matriz (debajo de los atributos; sin duplicados) ===
-function ensureMatrix() {
-    const page = document.querySelector(".o_wsale_product_page");
-    if (!page) return;
-
-    // Limpia duplicados
-    page.querySelectorAll("#sp-matrix").forEach((el) => el.remove());
-
-    const { color, size } = getAttributeBlocks(page);
-    if (!color || !size) {
-        console.info("[SP] Matrix: faltan Color y/o Talla. No se pinta.");
-        return;
-    }
-
-    const anchor = getAttrsContainer(page) || page;
-    anchor.insertAdjacentHTML("afterend", renderGrid(page, color, size));
-    console.log("[SP] Matrix renderizada debajo de atributos.");
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
 }
 
-// === Arranque ===
+// ================== Utilidades de inserción/posicionamiento ==================
+function commonAncestor(el1, el2) {
+    if (!el1) return el2 || null;
+    if (!el2) return el1 || null;
+    const set = new Set();
+    let a = el1;
+    while (a) { set.add(a); a = a.parentElement; }
+    let b = el2;
+    while (b) { if (set.has(b)) return b; b = b.parentElement; }
+    return null;
+}
+
+function findAnchor(page, colorEl, sizeEl) {
+    // Preferimos el ancestro común de color y talla (suele ser el bloque de atributos)
+    const both = commonAncestor(colorEl, sizeEl);
+    if (both) return both;
+    return page.querySelector(".js_attributes") ||
+           page.querySelector("form.o_wsale_product_configurator") ||
+           page;
+}
+
+// ================== Miniatura por color ==================
+function getColorThumbSrc(page, colorId) {
+    const radio = page.querySelector(
+        `input[type="radio"][data-value-id="${colorId}"], input[type="radio"][data-attribute-value-id="${colorId}"]`
+    );
+    if (radio) {
+        const lbl = radio.closest("label") || page.querySelector(`label[for="${radio.id}"]`);
+        const img = lbl?.querySelector("img");
+        if (img?.src) return img.src;
+
+        // ¿background-image en el label?
+        const styleEl = lbl?.querySelector('[style*="background-image"]') || lbl;
+        const bg = styleEl?.style?.backgroundImage;
+        if (bg && bg !== "none") {
+            const url = bg.slice(4, -1).replace(/["']/g, "");
+            if (url) return url;
+        }
+    }
+    // Fallback: imagen principal actual
+    const main = page.querySelector(".o_gallery_img_current img, .product_media img");
+    return main?.src || "";
+}
+
+function fillColorThumbs(page, color) {
+    color.options.forEach((c) => {
+        const row = page.querySelector(`#sp-matrix tr[data-color-id="${c.id}"] img.sp-color__img`);
+        if (!row) return;
+        const src = getColorThumbSrc(page, c.id);
+        if (src) row.src = src;
+    });
+}
+
+// ================== Pintar/actualizar matriz ==================
+let _debounceTimer = null;
+
+function ensureMatrix() {
+    if (window.__sp_building) return;
+    window.__sp_building = true;
+    try {
+        const page = document.querySelector(".o_wsale_product_page");
+        if (!page) return;
+
+        // eliminar TODAS las matrices previas (evita duplicados)
+        document.querySelectorAll("#sp-matrix").forEach((el) => el.remove());
+
+        const { color, size } = getAttributeBlocks(page);
+        if (!color || !size) {
+            document.body.classList.remove("sp-matrix-active");
+            return;
+        }
+
+        // ancla: justo después del bloque de atributos
+        const anchor = findAnchor(page, color._el, size._el);
+        if (!anchor) return;
+
+        anchor.insertAdjacentHTML("afterend", renderGrid(color, size));
+        document.body.classList.add("sp-matrix-active");
+
+        // miniaturas por color
+        fillColorThumbs(page, color);
+    } finally {
+        window.__sp_building = false;
+    }
+}
+
+// ================== Arranque ==================
 onReady(() => {
     ensureMatrix();
+
+    // Recalcular cuando cambien radios (con debounce)
     const page = document.querySelector(".o_wsale_product_page");
     if (!page) return;
-    // Si cambian radios, re-pintamos
     page.addEventListener("change", (ev) => {
-        if (ev.target.matches('input[type="radio"]')) ensureMatrix();
+        if (!ev.target.matches('input[type="radio"]')) return;
+        clearTimeout(_debounceTimer);
+        _debounceTimer = setTimeout(() => ensureMatrix(), 50);
     });
 });
