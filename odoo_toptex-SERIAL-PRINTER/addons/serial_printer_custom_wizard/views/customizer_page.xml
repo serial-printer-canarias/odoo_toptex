@@ -15,12 +15,13 @@
         <div class="row g-4">
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
-              <!-- Base same-origin para evitar CORS al exportar -->
+
+              <!-- Imagen base interna (same-origin) para evitar CORS en canvas -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
 
-              <!-- Imagen visible -->
+              <!-- Imagen visible del producto -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
 
@@ -141,15 +142,15 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (iOS download simple + redirección con spw_line_id) ====== -->
+      <!-- ====== JS INLINE (configurador; sin cambios salvo lo ya acordado) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
 
         function $(sel, root){return (root||document).querySelector(sel);}
-        function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
         function $val(id, d){ var el=$("#"+id); return el?el.value:d; }
 
+        // Carga IMG sin crossOrigin (iOS safe)
         async function loadImage(src){
           return new Promise(function(resolve, reject){
             var im=new Image();
@@ -246,7 +247,7 @@
               body: JSON.stringify(payload),
             });
             var txt = await resp.text();
-            var data=null; try{ data = JSON.parse(txt); }catch(_){}
+            var data=null; try{ data = JSON.parse(txt); }catch(e){}
             return {ok: !!(data && (data.ok===true || data.ok==="true")), data:data, status:resp.status, raw:txt};
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
@@ -256,7 +257,7 @@
             Object.keys(payload||{}).forEach(function(k){ fd.append(k, payload[k]); });
             var resp = await fetch(url, { method: "POST", body: fd, credentials:"same-origin" });
             var txt = await resp.text();
-            var data=null; try{ data = JSON.parse(txt); }catch(_){}
+            var data=null; try{ data = JSON.parse(txt); }catch(e){}
             return {ok: resp.ok && (!!data ? (data.ok===true || data.ok==="true") : true), data:data||{}, status:resp.status, raw:txt};
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
@@ -269,14 +270,13 @@
           var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
-          var pngB64="";
+          var pngB64=""; 
           try{
             var du = await renderPNGDataURL();
             sessionStorage.setItem('spw_last_product_id', String(variantId));
             sessionStorage.setItem('spw_last_png', du || '');
-            sessionStorage.setItem('spw_last_color', svgColor || '');
             pngB64 = du ? du.split('base64,')[1] : "";
-          }catch(_){}
+          }catch(e){}
 
           // 1) meta JSON -> fallback HTTP
           var r1 = await postJSON("/spw/add_to_cart_meta", {
@@ -287,7 +287,11 @@
           }); }
           if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
-          try { if (r1.data && r1.data.line_id) sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id)); } catch(_){}
+          try {
+            if (r1.data && r1.data.line_id) {
+              sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id));
+            }
+          } catch(e) {}
 
           // 2) PNG JSON -> fallback HTTP (no bloquea redirección)
           if(pngB64){
@@ -295,25 +299,21 @@
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
           }
 
-          // === CLAVE: redirige con ?spw_line_id=<id> para que el carrito sepa dónde pintar ===
-          var baseUrl = (r1.data && r1.data.cart_url) || "/shop/cart";
-          var withParam = (r1.data && r1.data.line_id) ? (baseUrl + (baseUrl.indexOf('?')===-1?'?':'&') + 'spw_line_id=' + encodeURIComponent(r1.data.line_id)) : baseUrl;
-          window.location.href = withParam;
+          window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
 
-        // iOS/Android/Escritorio: abrir en misma pestaña si no hay soporte de descarga
+        // Descarga compatible iOS/Safari
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
             var a = document.createElement("a");
             a.href = dataUrl; a.download = "personalizacion.png";
-            if (typeof a.download === "undefined") {
-              // iOS Safari y otros: abrir en la misma pestaña para "mantener pulsado → Guardar imagen"
-              window.location.href = dataUrl;
+            if (typeof a.download === "undefined" || /iPad|iPhone|iPod/.test(navigator.userAgent)) {
+              window.open(dataUrl, "_blank");
             } else {
               document.body.appendChild(a); a.click(); a.remove();
             }
-          }catch(_){ alert("No se pudo generar el PNG."); }
+          }catch(e){ alert("No se pudo generar el PNG."); }
         }
 
         function init(){
@@ -353,151 +353,84 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN EN website.layout: preview por línea (usa ?spw_line_id y sessionStorage) ============ -->
+  <!-- ============ INYECCIÓN UNIVERSAL EN website.layout (preview en carrito) ============ -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
-      <script type="text/javascript"><![CDATA[
+      <script type="text/javascript">
+        //<![CDATA[
         (function(){
           "use strict";
-          function q(sel, root){return (root||document).querySelector(sel);}
-          function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
 
-          function getUrlParam(name){
-            try{ return new URL(location.href).searchParams.get(name); }catch(_){ return null; }
-          }
-          function parseLineIdFromHref(node){
-            try{
-              var a = node.closest('a[href*="line_id="]') || node.querySelector('a[href*="line_id="]');
-              if(!a) return null;
-              var u = new URL(a.getAttribute('href'), location.origin);
-              return u.searchParams.get('line_id');
-            }catch(_){ return null; }
-          }
-          function getLineId(line){
-            if(!line) return null;
-            return line.getAttribute('data-line-id')
-                || ((q('input[name="line_id"]', line)||{}).value)
-                || parseLineIdFromHref(line)
-                || null;
-          }
-          function findLines(){
-            var sel = ".js_cart_lines .row, .o_wsale_cart_item, tr.js_cart_line, [data-line-id], .card.js_cart_item";
-            return qa(sel).filter(function(n){ return !!getLineId(n); });
-          }
-          function holderFor(line){
-            return q(".o_wsale_cart_quantity", line)
-                || q("div[name='quantity']", line)
-                || q(".css_quantity", line)
-                || q(".input-group-append", line)
-                || line;
-          }
-
-          function insertPreview(line, src, lineId, hex){
-            // Evitar duplicados en esa línea
-            qa('.spw-preview[data-line="'+lineId+'"]', line).forEach(function(im){ im.remove(); });
-            var wrap = document.createElement("div");
-            wrap.className = "spw-preview";
-            wrap.setAttribute("data-line", lineId);
-            wrap.style.display = "flex";
-            wrap.style.alignItems = "center";
-            wrap.style.gap = "8px";
-            wrap.style.marginTop = "6px";
-
-            var img = new Image();
-            img.alt = "Personalización";
-            img.loading = "lazy";
-            img.src = src;
-            img.style.maxWidth = "110px";
-            img.style.height = "auto";
-            img.style.border = "1px solid #e5e7eb";
-            img.style.borderRadius = "6px";
-            img.onerror = function(){ wrap.remove(); };
-
-            wrap.appendChild(img);
-
-            if (hex && /^#[0-9A-F]{6}$/i.test(hex)) {
-              var sw = document.createElement("span");
-              sw.title = hex;
-              sw.style.display = "inline-block";
-              sw.style.width = "14px";
-              sw.style.height = "14px";
-              sw.style.borderRadius = "999px";
-              sw.style.border = "1px solid #e5e7eb";
-              sw.style.background = hex;
-              wrap.appendChild(sw);
+          function topLineRoot(node){
+            // asciende hasta el ancestro más alto que siga teniendo el mismo data-line-id
+            var id = node && node.getAttribute && node.getAttribute("data-line-id");
+            if(!id) return node;
+            var root = node;
+            while (root && root.parentElement && root.parentElement.getAttribute && root.parentElement.getAttribute("data-line-id") === id){
+              root = root.parentElement;
             }
-
-            var h = holderFor(line);
-            if (h && h.parentElement) {
-              h.insertAdjacentElement('afterend', wrap);
-            } else {
-              line.appendChild(wrap);
-            }
+            return root || node;
           }
 
           function inject(){
-            if (!/\/shop\/cart/.test(location.pathname)) return;
-
-            var wanted = getUrlParam('spw_line_id'); // viene de la redirección tras añadir
-            var lastId = null, lastPng = null, lastColor = null;
             try {
-              lastId = sessionStorage.getItem('spw_last_line_id');
-              lastPng = sessionStorage.getItem('spw_last_png');
-              lastColor = sessionStorage.getItem('spw_last_color');
-            } catch(_){}
+              if (!/\/shop\/cart/.test(window.location.pathname)) return;
 
-            var lines = findLines();
+              var processed = new Set();
 
-            // Limpieza de huérfanos globales
-            qa(".spw-preview").forEach(function(im){
-              var lid = im.getAttribute("data-line");
-              var keep = lines.some(function(l){ return getLineId(l) === lid; });
-              if(!keep) im.remove();
-            });
+              document.querySelectorAll("[data-line-id]").forEach(function(n){
+                var id = n.getAttribute("data-line-id");
+                if(!id || processed.has(id)) return;
 
-            lines.forEach(function(line){
-              var id = getLineId(line);
-              if (!id) return;
+                var root = topLineRoot(n);
+                processed.add(id);
 
-              // 1) Si venimos de crear esa línea ahora mismo, usa el dataURL de sesión (pinta instantáneo)
-              if (wanted && lastId && wanted === lastId && id === lastId && lastPng) {
-                insertPreview(line, lastPng, id, lastColor);
-                return;
-              }
+                // Evitar duplicados dentro de la misma línea
+                if (root.querySelector(".spw-preview")) return;
 
-              // 2) Fallback estable: imagen desde servidor
-              var url = "/spw/line_preview/" + encodeURIComponent(id) + ".png?_=" + Date.now();
-              insertPreview(line, url, id, null);
-            });
+                var url = "/spw/line_preview/" + id + ".png";
+                var img = new Image();
+                img.className = "spw-preview";
+                img.alt = "Personalización";
+                img.style.maxWidth = "120px";
+                img.style.border = "1px solid #e5e7eb";
+                img.style.borderRadius = "6px";
+                img.style.margin = "8px";
 
-            // Opcional: limpiar los últimos para que no contamine siguientes carritos
-            if (wanted && lastId && wanted === lastId) {
-              try{
-                sessionStorage.removeItem('spw_last_line_id');
-                sessionStorage.removeItem('spw_last_png');
-                sessionStorage.removeItem('spw_last_color');
-              }catch(_){}
-            }
+                // contenedores típicos
+                var qty   = root.querySelector(".o_wsale_cart_quantity, .css_quantity, .o_cart_line_qty");
+                var info  = root.querySelector(".o_wsale_product_information, .o_cart_product_information, .o_wsale_product_info, .o_cart_product");
+                var where = info || root;
+
+                // Si hay bloque de cantidad, inserta la preview justo ANTES del bloque
+                if (qty && qty.parentElement) {
+                  var wrap = document.createElement("div");
+                  wrap.className = "spw-preview-wrap";
+                  wrap.style.display = "inline-block";
+                  wrap.style.verticalAlign = "middle";
+                  wrap.appendChild(img);
+                  qty.parentElement.insertBefore(wrap, qty);
+                } else {
+                  where.appendChild(img);
+                }
+
+                // asigna src al final para evitar parpadeos
+                img.src = url;
+              });
+
+            } catch(_e) {}
           }
 
-          function boot(){
-            inject();
-            var root = q(".js_cart_lines") || q(".o_wsale_cart") || q("main") || document.body;
-            if (window.MutationObserver && root){
-              var mo = new MutationObserver(function(){ requestAnimationFrame(inject); });
-              mo.observe(root, {childList:true, subtree:true});
-            }
-            setTimeout(inject, 400);
-            setTimeout(inject, 1200);
-          }
-
-          if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', boot);
+          if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", function(){ inject(); setTimeout(inject, 600); });
           } else {
-            boot();
+            inject(); setTimeout(inject, 600);
           }
+          // reintento suave por re-render del carrito
+          setInterval(inject, 1500);
         })();
-      ]]></script>
+        //]]>
+      </script>
     </xpath>
   </template>
 
