@@ -16,7 +16,7 @@
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
 
-              <!-- Base interna same-origin para evitar CORS en canvas -->
+              <!-- Base interna same-origin para evitar CORS al exportar PNG -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
@@ -274,7 +274,6 @@
           var pngB64="";
           try{
             var du = await renderPNGDataURL();
-            // Guardamos para posibles usos (no se usa para pintar todas las líneas)
             sessionStorage.setItem('spw_last_product_id', String(variantId));
             sessionStorage.setItem('spw_last_png', du || '');
             pngB64 = du ? du.split('base64,')[1] : "";
@@ -289,7 +288,6 @@
           }); }
           if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
-          // Guardamos la última línea creada para refrescarla, y limpiamos después
           try { if (r1.data && r1.data.line_id) sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id)); } catch(_){}
 
           // 2) PNG JSON -> fallback HTTP
@@ -301,16 +299,28 @@
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
 
-        // Descarga compatible iOS: abre la imagen en una pestaña nueva
+        // Descarga compatible iOS (abre pestaña mediante POST si Safari bloquea download)
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
-            var a = document.createElement("a");
-            a.href = dataUrl; a.download = "personalizacion.png";
-            if (typeof a.download === "undefined" || /iPad|iPhone|iPod/.test(navigator.userAgent)) {
-              window.open(dataUrl, "_blank");
+            var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+            var isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+            if (isIOS && isSafari) {
+              var form = document.createElement("form");
+              form.method = "POST";
+              form.action = "/spw/download_png";
+              form.target = "_blank";
+              var inp = document.createElement("input");
+              inp.type = "hidden"; inp.name = "png_b64"; inp.value = dataURLtoBase64(dataUrl);
+              form.appendChild(inp);
+              document.body.appendChild(form);
+              form.submit();
+              setTimeout(function(){ form.remove(); }, 1500);
             } else {
-              document.body.appendChild(a); a.click(); a.remove();
+              var a = document.createElement("a");
+              a.href = dataUrl; a.download = "personalizacion.png";
+              if (typeof a.download === "undefined") { window.open(dataUrl, "_blank"); }
+              else { document.body.appendChild(a); a.click(); a.remove(); }
             }
           }catch(_){ alert("No se pudo generar el PNG."); }
         }
@@ -352,76 +362,73 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN EN CARRITO (UNA PREVIEW POR LÍNEA) ============ -->
+  <!-- ============ INYECCIÓN EN CARRITO: UNA PREVIEW SOLO EN SU LÍNEA ============ -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript">
         //<![CDATA[
         (function(){
-          function getLineId(el){
-            if (!el) return null;
-            return el.getAttribute('data-line-id')
-                || ((el.querySelector('input[name="line_id"]')||{}).value)
+          function getLineId(line){
+            if (!line) return null;
+            return line.getAttribute('data-line-id')
+                || ((line.querySelector('input[name="line_id"]')||{}).value)
                 || null;
           }
-          function candidateLines(){
-            // Soporta distintos themes/DOMs
-            var nodes = Array.from(document.querySelectorAll(
+          function findLines(){
+            return Array.from(document.querySelectorAll(
               ".js_cart_lines .row, .o_wsale_cart_item, [data-line-id]"
-            ));
-            // Filtra los que realmente tienen un id detectable
-            return nodes.filter(function(n){ return !!getLineId(n); });
+            )).filter(function(n){ return !!getLineId(n); });
           }
-          function findTarget(el){
-            // Zona estable de info del producto (evita meterlo dentro del control de cantidad)
-            return el.querySelector(".o_wsale_cart_item_info, .o_wsale_product_information, .o_cart_product_information, .o_wsale_product_info")
-                   || el;
+          function holderFor(line){
+            // Prioriza la columna de cantidad para que quede al lado de +/- ; fallback: info
+            return line.querySelector(".o_wsale_cart_quantity")
+                || line.querySelector(".o_wsale_cart_item_info, .o_wsale_product_information, .o_cart_product_information, .o_wsale_product_info")
+                || line;
           }
-          function injectOnce(el){
-            try{
-              var id = getLineId(el); if(!id) return;
-              if (el.querySelector('.spw-preview[data-line="'+id+'"]')) return; // no duplicar
+          function showPreviewFor(line){
+            var id = getLineId(line); if(!id) return;
+            // Si ya la tiene, no duplicar
+            if (line.querySelector('.spw-preview[data-line="'+id+'"]')) return;
 
-              var img = new Image();
-              img.className = "spw-preview";
-              img.setAttribute("data-line", id);
-              img.loading = "lazy";
-              img.alt = "Personalización";
-              // Servido por el backend por línea -> cada producto su PNG
-              img.src = "/spw/line_preview/" + encodeURIComponent(id) + ".png";
+            var img = new Image();
+            img.className = "spw-preview";
+            img.setAttribute("data-line", id);
+            img.alt = "Personalización";
+            img.loading = "lazy";
+            img.src = "/spw/line_preview/" + encodeURIComponent(id) + ".png";
+            img.style.maxWidth = "110px";
+            img.style.height = "auto";
+            img.style.marginLeft = "8px";
+            img.style.border = "1px solid #e5e7eb";
+            img.style.borderRadius = "6px";
+            img.style.display = "block";
+            img.style.marginTop = "6px";
 
-              img.style.maxWidth = "110px";
-              img.style.height = "auto";
-              img.style.marginLeft = "8px";
-              img.style.border = "1px solid #e5e7eb";
-              img.style.borderRadius = "6px";
-              img.style.display = "inline-block";
-              img.style.verticalAlign = "middle";
+            // Si no hay adjunto, no ensuciar el DOM
+            img.onerror = function(){ img.remove(); };
 
-              var target = findTarget(el);
-              target.appendChild(img);
-            }catch(_){}
+            holderFor(line).appendChild(img);
           }
-          function injectAll(){
-            if (!/\/shop\/cart/.test(window.location.pathname)) return;
-            candidateLines().forEach(injectOnce);
+          function inject(){
+            if (!/\/shop\/cart/.test(location.pathname)) return;
+            findLines().forEach(showPreviewFor);
           }
-
-          // Ejecuta al cargar y tras cambios dinámicos del carrito
           function boot(){
-            injectAll();
+            inject();
+            // Reinyecta al cambiar cantidades / borrar líneas (AJAX)
             var root = document.querySelector(".js_cart_lines, .o_wsale_cart, main, body");
-            if (!root) return;
-            var mo = new MutationObserver(function(){ injectAll(); });
-            mo.observe(root, {childList:true, subtree:true});
-            // Refresca la última línea agregada (si existe) y limpia banderas
-            try{ sessionStorage.removeItem('spw_last_png'); }catch(_){}
+            if (root){
+              var mo = new MutationObserver(function(){ inject(); });
+              mo.observe(root, {childList:true, subtree:true});
+            }
+            // Kicks extra por si el DOM tarda
+            setTimeout(inject, 400);
+            setTimeout(inject, 1000);
           }
-
           if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', function(){ setTimeout(boot, 0); });
+            document.addEventListener('DOMContentLoaded', boot);
           } else {
-            setTimeout(boot, 0);
+            boot();
           }
         })();
         //]]>
