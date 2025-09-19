@@ -1,328 +1,265 @@
 /** @odoo-module **/
 
-// ============ Utilidad: DOM listo ============
-function onReady(fn) {
+(() => {
+  "use strict";
+
+  // ---------- Utilidades ----------
+  const SLOT_ID = "sp-matrix-slot";
+
+  function onReady(fn) {
     if (document.readyState !== "loading") fn();
     else document.addEventListener("DOMContentLoaded", fn);
-}
+  }
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $all = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+  const esc = (s) =>
+    String(s || "").replace(/[&<>"']/g, (m) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    })[m]);
 
-// ============ Bloques de atributos (Color / Talla) ============
-function getAttributeBlocks(scope) {
+  function sortSizes(opts) {
+    const std = [
+      "2XS","XXS","XS","S","M","L","XL","2XL","XXL","3XL","4XL","5XL","6XL","7XL","8XL",
+    ];
+    return [...opts].sort((a, b) => {
+      const na = parseFloat(a.text), nb = parseFloat(b.text);
+      if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+      const ia = std.indexOf(a.text.toUpperCase());
+      const ib = std.indexOf(b.text.toUpperCase());
+      if (ia > -1 && ib > -1) return ia - ib;
+      return a.text.localeCompare(b.text, undefined, { numeric: true });
+    });
+  }
+
+  // Busca bloques de atributos (color/talla) y recoge radios + text + img de label si existe
+  function getAttributeBlocks(scope) {
     const blocks = [];
-    const containers = Array.from(
-        scope.querySelectorAll(
-            '[data-attribute_name], .js_attribute, .o_product_configurator [name], .js_attributes > div'
-        )
+    const containers = $all(
+      '[data-attribute_name], .js_attribute, .o_product_configurator [name], .js_attributes > div',
+      scope
     );
 
     containers.forEach((el) => {
-        const name = (
-            el.getAttribute("data-attribute_name") ||
-            el.querySelector(".attribute_name, legend, .o_attr_title")?.textContent ||
-            el.getAttribute("name") ||
-            ""
-        ).trim().toLowerCase();
+      const name = (
+        el.getAttribute("data-attribute_name") ||
+        el.querySelector(".attribute_name, legend, .o_attr_title")?.textContent ||
+        el.getAttribute("name") ||
+        ""
+      ).trim().toLowerCase();
 
-        const radios = Array.from(el.querySelectorAll('input[type="radio"]'));
-        if (!radios.length) return;
+      const radios = $all('input[type="radio"]', el);
+      if (!radios.length) return;
 
-        const options = radios.map((inp) => {
-            const id = parseInt(
-                inp.dataset.valueId || inp.dataset.attributeValueId || inp.value || "0",
-                10
-            ) || 0;
-            const txt = (inp.closest("label")?.textContent || inp.getAttribute("title") || "")
-                .replace(/\s+/g, " ").trim();
-            return id ? { id, text: txt, _radio: inp } : null;
-        }).filter(Boolean);
+      const options = radios
+        .map((inp) => {
+          const id = parseInt(
+            inp.dataset.valueId || inp.dataset.attributeValueId || inp.value || "0",
+            10
+          ) || 0;
+          if (!id) return null;
+          const label = inp.closest("label") || el.querySelector(`label[for="${inp.id}"]`);
+          const text = (label?.textContent || inp.getAttribute("title") || "")
+            .replace(/\s+/g, " ")
+            .trim();
+          const img = label?.querySelector("img")?.getAttribute("src") || null;
+          return { id, text, _radio: inp, _label: label, _img: img };
+        })
+        .filter(Boolean);
 
-        if (options.length) blocks.push({ name, options, _el: el });
+      if (options.length) blocks.push({ name, options });
     });
 
     const color = blocks.find((b) => /(color|colour|colou?r|c[oó]lor)/i.test(b.name));
-    const size  = blocks.find((b)  => /(size|talla|talle|taille|größe|maat)/i.test(b.name));
-
+    const size  = blocks.find((b) => /(size|talla|talle|taille|größe|maat)/i.test(b.name));
     if (size) size.options = sortSizes(size.options);
+
     return { color, size };
-}
+  }
 
-// ============ Ordena tallas ============
-function sortSizes(opts) {
-    const std = ["2XS","XXS","XS","S","M","L","XL","2XL","XXL","3XL","4XL","5XL","6XL","7XL","8XL"];
-    return [...opts].sort((a, b) => {
-        const na = parseFloat(a.text), nb = parseFloat(b.text);
-        if (!isNaN(na) && !isNaN(nb)) return na - nb;
-        const ia = std.indexOf(a.text.toUpperCase());
-        const ib = std.indexOf(b.text.toUpperCase());
-        if (ia >= 0 && ib >= 0) return ia - ib;
-        return a.text.localeCompare(b.text, undefined, { numeric: true });
-    });
-}
-
-// ============ Render tabla (UI) ============
-function renderGrid(color, size) {
+  // Render de la tabla
+  function buildGrid(color, size, previousValues) {
     let thead = '<thead><tr><th class="sp-sticky-left">Color</th>';
-    size.options.forEach((s) => { thead += `<th>${escapeHtml(s.text)}</th>`; });
-    thead += '</tr></thead>';
+    size.options.forEach((s) => (thead += `<th>${esc(s.text)}</th>`));
+    thead += "</tr></thead>";
 
-    let tbody = '<tbody>';
+    let tbody = "<tbody>";
     color.options.forEach((c) => {
-        tbody += `<tr data-color-id="${c.id}">
-            <th class="sp-sticky-left">
-                <div class="sp-color">
-                    <img class="sp-color__img" alt="" />
-                    <span>${escapeHtml(c.text)}</span>
-                </div>
-            </th>`;
-        size.options.forEach((s) => {
-            tbody += `<td>
-                <div class="sp-cell">
-                    <input class="sp-qty" type="number" min="0" step="1" inputmode="numeric"
-                        placeholder="0" data-color="${c.id}" data-size="${s.id}">
-                    <div class="sp-meta"></div>
-                </div>
-            </td>`;
-        });
-        tbody += `</tr>`;
+      tbody += `<tr data-color-id="${c.id}">
+        <th class="sp-sticky-left">
+          <div class="sp-color">
+            <img class="sp-color__img" alt="" data-fallback="${esc(c._img || "")}">
+            <span>${esc(c.text)}</span>
+          </div>
+        </th>`;
+      size.options.forEach((s) => {
+        const key = `${c.id}:${s.id}`;
+        const val = previousValues?.[key] ?? "";
+        tbody += `<td>
+          <div class="sp-cell">
+            <input class="sp-qty" type="number" min="0" step="1" inputmode="numeric"
+                   placeholder="0" value="${esc(val)}"
+                   data-color="${c.id}" data-size="${s.id}">
+            <div class="sp-meta"></div>
+          </div>
+        </td>`;
+      });
+      tbody += "</tr>";
     });
-    tbody += '</tbody>';
+    tbody += "</tbody>";
 
     return `
       <div id="sp-matrix" class="sp-matrix-box">
         <table class="sp-matrix__table">${thead}${tbody}</table>
-        <div class="sp-actions"><button type="button" id="sp-add-selected" class="btn btn-primary">
-            Añadir selección
-        </button></div>
+        <div class="sp-actions">
+          <button type="button" id="sp-add-selection" class="btn btn-primary o_add_to_cart">Añadir selección</button>
+        </div>
         <p class="sp-help">Indica cantidades por color y talla.</p>
       </div>
     `;
-}
+  }
 
-function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, (c) => ({
-        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-    }[c]));
-}
-
-// ============ Posicionamiento / ancla ============
-function commonAncestor(el1, el2) {
-    if (!el1) return el2 || null;
-    if (!el2) return el1 || null;
-    const set = new Set();
-    for (let a = el1; a; a = a.parentElement) set.add(a);
-    for (let b = el2; b; b = b.parentElement) if (set.has(b)) return b;
-    return null;
-}
-function findAnchor(page, colorEl, sizeEl) {
-    const both = commonAncestor(colorEl, sizeEl);
-    if (both) return both;
-    return page.querySelector(".js_attributes") ||
-           page.querySelector("form.o_wsale_product_configurator") ||
-           page;
-}
-
-// ============ Helpers: PT id / Pricelist / CSRF / JSON-RPC ============
-function getProductTemplateId(page) {
-    return (
-        page.querySelector('form.o_wsale_product_configurator')?.dataset.productTemplateId ||
-        page.querySelector('input[name="product_template_id"]')?.value ||
-        page.querySelector('[data-oe-model="product.template"]')?.getAttribute('data-oe-id') ||
-        null
-    );
-}
-function getPricelistId(page) {
-    return (
-        page.querySelector('input[name="pricelist_id"]')?.value ||
-        document.body.dataset.pricelistId ||
-        null
-    );
-}
-function getCsrfToken() {
-    return document.querySelector('input[name="csrf_token"]')?.value || null;
-}
-async function jsonRpc(url, params) {
-    const body = { jsonrpc: "2.0", method: "call", params };
-    const res  = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        credentials: "same-origin",
+  // Guarda cantidades ya escritas para no perderlas en re-render
+  function collectCurrentValues(root) {
+    const out = {};
+    $all("input.sp-qty", root).forEach((inp) => {
+      const q = inp.value;
+      if (q && Number(q) > 0) out[`${inp.dataset.color}:${inp.dataset.size}`] = q;
     });
-    const data = await res.json().catch(() => ({}));
-    if (data && Object.prototype.hasOwnProperty.call(data, "result")) return data.result;
-    throw new Error(`RPC error: ${url}`);
-}
+    return out;
+  }
 
-// Intenta varios endpoints según build
-async function getCombinationInfo(page, ptId, combination) {
-    const payload = {
-        product_template_id: parseInt(ptId, 10),
-        combination: combination,
-        add_qty: 1,
-        pricelist_id: getPricelistId(page),
-    };
-    const routes = [
-        "/shop/get_combination_info",
-        "/sale/get_combination_info",
-        "/shop/product/get_combination_info",
-    ];
-    let lastErr;
-    for (const r of routes) {
-        try { return await jsonRpc(r, payload); } catch (e) { lastErr = e; }
+  // Crea (solo una vez) un slot fijo bajo .js_attributes y re-pinta dentro
+  function ensureSlot(page) {
+    let slot = $("#" + SLOT_ID, page);
+    if (slot) return slot;
+    slot = document.createElement("div");
+    slot.id = SLOT_ID;
+    const attrs = page.querySelector(".js_attributes");
+    if (attrs && attrs.parentNode) {
+      attrs.parentNode.insertBefore(slot, attrs.nextSibling);
+    } else {
+      // fallback
+      (page.querySelector(".o_wsale_product_information")?.parentNode || page).appendChild(slot);
     }
-    throw lastErr || new Error("No get_combination_info route");
-}
+    return slot;
+  }
 
-async function addToCart(productId, qty, ptId, combination) {
-    const params = {
-        product_id: productId,
-        add_qty: qty,
-        combination: combination,
-        product_template_id: parseInt(ptId, 10),
-        csrf_token: getCsrfToken(),
-    };
-    return jsonRpc("/shop/cart/update_json", params);
-}
+  let suppressRebuild = false;
 
-// ============ Miniaturas por color ============
-// 1) Intentamos imagen del product.product (color + primera talla)
-// 2) Si falla, usamos imagen del valor de atributo (o placeholder)
-function getColorAttrImageSrc(page, colorId) {
-    const radio = page.querySelector(
-        `input[type="radio"][data-value-id="${colorId}"], input[type="radio"][data-attribute-value-id="${colorId}"]`
+  function ensureMatrix() {
+    const page = document.querySelector(".o_wsale_product_page");
+    if (!page) return;
+
+    const slot = ensureSlot(page);
+
+    const { color, size } = getAttributeBlocks(page);
+    if (!color || !size) {
+      slot.innerHTML = "";
+      document.body.classList.remove("sp-matrix-active");
+      return;
+    }
+
+    const prev = collectCurrentValues(slot);
+    slot.innerHTML = buildGrid(color, size, prev);
+    document.body.classList.add("sp-matrix-active");
+
+    // Miniaturas: usa <img> del label si existe; si no, usa la imagen principal actual.
+    $all('tr[data-color-id]', slot).forEach((tr) => {
+      const cid = tr.getAttribute("data-color-id");
+      const opt = color.options.find((o) => String(o.id) === cid);
+      const imgEl = tr.querySelector(".sp-color__img");
+      const src = opt ? opt._img : null;
+      if (src) {
+        imgEl.src = src;
+        imgEl.removeAttribute("data-fallback");
+      } else {
+        const main =
+          page.querySelector(".product_detail_img img, .o_website_sale_product_image img, .carousel-item.active img");
+        if (main?.src) imgEl.src = main.src;
+      }
+    });
+
+    // Botón añadir selección
+    $("#sp-add-selection", slot)?.addEventListener("click", () =>
+      addSelection(page, color, size, slot)
     );
-    const lbl = radio ? (radio.closest("label") || page.querySelector(`label[for="${radio?.id}"]`)) : null;
-    const img = lbl?.querySelector("img");
-    if (img?.src) return img.src;
+  }
 
-    const bgHost = lbl?.querySelector('[style*="background-image"]') || lbl;
-    if (bgHost?.style?.backgroundImage && bgHost.style.backgroundImage !== "none") {
-        const url = bgHost.style.backgroundImage.slice(4, -1).replace(/["']/g, "");
-        if (url) return url;
+  // Añade cada celda (>0) al carrito usando el formulario nativo de Odoo
+  async function addSelection(page, color, size, slot) {
+    const rows = $all("input.sp-qty", slot)
+      .map((inp) => ({
+        qty: parseInt(inp.value, 10) || 0,
+        colorId: parseInt(inp.dataset.color, 10),
+        sizeId: parseInt(inp.dataset.size, 10),
+      }))
+      .filter((r) => r.qty > 0);
+
+    if (!rows.length) return;
+
+    const form = page.querySelector('form[action*="/shop/cart"]') || page.querySelector("form");
+    if (!form) return;
+
+    const qtyField = form.querySelector('input[name="add_qty"], input[name="quantity"]');
+
+    for (const r of rows) {
+      const colorRadio = color.options.find((o) => o.id === r.colorId)?._radio;
+      const sizeRadio  = size.options.find((o) => o.id === r.sizeId)?._radio;
+      if (!colorRadio || !sizeRadio) continue;
+
+      suppressRebuild = true;
+      if (!colorRadio.checked) {
+        colorRadio.checked = true;
+        colorRadio.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      if (!sizeRadio.checked) {
+        sizeRadio.checked = true;
+        sizeRadio.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      suppressRebuild = false;
+
+      const pidInput = form.querySelector('input[name="product_id"]');
+      await waitFor(() => pidInput && pidInput.value && pidInput.value !== "0", 1200);
+
+      if (qtyField) {
+        qtyField.value = String(r.qty);
+        qtyField.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+
+      const addBtn =
+        form.querySelector(".o_add_to_cart, button[name='add_to_cart'], a.js_add_cart_json");
+      if (addBtn) {
+        addBtn.click();
+        await delay(500); // da tiempo a Odoo a cerrar popup/actualizar
+      }
     }
-    return `/web/image/product.attribute.value/${colorId}/image_128`;
-}
 
-async function fillColorThumbs(page, color, size) {
-    const ptId = getProductTemplateId(page);
-    const firstSizeId = size?.options?.[0]?.id;
-    await Promise.all(color.options.map(async (c) => {
-        const imgEl = page.querySelector(`#sp-matrix tr[data-color-id="${c.id}"] img.sp-color__img`);
-        if (!imgEl) return;
-        imgEl.loading = "lazy";
-        imgEl.decoding = "async";
-        // 1) combinación real
-        if (ptId && firstSizeId) {
-            try {
-                const info = await getCombinationInfo(page, ptId, [c.id, firstSizeId]);
-                const pid = info?.product_id;
-                if (pid) {
-                    imgEl.src = `/web/image/product.product/${pid}/image_128`;
-                    return;
-                }
-            } catch { /* fall back below */ }
-        }
-        // 2) imagen del atributo color
-        imgEl.src = getColorAttrImageSrc(page, c.id);
-    }));
-}
+    // limpia entradas
+    $all("input.sp-qty", slot).forEach((i) => (i.value = ""));
+  }
 
-// ============ Pintar/actualizar matriz ============
-let _debounceTimer = null;
-function ensureMatrix() {
-    if (window.__sp_building) return;
-    window.__sp_building = true;
-    try {
-        const page = document.querySelector(".o_wsale_product_page");
-        if (!page) return;
-
-        // Eliminar cualquier matriz previa (evita duplicados)
-        document.querySelectorAll("#sp-matrix").forEach((el) => el.remove());
-
-        const { color, size } = getAttributeBlocks(page);
-        if (!color || !size) {
-            document.body.classList.remove("sp-matrix-active");
-            return;
-        }
-
-        const anchor = findAnchor(page, color._el, size._el);
-        if (!anchor) return;
-        anchor.insertAdjacentHTML("afterend", renderGrid(color, size));
-        document.body.classList.add("sp-matrix-active");
-
-        // Miniaturas reales (o fallback)
-        fillColorThumbs(page, color, size);
-
-        // Precio/stock al enfocar
-        const ptId = getProductTemplateId(page);
-        page.querySelectorAll("#sp-matrix input.sp-qty").forEach((inp) => {
-            inp.addEventListener("focus", async () => {
-                const td   = inp.closest("td");
-                const meta = td.querySelector(".sp-meta");
-                if (meta.dataset.loaded) return;
-                const colorId = parseInt(inp.dataset.color, 10);
-                const sizeId  = parseInt(inp.dataset.size, 10);
-                try {
-                    let info;
-                    try { info = await getCombinationInfo(page, ptId, [colorId, sizeId]); }
-                    catch { info = await getCombinationInfo(page, ptId, [sizeId, colorId]); }
-
-                    td.dataset.productId = info.product_id || "";
-                    const price = typeof info.price === "number" ? info.price.toFixed(2) : (info.price || "");
-                    const stock = (info.product_qty ?? info.virtual_available ?? info.qty_available);
-                    meta.innerHTML = [price ? (`${price}`) : "", (stock !== undefined ? `Stock: ${stock}` : "")]
-                        .filter(Boolean).join(" · ");
-                    meta.dataset.loaded = "1";
-                } catch {
-                    meta.innerHTML = "";
-                }
-            });
-        });
-
-        // Botón "Añadir selección"
-        page.querySelector("#sp-add-selected")?.addEventListener("click", async () => {
-            const ptId2 = getProductTemplateId(page);
-            const inputs = Array.from(page.querySelectorAll("#sp-matrix input.sp-qty"))
-                .map((i) => ({ el: i, q: parseInt(i.value || "0", 10) || 0 }))
-                .filter((x) => x.q > 0);
-
-            if (!inputs.length) return;
-
-            for (const { el, q } of inputs) {
-                const colorId = parseInt(el.dataset.color, 10);
-                const sizeId  = parseInt(el.dataset.size, 10);
-                try {
-                    let info;
-                    try { info = await getCombinationInfo(page, ptId2, [colorId, sizeId]); }
-                    catch { info = await getCombinationInfo(page, ptId2, [sizeId, colorId]); }
-                    const pid  = info?.product_id;
-                    if (pid) {
-                        await addToCart(pid, q, ptId2, [colorId, sizeId]);
-                        el.value = ""; // limpiar
-                    }
-                } catch (e) {
-                    console.warn("[SP] fallo al añadir combinación", colorId, sizeId, e);
-                }
-            }
-            // Refrescar mini-carrito si existe
-            document.querySelector(".js_cart")?.dispatchEvent(new Event("click", { bubbles: true }));
-        });
-
-    } finally {
-        window.__sp_building = false;
+  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function waitFor(testFn, timeout = 1000, step = 50) {
+    const t0 = performance.now();
+    while (performance.now() - t0 < timeout) {
+      if (testFn()) return true;
+      await delay(step);
     }
-}
+    return false;
+  }
 
-// ============ Arranque ============
-onReady(() => {
+  // ---------- Arranque ----------
+  onReady(() => {
     ensureMatrix();
-
-    // Reconstruir si cambian radios (siempre borramos antes, no duplica)
     const page = document.querySelector(".o_wsale_product_page");
     if (!page) return;
     page.addEventListener("change", (ev) => {
-        if (!ev.target.matches('input[type="radio"]')) return;
-        clearTimeout(_debounceTimer);
-        _debounceTimer = setTimeout(() => ensureMatrix(), 60);
+      if (suppressRebuild) return;
+      if (ev.target.matches('input[type="radio"]')) ensureMatrix();
     });
-});
+  });
+})();
