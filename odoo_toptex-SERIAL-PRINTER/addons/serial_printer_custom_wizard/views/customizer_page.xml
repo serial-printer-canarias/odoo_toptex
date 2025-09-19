@@ -121,7 +121,7 @@
                 <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset && window.spwReset();">Reset</a>
+                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -384,8 +384,6 @@
           function q(sel, root){return (root||document).querySelector(sel);}
           function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
 
-          function safe(fn){ try{ fn(); }catch(e){ /*silencio*/ } }
-
           function parseLineIdFromHref(node){
             try{
               var a = node.closest('a[href*="line_id="]') || node.querySelector('a[href*="line_id="]');
@@ -409,7 +407,6 @@
           }
 
           function holderFor(line){
-            // contenedor de cantidad; pondremos la imagen justo DESPUÉS
             return q(".o_wsale_cart_quantity", line)
                 || q("div[name='quantity']", line)
                 || q(".css_quantity", line)
@@ -419,7 +416,6 @@
           function showPreviewFor(line){
             var id = getLineId(line); if(!id) return;
 
-            // eliminar duplicados en toda la página para ese line_id
             qa('.spw-preview[data-line="'+id+'"]').forEach(function(im){ im.remove(); });
 
             var img = new Image();
@@ -440,7 +436,6 @@
             if (h && h.parentElement) {
               h.insertAdjacentElement('afterend', img);
             } else {
-              // fallback: al final de la línea
               line.appendChild(img);
             }
           }
