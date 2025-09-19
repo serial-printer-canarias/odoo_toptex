@@ -1,113 +1,133 @@
 /** @odoo-module **/
 
-(() => {
-  "use strict";
-
-  // ---------- Utilidades ----------
-  const SLOT_ID = "sp-matrix-slot";
-
-  function onReady(fn) {
+// === Utilidad: ejecutar cuando el DOM está listo ===
+function onReady(fn) {
     if (document.readyState !== "loading") fn();
     else document.addEventListener("DOMContentLoaded", fn);
-  }
-  const $ = (sel, root = document) => root.querySelector(sel);
-  const $all = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-  const esc = (s) =>
-    String(s || "").replace(/[&<>"']/g, (m) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    })[m]);
+}
 
-  function sortSizes(opts) {
-    const std = [
-      "2XS","XXS","XS","S","M","L","XL","2XL","XXL","3XL","4XL","5XL","6XL","7XL","8XL",
-    ];
-    return [...opts].sort((a, b) => {
-      const na = parseFloat(a.text), nb = parseFloat(b.text);
-      if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
-      const ia = std.indexOf(a.text.toUpperCase());
-      const ib = std.indexOf(b.text.toUpperCase());
-      if (ia > -1 && ib > -1) return ia - ib;
-      return a.text.localeCompare(b.text, undefined, { numeric: true });
-    });
-  }
+// Estado global sencillo para evitar renders múltiples
+const SP = (window.__SP ||= { rendering: false, bound: false });
 
-  // Busca bloques de atributos (color/talla) y recoge radios + text + img de label si existe
-  function getAttributeBlocks(scope) {
+// === Buscar bloques de atributos (Color/Talla) en la ficha ===
+function getAttributeBlocks(scope) {
     const blocks = [];
-    const containers = $all(
-      '[data-attribute_name], .js_attribute, .o_product_configurator [name], .js_attributes > div',
-      scope
+    const containers = Array.from(
+        scope.querySelectorAll(
+            '[data-attribute_name], .js_attribute, .o_product_configurator [name], .js_attributes > div'
+        )
     );
 
     containers.forEach((el) => {
-      const name = (
-        el.getAttribute("data-attribute_name") ||
-        el.querySelector(".attribute_name, legend, .o_attr_title")?.textContent ||
-        el.getAttribute("name") ||
-        ""
-      ).trim().toLowerCase();
+        const name = (
+            el.getAttribute("data-attribute_name") ||
+            el.querySelector(".attribute_name, legend, .o_attr_title")?.textContent ||
+            el.getAttribute("name") ||
+            ""
+        ).trim().toLowerCase();
 
-      const radios = $all('input[type="radio"]', el);
-      if (!radios.length) return;
+        const radios = Array.from(el.querySelectorAll('input[type="radio"]'));
+        if (!radios.length) return;
 
-      const options = radios
-        .map((inp) => {
-          const id = parseInt(
-            inp.dataset.valueId || inp.dataset.attributeValueId || inp.value || "0",
-            10
-          ) || 0;
-          if (!id) return null;
-          const label = inp.closest("label") || el.querySelector(`label[for="${inp.id}"]`);
-          const text = (label?.textContent || inp.getAttribute("title") || "")
-            .replace(/\s+/g, " ")
-            .trim();
-          const img = label?.querySelector("img")?.getAttribute("src") || null;
-          return { id, text, _radio: inp, _label: label, _img: img };
-        })
-        .filter(Boolean);
+        const options = radios.map((inp) => {
+            const id = Number(
+                inp.dataset.valueId ||
+                inp.dataset.attributeValueId ||
+                inp.value ||
+                0
+            );
+            if (!id) return null;
+            const text = (
+                inp.closest("label")?.textContent ||
+                inp.getAttribute("title") ||
+                ""
+            ).replace(/\s+/g, " ").trim();
 
-      if (options.length) blocks.push({ name, options });
+            return { id, text, _radio: inp };
+        }).filter(Boolean);
+
+        if (options.length) blocks.push({ name, el, options });
     });
 
+    // detectar color/talla por nombre
     const color = blocks.find((b) => /(color|colour|colou?r|c[oó]lor)/i.test(b.name));
     const size  = blocks.find((b) => /(size|talla|talle|taille|größe|maat)/i.test(b.name));
+
     if (size) size.options = sortSizes(size.options);
-
     return { color, size };
-  }
+}
 
-  // Render de la tabla
-  function buildGrid(color, size, previousValues) {
+// === Ordena tallas (numéricas o estándar) ===
+function sortSizes(opts) {
+    const std = ["2XS","XXS","XS","S","M","L","XL","2XL","XXL","3XL","4XL","5XL","6XL","7XL","8XL"];
+    return [...opts].sort((a,b) => {
+        const na = parseFloat(a.text), nb = parseFloat(b.text);
+        if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+        const ia = std.indexOf(a.text.toUpperCase()), ib = std.indexOf(b.text.toUpperCase());
+        if (ia >= 0 && ib >= 0) return ia - ib;
+        return a.text.localeCompare(b.text, undefined, { numeric:true });
+    });
+}
+
+// === Escapar HTML simple ===
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+}
+
+// === Intentar encontrar una miniatura por color ===
+function findThumbSrcForColor(colorOpt, page) {
+    // 1) ¿hay imagen dentro del label del radio de color?
+    const lbl = colorOpt._radio?.closest("label");
+    const imgInLabel = lbl?.querySelector("img");
+    if (imgInLabel?.src) return imgInLabel.src;
+
+    // 2) ¿algún thumbnail/carrusel que mencione el color o sus ids?
+    const colorTxt = (colorOpt.text || "").trim().toLowerCase();
+    const thumbs = page.querySelectorAll("img, source");
+    for (const t of thumbs) {
+        const alt = (t.alt || t.title || t.getAttribute?.("data-alt") || "").toLowerCase();
+        if (alt && colorTxt && alt.includes(colorTxt) && t.src) return t.src;
+        const dataVals = t.getAttribute?.("data-attribute_value_ids") || "";
+        if (dataVals && dataVals.split(",").map(x=>x.trim()).includes(String(colorOpt.id)) && t.src) {
+            return t.src;
+        }
+    }
+
+    // 3) fallback: imagen principal
+    const mainImg = page.querySelector(".o_wsale_product_images img, .o_carousel_product img, .product_detail_img img");
+    if (mainImg?.src) return mainImg.src;
+
+    return ""; // se usa placeholder por CSS
+}
+
+// === Construir HTML de la matriz (solo UI) ===
+function renderGrid(color, size, page) {
     let thead = '<thead><tr><th class="sp-sticky-left">Color</th>';
-    size.options.forEach((s) => (thead += `<th>${esc(s.text)}</th>`));
+    size.options.forEach((s) => { thead += `<th>${escapeHtml(s.text)}</th>`; });
     thead += "</tr></thead>";
 
     let tbody = "<tbody>";
     color.options.forEach((c) => {
-      tbody += `<tr data-color-id="${c.id}">
-        <th class="sp-sticky-left">
-          <div class="sp-color">
-            <img class="sp-color__img" alt="" data-fallback="${esc(c._img || "")}">
-            <span>${esc(c.text)}</span>
-          </div>
-        </th>`;
-      size.options.forEach((s) => {
-        const key = `${c.id}:${s.id}`;
-        const val = previousValues?.[key] ?? "";
-        tbody += `<td>
-          <div class="sp-cell">
-            <input class="sp-qty" type="number" min="0" step="1" inputmode="numeric"
-                   placeholder="0" value="${esc(val)}"
-                   data-color="${c.id}" data-size="${s.id}">
-            <div class="sp-meta"></div>
-          </div>
-        </td>`;
-      });
-      tbody += "</tr>";
+        const thumb = findThumbSrcForColor(c, page);
+        tbody += `<tr data-row-color="${c.id}">
+            <th class="sp-sticky-left">
+                <div class="sp-color">
+                    <img class="sp-color__img" alt="" ${thumb ? `src="${escapeHtml(thumb)}"` : ""}/>
+                    <span>${escapeHtml(c.text)}</span>
+                </div>
+            </th>`;
+        size.options.forEach((s) => {
+            tbody += `<td>
+                <div class="sp-cell">
+                    <input class="sp-qty" type="number" min="0" step="1" inputmode="numeric"
+                        placeholder="0" data-color="${c.id}" data-size="${s.id}">
+                    <div class="sp-meta"></div>
+                </div>
+            </td>`;
+        });
+        tbody += "</tr>";
     });
     tbody += "</tbody>";
 
@@ -115,151 +135,133 @@
       <div id="sp-matrix" class="sp-matrix-box">
         <table class="sp-matrix__table">${thead}${tbody}</table>
         <div class="sp-actions">
-          <button type="button" id="sp-add-selection" class="btn btn-primary o_add_to_cart">Añadir selección</button>
+            <button type="button" id="sp-add-selection" class="btn btn-primary o_add_to_cart">Añadir selección</button>
         </div>
         <p class="sp-help">Indica cantidades por color y talla.</p>
       </div>
     `;
-  }
+}
 
-  // Guarda cantidades ya escritas para no perderlas en re-render
-  function collectCurrentValues(root) {
-    const out = {};
-    $all("input.sp-qty", root).forEach((inp) => {
-      const q = inp.value;
-      if (q && Number(q) > 0) out[`${inp.dataset.color}:${inp.dataset.size}`] = q;
-    });
-    return out;
-  }
+// === Insertar/actualizar la matriz ===
+function ensureMatrix() {
+    if (SP.rendering) return;
+    SP.rendering = true;
 
-  // Crea (solo una vez) un slot fijo bajo .js_attributes y re-pinta dentro
-  function ensureSlot(page) {
-    let slot = $("#" + SLOT_ID, page);
-    if (slot) return slot;
-    slot = document.createElement("div");
-    slot.id = SLOT_ID;
-    const attrs = page.querySelector(".js_attributes");
-    if (attrs && attrs.parentNode) {
-      attrs.parentNode.insertBefore(slot, attrs.nextSibling);
-    } else {
-      // fallback
-      (page.querySelector(".o_wsale_product_information")?.parentNode || page).appendChild(slot);
-    }
-    return slot;
-  }
-
-  let suppressRebuild = false;
-
-  function ensureMatrix() {
     const page = document.querySelector(".o_wsale_product_page");
-    if (!page) return;
+    if (!page) { SP.rendering = false; return; }
 
-    const slot = ensureSlot(page);
+    // Eliminar cualquier matriz previa (evita duplicados)
+    page.querySelectorAll("#sp-matrix").forEach((n) => n.remove());
 
     const { color, size } = getAttributeBlocks(page);
     if (!color || !size) {
-      slot.innerHTML = "";
-      document.body.classList.remove("sp-matrix-active");
-      return;
+        document.body.classList.remove("sp-matrix-active");
+        SP.rendering = false;
+        return;
     }
 
-    const prev = collectCurrentValues(slot);
-    slot.innerHTML = buildGrid(color, size, prev);
+    // Dónde colocarla: justo DESPUÉS de los atributos si existen
+    const attrs = page.querySelector(".js_attributes");
+    const host  = attrs || page.querySelector("form.o_wsale_product_configurator") || page;
+    host.insertAdjacentHTML(attrs ? "afterend" : "beforeend", renderGrid(color, size, page));
     document.body.classList.add("sp-matrix-active");
 
-    // Miniaturas: usa <img> del label si existe; si no, usa la imagen principal actual.
-    $all('tr[data-color-id]', slot).forEach((tr) => {
-      const cid = tr.getAttribute("data-color-id");
-      const opt = color.options.find((o) => String(o.id) === cid);
-      const imgEl = tr.querySelector(".sp-color__img");
-      const src = opt ? opt._img : null;
-      if (src) {
-        imgEl.src = src;
-        imgEl.removeAttribute("data-fallback");
-      } else {
-        const main =
-          page.querySelector(".product_detail_img img, .o_website_sale_product_image img, .carousel-item.active img");
-        if (main?.src) imgEl.src = main.src;
-      }
-    });
+    // Bind del botón "Añadir selección"
+    const addBtn = page.querySelector("#sp-add-selection");
+    if (addBtn) addBtn.addEventListener("click", () => addAllToCart(page));
 
-    // Botón añadir selección
-    $("#sp-add-selection", slot)?.addEventListener("click", () =>
-      addSelection(page, color, size, slot)
-    );
-  }
+    SP.rendering = false;
 
-  // Añade cada celda (>0) al carrito usando el formulario nativo de Odoo
-  async function addSelection(page, color, size, slot) {
-    const rows = $all("input.sp-qty", slot)
-      .map((inp) => ({
-        qty: parseInt(inp.value, 10) || 0,
-        colorId: parseInt(inp.dataset.color, 10),
-        sizeId: parseInt(inp.dataset.size, 10),
-      }))
-      .filter((r) => r.qty > 0);
+    // Enlazar una sola vez el listener de cambios de radios para reconstruir sin duplicar
+    if (!SP.bound) {
+        SP.bound = true;
+        page.addEventListener("change", (ev) => {
+            if (SP.rendering) return; // ignorar cambios internos
+            if (ev.target.matches('input[type="radio"]')) ensureMatrix();
+        });
+    }
+}
 
-    if (!rows.length) return;
+// === Helpers carrito ===
+function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
 
-    const form = page.querySelector('form[action*="/shop/cart"]') || page.querySelector("form");
-    if (!form) return;
+function getCsrfToken(page) {
+    const inp = page.querySelector('input[name="csrf_token"]');
+    if (inp?.value) return inp.value;
+    const m = document.cookie.match(/(?:^|;)\s*csrf_token=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : "";
+}
 
-    const qtyField = form.querySelector('input[name="add_qty"], input[name="quantity"]');
+// Cambiar temporalmente selección de radios para obtener product_id actual
+async function selectCombinationAndGetProductId(page, colorId, sizeId) {
+    const { color, size } = getAttributeBlocks(page);
+    if (!color || !size) return null;
 
-    for (const r of rows) {
-      const colorRadio = color.options.find((o) => o.id === r.colorId)?._radio;
-      const sizeRadio  = size.options.find((o) => o.id === r.sizeId)?._radio;
-      if (!colorRadio || !sizeRadio) continue;
+    // guardar selección actual
+    const selectedColor = color.options.find(o => o._radio.checked);
+    const selectedSize  = size.options.find(o => o._radio.checked);
 
-      suppressRebuild = true;
-      if (!colorRadio.checked) {
-        colorRadio.checked = true;
-        colorRadio.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-      if (!sizeRadio.checked) {
-        sizeRadio.checked = true;
-        sizeRadio.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-      suppressRebuild = false;
+    // seleccionar deseados
+    const c = color.options.find(o => o.id === Number(colorId));
+    const s = size.options.find(o => o.id === Number(sizeId));
+    if (!c || !s) return null;
 
-      const pidInput = form.querySelector('input[name="product_id"]');
-      await waitFor(() => pidInput && pidInput.value && pidInput.value !== "0", 1200);
+    c._radio.checked = true;
+    c._radio.dispatchEvent(new Event("change", { bubbles: true }));
+    s._radio.checked = true;
+    s._radio.dispatchEvent(new Event("change", { bubbles: true }));
 
-      if (qtyField) {
-        qtyField.value = String(r.qty);
-        qtyField.dispatchEvent(new Event("change", { bubbles: true }));
-      }
+    // esperar a que Odoo actualice product_id
+    await sleep(120);
+    const pid = page.querySelector('input[name="product_id"]')?.value || null;
 
-      const addBtn =
-        form.querySelector(".o_add_to_cart, button[name='add_to_cart'], a.js_add_cart_json");
-      if (addBtn) {
-        addBtn.click();
-        await delay(500); // da tiempo a Odoo a cerrar popup/actualizar
-      }
+    // restaurar selección anterior (si la había)
+    if (selectedColor && selectedColor._radio !== c._radio) {
+        selectedColor._radio.checked = true;
+        selectedColor._radio.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    if (selectedSize && selectedSize._radio !== s._radio) {
+        selectedSize._radio.checked = true;
+        selectedSize._radio.dispatchEvent(new Event("change", { bubbles: true }));
     }
 
-    // limpia entradas
-    $all("input.sp-qty", slot).forEach((i) => (i.value = ""));
-  }
+    return pid ? Number(pid) : null;
+}
 
-  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
-  async function waitFor(testFn, timeout = 1000, step = 50) {
-    const t0 = performance.now();
-    while (performance.now() - t0 < timeout) {
-      if (testFn()) return true;
-      await delay(step);
+async function addAllToCart(page) {
+    const qtyInputs = Array.from(page.querySelectorAll("#sp-matrix .sp-qty"));
+    const lines = qtyInputs
+        .map(i => ({ color: Number(i.dataset.color), size: Number(i.dataset.size), qty: Number(i.value || 0) }))
+        .filter(l => l.qty > 0);
+
+    if (!lines.length) return;
+
+    const csrf = getCsrfToken(page);
+
+    for (const line of lines) {
+        const productId = await selectCombinationAndGetProductId(page, line.color, line.size);
+        if (!productId) continue;
+
+        await fetch("/shop/cart/update_json", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                ...(csrf ? { "X-CSRFToken": csrf } : {}),
+            },
+            body: JSON.stringify({
+                product_id: productId,
+                add_qty: line.qty,
+            }),
+            credentials: "same-origin",
+        }).catch(()=>{});
+        // pequeña pausa para no saturar
+        await sleep(120);
     }
-    return false;
-  }
 
-  // ---------- Arranque ----------
-  onReady(() => {
-    ensureMatrix();
-    const page = document.querySelector(".o_wsale_product_page");
-    if (!page) return;
-    page.addEventListener("change", (ev) => {
-      if (suppressRebuild) return;
-      if (ev.target.matches('input[type="radio"]')) ensureMatrix();
-    });
-  });
-})();
+    // refrescar mini carrito (si existe hook) o emitir evento
+    const ev = new Event("sp:cart-updated");
+    document.dispatchEvent(ev);
+}
+
+// === Arranque ===
+onReady(ensureMatrix);
