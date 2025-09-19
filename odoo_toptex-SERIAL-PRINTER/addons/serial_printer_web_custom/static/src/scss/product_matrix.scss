@@ -1,32 +1,75 @@
-#sp-matrix { margin-top: 1rem; }
-.sp-actions { margin: .5rem 0 0.25rem; }
-#sp-add-selected { padding: .44rem .9rem; }
+/* Caja de la matriz bajo los atributos */
+#sp-matrix-slot {
+  margin-top: 1rem;
+}
+
+#sp-matrix {
+  overflow-x: auto;
+}
 
 .sp-matrix__table {
   width: 100%;
   border-collapse: separate;
-  border-spacing: .5rem;
+  border-spacing: .6rem .5rem; /* más aire */
   table-layout: fixed;
 }
+
 .sp-matrix__table th,
 .sp-matrix__table td {
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: .75rem;
-  padding: .5rem;
-  vertical-align: top;
+  padding: .65rem;
+  vertical-align: middle;
 }
-.sp-matrix__table thead th {
-  position: sticky; top: 0; z-index: 3; background: #fafafa;
-}
-.sp-sticky-left { position: sticky; left: 0; z-index: 2; background: #fafafa; min-width: 12rem; }
 
-.sp-color { display: flex; align-items: center; gap: .5rem; }
-.sp-color__img { width: 44px; height: 44px; border-radius: .5rem; object-fit: cover; border: 1px solid #ddd; }
+.sp-matrix__table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f8f8f8;
+  text-transform: none;
+  font-weight: 600;
+  text-align: center;
+}
+
+.sp-sticky-left {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #f8f8f8;
+  min-width: 12rem;
+}
+
+.sp-color {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+}
+
+.sp-color__img {
+  width: 44px;
+  height: 44px;
+  border-radius: .5rem;
+  object-fit: cover;
+  border: 1px solid #ddd;
+  background: #f2f2f2;
+}
+
 .sp-cell { display: flex; flex-direction: column; gap: .25rem; }
 .sp-qty  { width: 100%; text-align: center; }
-.sp-meta { font-size: .75rem; line-height: 1.15; opacity: .9; min-height: 1.1em; }
-.sp-unavailable { opacity: .45; }
 
-/* Oculta radios originales sólo cuando está la matriz */
-.sp-matrix-active .js_product .js_attributes { display: none !important; }
+.sp-meta {
+  font-size: .75rem;
+  line-height: 1.1;
+  opacity: .9;
+}
+
+.sp-actions {
+  margin-top: .75rem;
+}
+
+/* NO ocultamos los radios originales para evitar confusiones.
+   Si quieres ocultarlos de nuevo, descomenta:
+   .sp-matrix-active .js_product .js_attributes { display: none !important; }
+*/
