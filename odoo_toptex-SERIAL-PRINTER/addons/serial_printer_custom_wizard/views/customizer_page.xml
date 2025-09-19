@@ -121,7 +121,7 @@
                 <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
+                     onclick="window.spwReset && window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -296,7 +296,7 @@
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
 
-        // ===== iOS Safari: descarga por POST a /spw/download_png =====
+        // ===== iOS Safari: descarga por POST; si no existe el endpoint, abre la imagen en nueva pestaña
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
@@ -305,20 +305,31 @@
 
             var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
             var isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
             if (isIOS && isSafari) {
-              // En iOS el atributo download no funciona: usamos POST al servidor
-              var form = document.createElement("form");
-              form.method = "POST";
-              form.action = "/spw/download_png";
-              form.target = "_blank";
-              var inp = document.createElement("input");
-              inp.type = "hidden";
-              inp.name = "png_b64";
-              inp.value = dataURLtoBase64(dataUrl);
-              form.appendChild(inp);
-              document.body.appendChild(form);
-              form.submit();
-              setTimeout(function(){ form.remove(); }, 1200);
+              try {
+                var form = document.createElement("form");
+                form.method = "POST";
+                form.action = "/spw/download_png";
+                form.target = "_blank";
+                var inp = document.createElement("input");
+                inp.type = "hidden";
+                inp.name = "png_b64";
+                inp.value = dataURLtoBase64(dataUrl);
+                form.appendChild(inp);
+                document.body.appendChild(form);
+                form.submit();
+                setTimeout(function(){ form.remove(); }, 1200);
+              } catch(_e) {
+                var w = window.open("", "_blank");
+                if (w && !w.closed) {
+                  w.document.write("<meta name='viewport' content='width=device-width, initial-scale=1'>");
+                  w.document.write("<p style='font:14px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto'>Mantén pulsado para guardar:</p>");
+                  w.document.write("<img style='max-width:100%;height:auto' src='"+dataUrl+"'>");
+                } else {
+                  window.open(dataUrl, "_blank");
+                }
+              }
             } else if (typeof a.download === "undefined") {
               window.open(dataUrl, "_blank");
             } else {
@@ -369,14 +380,17 @@
     <xpath expr="//body" position="inside">
       <script type="text/javascript"><![CDATA[
         (function(){
+          "use strict";
           function q(sel, root){return (root||document).querySelector(sel);}
           function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
+
+          function safe(fn){ try{ fn(); }catch(e){ /*silencio*/ } }
 
           function parseLineIdFromHref(node){
             try{
               var a = node.closest('a[href*="line_id="]') || node.querySelector('a[href*="line_id="]');
               if(!a) return null;
-              var u = new URL(a.href, location.origin);
+              var u = new URL(a.getAttribute('href'), location.origin);
               return u.searchParams.get('line_id');
             }catch(_){ return null; }
           }
@@ -390,61 +404,76 @@
           }
 
           function findLines(){
-            // Soporta desktop/móvil y distintos temas
             return qa(".js_cart_lines .row, .o_wsale_cart_item, tr.js_cart_line, [data-line-id]")
               .filter(function(n){ return !!getLineId(n); });
           }
 
           function holderFor(line){
-            // Zona junto a la cantidad (desktop y móvil)
+            // contenedor de cantidad; pondremos la imagen justo DESPUÉS
             return q(".o_wsale_cart_quantity", line)
-                || q(".o_wsale_cart_item_info, .o_wsale_product_information, .o_cart_product_information, .o_wsale_product_info", line)
-                || line;
+                || q("div[name='quantity']", line)
+                || q(".css_quantity", line)
+                || null;
           }
 
           function showPreviewFor(line){
             var id = getLineId(line); if(!id) return;
 
-            // Limpieza previa dentro de la misma línea (evita duplicados)
-            qa('.spw-preview[data-line="'+id+'"]', line).forEach(function(im){ im.remove(); });
+            // eliminar duplicados en toda la página para ese line_id
+            qa('.spw-preview[data-line="'+id+'"]').forEach(function(im){ im.remove(); });
 
             var img = new Image();
             img.className = "spw-preview";
             img.setAttribute("data-line", id);
             img.alt = "Personalización";
             img.loading = "lazy";
-            // cache-buster para evitar imágenes antiguas en móvil
             img.src = "/spw/line_preview/" + encodeURIComponent(id) + ".png?_=" + Date.now();
             img.style.maxWidth = "110px";
             img.style.height = "auto";
-            img.style.marginLeft = "8px";
             img.style.border = "1px solid #e5e7eb";
             img.style.borderRadius = "6px";
-            img.style.display = "block";
             img.style.marginTop = "6px";
+            img.style.marginLeft = "8px";
             img.onerror = function(){ img.remove(); };
-            holderFor(line).appendChild(img);
+
+            var h = holderFor(line);
+            if (h && h.parentElement) {
+              h.insertAdjacentElement('afterend', img);
+            } else {
+              // fallback: al final de la línea
+              line.appendChild(img);
+            }
           }
 
+          var schedulePending = false;
           function inject(){
             if (!/\/shop\/cart/.test(location.pathname)) return;
-            var lines = findLines();
-            // Borra previews huérfanas que no están en líneas actuales
-            qa(".spw-preview").forEach(function(im){
-              var lid = im.getAttribute("data-line");
-              var still = lines.some(function(l){ return getLineId(l) === lid; });
-              if(!still) im.remove();
-            });
-            lines.forEach(showPreviewFor);
+            try{
+              var lines = findLines();
+              qa(".spw-preview").forEach(function(im){
+                var lid = im.getAttribute("data-line");
+                var still = lines.some(function(l){ return getLineId(l) === lid; });
+                if(!still) im.remove();
+              });
+              lines.forEach(showPreviewFor);
+            }catch(_){}
+          }
+          function schedule(){
+            if (schedulePending) return;
+            schedulePending = true;
+            requestAnimationFrame(function(){ schedulePending = false; inject(); });
           }
 
           function boot(){
+            if (!/\/shop\/cart/.test(location.pathname)) return;
             inject();
-            var root = q(".js_cart_lines, .o_wsale_cart, main, body") || document.body;
-            var mo = new MutationObserver(function(){ inject(); });
-            mo.observe(root, {childList:true, subtree:true});
+            var root = q(".js_cart_lines") || q(".o_wsale_cart") || q("main") || document.body;
+            if (window.MutationObserver && root){
+              var mo = new MutationObserver(schedule);
+              mo.observe(root, {childList:true, subtree:true});
+            }
             setTimeout(inject, 400);
-            setTimeout(inject, 1000);
+            setTimeout(inject, 1200);
           }
 
           if (document.readyState === 'loading') {
