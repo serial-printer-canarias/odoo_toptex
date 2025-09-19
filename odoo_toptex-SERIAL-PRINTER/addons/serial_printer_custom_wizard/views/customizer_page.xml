@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- ================== PÁGINA DEL PERSONALIZADOR ================== -->
+  <!-- ============ PÁGINA DEL PERSONALIZADOR ============ -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
@@ -15,12 +15,12 @@
         <div class="row g-4">
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
-              <!-- Base interna same-origin para evitar CORS al exportar PNG -->
+              <!-- Base same-origin para evitar CORS al exportar -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
 
-              <!-- Imagen visible del producto -->
+              <!-- Imagen visible -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
 
@@ -141,7 +141,7 @@
         </div>
       </div>
 
-      <!-- ================== JS INLINE ================== -->
+      <!-- ====== JS INLINE (iOS download + preview carrito robusto) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -149,7 +149,6 @@
         function $(sel, root){return (root||document).querySelector(sel);}
         function $val(id, d){ var el=$("#"+id); return el?el.value:d; }
 
-        // IMG loader sin crossOrigin
         async function loadImage(src){
           return new Promise(function(resolve, reject){
             var im=new Image();
@@ -193,7 +192,6 @@
         }
 
         async function renderPNGDataURL(){
-          // Prioriza imagen interna same-origin
           var internalBaseEl = $("#spw-base-img");
           var baseSrc = (internalBaseEl && internalBaseEl.getAttribute("src")) ||
                         $val("spw_img_src","") ||
@@ -298,19 +296,33 @@
           window.location.href = (r1.data && r1.data.cart_url) || "/shop/cart";
         }
 
-        // Descarga en iOS Safari: abrir en pestaña (luego Guardar imagen)
+        // ===== iOS Safari: descarga por POST a /spw/download_png =====
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
+            var a = document.createElement("a");
+            a.href = dataUrl; a.download = "personalizacion.png";
+
             var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
             var isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
             if (isIOS && isSafari) {
+              // En iOS el atributo download no funciona: usamos POST al servidor
+              var form = document.createElement("form");
+              form.method = "POST";
+              form.action = "/spw/download_png";
+              form.target = "_blank";
+              var inp = document.createElement("input");
+              inp.type = "hidden";
+              inp.name = "png_b64";
+              inp.value = dataURLtoBase64(dataUrl);
+              form.appendChild(inp);
+              document.body.appendChild(form);
+              form.submit();
+              setTimeout(function(){ form.remove(); }, 1200);
+            } else if (typeof a.download === "undefined") {
               window.open(dataUrl, "_blank");
             } else {
-              var a = document.createElement("a");
-              a.href = dataUrl; a.download = "personalizacion.png";
-              if (typeof a.download === "undefined") { window.open(dataUrl, "_blank"); }
-              else { document.body.appendChild(a); a.click(); a.remove(); }
+              document.body.appendChild(a); a.click(); a.remove();
             }
           }catch(_){ alert("No se pudo generar el PNG."); }
         }
@@ -352,7 +364,7 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN EN CARRITO: UNA PREVIEW SOLO EN SU LÍNEA ============ -->
+  <!-- ============ INYECCIÓN UNIVERSAL EN website.layout (preview por línea, sin duplicados) ============ -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript"><![CDATA[
@@ -378,11 +390,13 @@
           }
 
           function findLines(){
+            // Soporta desktop/móvil y distintos temas
             return qa(".js_cart_lines .row, .o_wsale_cart_item, tr.js_cart_line, [data-line-id]")
               .filter(function(n){ return !!getLineId(n); });
           }
 
           function holderFor(line){
+            // Zona junto a la cantidad (desktop y móvil)
             return q(".o_wsale_cart_quantity", line)
                 || q(".o_wsale_cart_item_info, .o_wsale_product_information, .o_cart_product_information, .o_wsale_product_info", line)
                 || line;
@@ -390,15 +404,17 @@
 
           function showPreviewFor(line){
             var id = getLineId(line); if(!id) return;
-            // Evitar duplicados en la misma línea
-            if (q('.spw-preview[data-line="'+id+'"]', line)) return;
+
+            // Limpieza previa dentro de la misma línea (evita duplicados)
+            qa('.spw-preview[data-line="'+id+'"]', line).forEach(function(im){ im.remove(); });
 
             var img = new Image();
             img.className = "spw-preview";
             img.setAttribute("data-line", id);
             img.alt = "Personalización";
             img.loading = "lazy";
-            img.src = "/spw/line_preview/" + encodeURIComponent(id) + ".png";
+            // cache-buster para evitar imágenes antiguas en móvil
+            img.src = "/spw/line_preview/" + encodeURIComponent(id) + ".png?_=" + Date.now();
             img.style.maxWidth = "110px";
             img.style.height = "auto";
             img.style.marginLeft = "8px";
@@ -413,7 +429,7 @@
           function inject(){
             if (!/\/shop\/cart/.test(location.pathname)) return;
             var lines = findLines();
-            // Limpieza de previews huérfanas (por recargas parciales)
+            // Borra previews huérfanas que no están en líneas actuales
             qa(".spw-preview").forEach(function(im){
               var lid = im.getAttribute("data-line");
               var still = lines.some(function(l){ return getLineId(l) === lid; });
