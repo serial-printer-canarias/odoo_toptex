@@ -44,7 +44,7 @@
 .sp-meta { font-size: .75rem; line-height: 1.1; opacity: .9; min-height: 1.1em; }
 .sp-help { margin-top: .5rem; color: #555; }
 
-/* No ocultamos los radios: el cliente los quiere visibles */
+/* NO ocultamos los radios originales */
 .sp-matrix-active .js_product .js_attributes { display: block; }
 
 @media (max-width: 768px) {
