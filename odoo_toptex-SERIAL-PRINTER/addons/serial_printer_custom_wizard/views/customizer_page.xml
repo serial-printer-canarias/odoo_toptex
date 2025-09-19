@@ -141,7 +141,7 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (iOS download simple + redirección con spw_line_id) ====== -->
+      <!-- ====== JS INLINE (iOS download + redirección con spw_line_id) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -295,13 +295,13 @@
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
           }
 
-          // redirige con ?spw_line_id=<id> para pintar junto a esa línea
+          // Redirige con ?spw_line_id=<id> para pintar junto a la línea correcta
           var baseUrl = (r1.data && r1.data.cart_url) || "/shop/cart";
           var withParam = (r1.data && r1.data.line_id) ? (baseUrl + (baseUrl.indexOf('?')===-1?'?':'&') + 'spw_line_id=' + encodeURIComponent(r1.data.line_id)) : baseUrl;
           window.location.href = withParam;
         }
 
-        // Descargar PNG (iOS compatible)
+        // iOS/Android/Escritorio: descarga o abre en la misma pestaña para "Guardar imagen"
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
@@ -352,7 +352,7 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN EN website.layout: preview por línea ============ -->
+  <!-- ============ INYECCIÓN EN website.layout: preview por línea (dedupe global y contenedor visible) ============ -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript"><![CDATA[
@@ -380,48 +380,37 @@
                 || null;
           }
 
-          // NUEVO: quedarse solo con el contenedor raíz por cada data-line-id (evita duplicados)
-          function rootFor(node){
-            var id = getLineId(node);
-            if(!id) return null;
-            var r = node;
-            while(r && r.parentElement && getLineId(r.parentElement) === id){
-              r = r.parentElement;
-            }
-            return r;
-          }
+          // Busca contenedores de línea y deja solo el más externo (evita líneas anidadas)
           function findLines(){
-            var sel = ".js_cart_lines .row, .o_wsale_cart_item, tr.js_cart_line, [data-line-id], .card.js_cart_item";
-            var map = Object.create(null);
-            qa(sel).forEach(function(n){
-              var r = rootFor(n);
-              var id = r && getLineId(r);
-              if(id && !map[id]) map[id] = r;
+            var nodes = qa(".o_wsale_cart_item, tr.js_cart_line, .js_cart_lines .row, [data-line-id], .card.js_cart_item")
+                        .filter(function(n){ return !!getLineId(n); });
+            return nodes.filter(function(n){
+              return !nodes.some(function(m){ return m!==n && m.contains(n); });
             });
-            return Object.keys(map).map(function(k){ return map[k]; });
           }
 
+          // Devuelve un contenedor cercano a la cantidad que esté VISIBLE; si no, la línea
           function holderFor(line){
-            // bloque de cantidad típico; sube a la columna contenedora si existe
-            var qty = q(".o_wsale_cart_quantity, .css_quantity, .o_cart_line_qty", line);
-            if (qty) {
-              var col = qty.closest(".col, .o_wsale_cart_quantity") || qty.parentElement;
-              return col || qty;
-            }
-            return line;
+            var cands = []
+              .concat(qa(".o_wsale_cart_quantity", line))
+              .concat(qa("div[name='quantity']", line))
+              .concat(qa(".css_quantity", line))
+              .concat(qa(".input-group", line));
+            var vis = cands.find(function(el){ return el && el.offsetParent !== null; });
+            return vis || line;
           }
 
           function insertPreview(line, src, lineId, hex){
-            // Evitar duplicados en esa línea
-            qa('.spw-preview[data-line="'+lineId+'"]', line).forEach(function(im){ im.remove(); });
+            // Deduplicación GLOBAL por line_id (por si hay clones/plantillas ocultas)
+            qa('.spw-preview[data-line="'+lineId+'"]').forEach(function(el){ el.remove(); });
 
             var wrap = document.createElement("div");
             wrap.className = "spw-preview";
             wrap.setAttribute("data-line", lineId);
-            wrap.style.display = "inline-flex";
+            wrap.style.display = "flex";
             wrap.style.alignItems = "center";
             wrap.style.gap = "8px";
-            wrap.style.margin = "6px 8px 0 0";
+            wrap.style.marginTop = "6px";
 
             var img = new Image();
             img.alt = "Personalización";
@@ -447,10 +436,10 @@
               wrap.appendChild(sw);
             }
 
-            // Colocar la preview JUSTO ANTES del bloque de cantidad (no dentro)
-            var anchorWrap = holderFor(line);
-            if (anchorWrap && anchorWrap.parentElement) {
-              anchorWrap.parentElement.insertBefore(wrap, anchorWrap);
+            var anchor = holderFor(line);
+            // Intenta ponerlo justo DESPUÉS del bloque de cantidad visible
+            if (anchor && anchor !== line) {
+              anchor.insertAdjacentElement('afterend', wrap);
             } else {
               line.appendChild(wrap);
             }
@@ -459,7 +448,7 @@
           function inject(){
             if (!/\/shop\/cart/.test(location.pathname)) return;
 
-            var wanted = getUrlParam('spw_line_id'); // viene de la redirección tras añadir
+            var wanted = getUrlParam('spw_line_id');
             var lastId = null, lastPng = null, lastColor = null;
             try {
               lastId = sessionStorage.getItem('spw_last_line_id');
@@ -469,7 +458,7 @@
 
             var lines = findLines();
 
-            // Limpieza de huérfanos globales
+            // Limpieza de previsualizaciones sin su línea
             qa(".spw-preview").forEach(function(im){
               var lid = im.getAttribute("data-line");
               var keep = lines.some(function(l){ return getLineId(l) === lid; });
@@ -480,18 +469,17 @@
               var id = getLineId(line);
               if (!id) return;
 
-              // 1) si venimos de crear esa línea ahora mismo, usar el dataURL de sesión
               if (wanted && lastId && wanted === lastId && id === lastId && lastPng) {
                 insertPreview(line, lastPng, id, lastColor);
                 return;
               }
 
-              // 2) fallback: PNG generado en servidor
+              // Fallback estable desde servidor
               var url = "/spw/line_preview/" + encodeURIComponent(id) + ".png?_=" + Date.now();
               insertPreview(line, url, id, null);
             });
 
-            // limpiar sesión después de pintar el recién creado
+            // Limpia la sesión tras pintar la línea que acabamos de crear
             if (wanted && lastId && wanted === lastId) {
               try{
                 sessionStorage.removeItem('spw_last_line_id');
