@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- ===================== PÁGINA DEL PERSONALIZADOR ===================== -->
+  <!-- ============ PÁGINA DEL PERSONALIZADOR ============ -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
@@ -294,20 +294,23 @@
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
           }
 
-          // Redirige con ?spw_line_id=<id> para pintar junto a la línea correcta
+          // Redirección con marcador de línea
           var baseUrl = (r1.data && r1.data.cart_url) || "/shop/cart";
-          var withParam = (r1.data && r1.data.line_id) ? (baseUrl + (baseUrl.indexOf('?')===-1?'?':'&') + 'spw_line_id=' + encodeURIComponent(r1.data.line_id)) : baseUrl;
+          var withParam = (r1.data && r1.data.line_id)
+            ? (baseUrl + (baseUrl.indexOf('?')===-1?'?':'&') + 'spw_line_id=' + encodeURIComponent(r1.data.line_id))
+            : baseUrl;
           window.location.href = withParam;
         }
 
-        // iOS/Android/Escritorio: descarga/abre en misma pestaña (iOS: mantener pulsado -> Guardar imagen)
+        // Descarga iOS/Android/Escritorio
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
             var a = document.createElement("a");
             a.href = dataUrl; a.download = "personalizacion.png";
             if (typeof a.download === "undefined") {
-              window.location.href = dataUrl;   // iOS Safari
+              // iOS Safari: abrir en la misma pestaña para "mantener pulsado → Guardar imagen"
+              window.location.href = dataUrl;
             } else {
               document.body.appendChild(a); a.click(); a.remove();
             }
@@ -351,7 +354,7 @@
     </t>
   </template>
 
-  <!-- ===================== INYECCIÓN EN website.layout: preview en carrito ===================== -->
+  <!-- ============ INYECCIÓN EN website.layout: preview por línea (usa ?spw_line_id y sessionStorage) ============ -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript"><![CDATA[
@@ -371,50 +374,32 @@
               return u.searchParams.get('line_id');
             }catch(_){ return null; }
           }
-          function parseLineIdFromForms(line){
-            try{
-              var f = q('form[action*="/shop/cart"]', line);
-              var inp = f && q('input[name="line_id"]', f);
-              return inp && inp.value || null;
-            }catch(_){ return null; }
-          }
-
           function getLineId(line){
             if(!line) return null;
-            return (
-              line.getAttribute('data-line-id') ||
-              line.getAttribute('data-id') ||
-              line.getAttribute('data-cart-line-id') ||
-              line.getAttribute('data-line') ||
-              (q('input[name="line_id"]', line)||{}).value ||
-              parseLineIdFromForms(line) ||
-              parseLineIdFromHref(line) ||
-              null
-            );
+            return line.getAttribute('data-line-id')
+                || ((q('input[name="line_id"]', line)||{}).value)
+                || parseLineIdFromHref(line)
+                || null;
           }
-
-          // Encuentra contenedores de línea y elimina anidados para no duplicar
           function findLines(){
-            var nodes = qa(".o_wsale_cart_item, tr.js_cart_line, .js_cart_lines .row, [data-line-id], .card.js_cart_item, .o_cart_line, .card")
-              .filter(function(n){ return !!getLineId(n); });
-            return nodes.filter(function(n){ return !nodes.some(function(m){ return m!==n && m.contains(n); }); });
+            var sel = ".js_cart_lines .row, .o_wsale_cart_item, tr.js_cart_line, [data-line-id], .card.js_cart_item";
+            var nodes = qa(sel);
+            // Filtra sólo contenedores raíz de línea (evita nodos anidados)
+            return nodes.filter(function(n){ return !nodes.some(function(m){ return m!==n && m.contains(n); }); })
+                        .filter(function(n){ return !!getLineId(n); });
           }
-
-          // Ancla: justo después del bloque de cantidad, fuera del control +/- (evita que caiga dentro)
-          function holderFor(line){
-            var qty =
-              q(".o_wsale_cart_quantity", line) ||
-              q(".o_wsale_quantity", line) ||
-              q(".css_quantity", line) ||
-              q("div[name='quantity']", line) ||
-              q(".input-group", line);
-            if (qty && qty.parentElement) return qty.parentElement; // insertaremos después de su PARENT
-            return line;
+          function findQtyHolder(line){
+            return q(".o_wsale_cart_quantity", line)
+                || q("div[name='quantity']", line)
+                || q(".css_quantity", line)
+                || q(".input-group", line)
+                || q(".input-group-append", line)
+                || null;
           }
 
           function insertPreview(line, src, lineId, hex){
-            // Deduplicación GLOBAL por línea
-            qa('.spw-preview[data-line="'+lineId+'"]').forEach(function(el){ el.remove(); });
+            // Dedup dentro de la línea
+            qa('.spw-preview[data-line="'+lineId+'"]', line).forEach(function(im){ im.remove(); });
 
             var wrap = document.createElement("div");
             wrap.className = "spw-preview";
@@ -422,7 +407,7 @@
             wrap.style.display = "flex";
             wrap.style.alignItems = "center";
             wrap.style.gap = "8px";
-            wrap.style.marginTop = "6px";
+            wrap.style.marginTop = "8px";
 
             var img = new Image();
             img.alt = "Personalización";
@@ -448,18 +433,21 @@
               wrap.appendChild(sw);
             }
 
-            var anchorParent = holderFor(line);
-            if (anchorParent && anchorParent.insertAdjacentElement) {
-              anchorParent.insertAdjacentElement('afterend', wrap);
+            var holder = findQtyHolder(line);
+            var parent = (holder && holder.parentNode) ? holder.parentNode : line;
+
+            // Inserta justo DESPUÉS del bloque de cantidad, pero como hermano (no dentro)
+            if (holder && holder.parentNode){
+              holder.parentNode.insertBefore(wrap, holder.nextSibling);
             } else {
-              line.appendChild(wrap);
+              parent.appendChild(wrap);
             }
           }
 
           function inject(){
             if (!/\/shop\/cart/.test(location.pathname)) return;
 
-            var wanted = getUrlParam('spw_line_id');
+            var wanted = getUrlParam('spw_line_id'); // viene de la redirección tras añadir
             var lastId = null, lastPng = null, lastColor = null;
             try {
               lastId = sessionStorage.getItem('spw_last_line_id');
@@ -469,7 +457,7 @@
 
             var lines = findLines();
 
-            // Limpieza de previsualizaciones sin su línea
+            // Limpieza global de duplicados huérfanos
             qa(".spw-preview").forEach(function(im){
               var lid = im.getAttribute("data-line");
               var keep = lines.some(function(l){ return getLineId(l) === lid; });
@@ -480,6 +468,7 @@
               var id = getLineId(line);
               if (!id) return;
 
+              // Si venimos de crear esta línea ahora, pinta el dataURL inmediato (no duplica)
               if (wanted && lastId && wanted === lastId && id === lastId && lastPng) {
                 insertPreview(line, lastPng, id, lastColor);
                 return;
@@ -490,7 +479,7 @@
               insertPreview(line, url, id, null);
             });
 
-            // Limpiar sesión tras pintar
+            // Limpieza del marcador para no contaminar nuevas visitas
             if (wanted && lastId && wanted === lastId) {
               try{
                 sessionStorage.removeItem('spw_last_line_id');
