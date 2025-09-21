@@ -121,7 +121,7 @@
                 <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset && window.spwReset();">Reset</a>
+                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -390,7 +390,7 @@
           }
 
           function findLines(){
-            // candidatos típicos de Odoo (17/16/15)
+            // candidatos típicos de Odoo
             var scope = q('.js_cart_lines') || document;
             var nodes = qa('.o_wsale_cart_item, .js_cart_line, .row.js_cart_line, tr.js_cart_line, .card.js_cart_item, [data-line-id]', scope);
             // filtra sólo contenedores raíz (evita coger un hijo dentro de la misma línea)
