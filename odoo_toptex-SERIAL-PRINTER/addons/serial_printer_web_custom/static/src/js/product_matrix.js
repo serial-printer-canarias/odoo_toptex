@@ -1,19 +1,19 @@
 /** @odoo-module **/
 
-// ================== DOM READY ==================
+// ========== DOM READY ==========
 function onReady(fn) {
     if (document.readyState !== "loading") fn();
     else document.addEventListener("DOMContentLoaded", fn);
 }
 
-// ================== ESTADO ==================
+// ========== ESTADO ==========
 const SP = (window.__SP ||= {
     rendering: false,
     bound: false,
-    comboCache: new Map(),   // key: tmpl|val-val  -> {product_id, price, stock}
+    comboCache: new Map(), // key: tmpl|val-val -> {product_id, price, stock, image}
 });
 
-// ================== UTILS ==================
+// ========== UTILS ==========
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function csrf() {
@@ -25,36 +25,11 @@ async function postJSON(url, payload) {
     const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify(payload),
-        credentials: "same-origin",
     });
-    if (!res.ok) throw new Error(url + " -> HTTP " + res.status);
+    if (!res.ok) throw new Error(url + " -> " + res.status);
     return res.json();
-}
-
-async function getCombinationInfo(payload) {
-    const routes = ["/shop/get_combination_info", "/website_sale/get_combination_info"];
-    for (const r of routes) {
-        try { return await postJSON(r, payload); } catch (_) {}
-    }
-    throw new Error("no-combination-route");
-}
-
-async function rpc(model, method, args = [], kwargs = {}) {
-    const res = await fetch("/web/dataset/call_kw", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({
-            jsonrpc: "2.0",
-            method: "call",
-            params: { model, method, args, kwargs, context: {} },
-            id: Date.now(),
-        }),
-    });
-    const data = await res.json();
-    if (data?.error) throw new Error("RPC " + model + "." + method);
-    return data.result;
 }
 
 function escapeHtml(s) {
@@ -64,19 +39,17 @@ function escapeHtml(s) {
 }
 const imgUrl = (pid) => `/web/image/product.product/${pid}/image_128`;
 
-// ================== ATRIBUTOS (COLOR/TALLA) ==================
+// ========== ATRIBUTOS ==========
 function getAttributeBlocks(scope) {
     const blocks = [];
     const containers = Array.from(scope.querySelectorAll(
         '[data-attribute_name], .js_attribute, .o_product_configurator [name], .js_attributes > div'
     ));
-
     containers.forEach((el) => {
         const name = (
             el.getAttribute("data-attribute_name") ||
             el.querySelector(".attribute_name, legend, .o_attr_title")?.textContent ||
-            el.getAttribute("name") ||
-            ""
+            el.getAttribute("name") || ""
         ).trim().toLowerCase();
 
         const radios = Array.from(el.querySelectorAll('input[type="radio"]'));
@@ -110,7 +83,7 @@ function sortSizes(opts) {
     });
 }
 
-// ================== HTML ==================
+// ========== HTML ==========
 function renderGrid(color, size) {
     let thead = '<thead><tr><th class="sp-sticky-left">Color</th>';
     size.options.forEach((s) => thead += `<th>${escapeHtml(s.text)}</th>`);
@@ -149,7 +122,7 @@ function renderGrid(color, size) {
     `;
 }
 
-// ================== DATOS (variante, foto, precio, stock) ==================
+// ========== DATOS (ruta pública) ==========
 function templateId(page) {
     const hid = page.querySelector('input[name="product_template_id"]');
     if (hid?.value) return Number(hid.value);
@@ -157,112 +130,64 @@ function templateId(page) {
     return Number(form?.dataset?.productTemplateId || 0);
 }
 
-async function resolveCombination(tmplId, values /* array PTAV ids */) {
+async function resolveCombinationPublic(tmplId, values) {
     const key = `${tmplId}|${values.slice().sort((a,b)=>a-b).join("-")}`;
     if (SP.comboCache.has(key)) return SP.comboCache.get(key);
 
-    let info = null;
+    // Ruta pública (rápido) -> fallback GET combination -> fallback RPC
+    let out = null;
     try {
-        info = await getCombinationInfo({
-            product_template_id: tmplId,
-            combination: values,
-            add_qty: 1,
-            only_template: false,
-            parent_combination: [],
-            no_variant_attribute_values: [],
-        });
+        out = await postJSON("/sp/combination", { template_id: tmplId, ptav_ids: values });
+        if (!out?.ok) out = null;
     } catch (_) {}
 
-    let product_id = info?.product_id || info?.id || null;
-    let price = info?.price ?? info?.list_price ?? null;
-    let stock = info?.stock_qty ?? info?.free_qty ?? null;
-
-    // Fallback robusto por RPC si aún no hay product_id
-    if (!product_id) {
+    if (!out) {
+        // último recurso: pregunta por cualquier variante y completa con RPC
         try {
-            const recs = await rpc("product.product", "search_read", [
-                [["product_tmpl_id","=",tmplId]],
-                ["id","lst_price","qty_available","product_template_attribute_value_ids"]
-            ]);
-            const need = new Set(values.map(Number));
-            const pick = recs.find(r => {
-                const got = (r.product_template_attribute_value_ids || []).map(Number);
-                return [...need].every(v => got.includes(v));
-            });
-            if (pick) {
-                product_id = pick.id;
-                if (price == null) price = pick.lst_price ?? null;
-                if (stock == null) stock = pick.qty_available ?? null;
-            }
+            const rec = await postJSON("/sp/combination", { template_id: tmplId, ptav_ids: [values[0]] });
+            if (rec?.ok) out = rec;
         } catch (_) {}
     }
 
-    const result = { product_id, price, stock };
-    SP.comboCache.set(key, result);
-    return result;
-}
-
-async function enrichFromProduct(pid) {
-    try {
-        const [rec] = await rpc("product.product", "read", [[pid], ["lst_price","qty_available"]]);
-        return { price: rec?.lst_price ?? null, stock: rec?.qty_available ?? null };
-    } catch (_) { return {}; }
+    if (!out) out = {};
+    SP.comboCache.set(key, out);
+    return out;
 }
 
 async function hydrateMatrix(page, color, size) {
     const tmplId = templateId(page);
     if (!tmplId) return;
 
-    // Miniatura por COLOR (usando primera talla disponible)
+    // Miniatura por COLOR (con primera talla)
     const firstSize = size.options[0]?.id;
     for (const c of color.options) {
         const row = page.querySelector(`tr[data-row-color="${c.id}"]`);
         const img = row?.querySelector(".sp-color__img");
         if (!img) continue;
 
-        let combo = [c.id];
-        if (firstSize) combo.push(firstSize);
-        const info = await resolveCombination(tmplId, combo);
-        let pid = info.product_id;
-
-        if (!pid) {
-            // último intento: cualquier variante que contenga ese color
-            try {
-                const recs = await rpc("product.product", "search_read", [
-                    [["product_tmpl_id","=",tmplId]],
-                    ["id","product_template_attribute_value_ids"]
-                ]);
-                const cand = recs.find(v => (v.product_template_attribute_value_ids||[]).map(Number).includes(Number(c.id)));
-                if (cand) pid = cand.id;
-            } catch (_) {}
-        }
-
-        if (pid) img.src = imgUrl(pid);
+        const combo = [c.id].concat(firstSize ? [firstSize] : []);
+        const info = await resolveCombinationPublic(tmplId, combo);
+        if (info?.product_id) img.src = info.image || imgUrl(info.product_id);
     }
 
-    // Celdas: product_id + meta (precio/stock)
+    // Por celda: product_id + meta
     const cells = Array.from(page.querySelectorAll("#sp-matrix .sp-qty"));
     for (const input of cells) {
         const cId = Number(input.dataset.color);
         const sId = Number(input.dataset.size);
-        const info = await resolveCombination(tmplId, [cId, sId]);
-        if (info.product_id) input.dataset.productId = String(info.product_id);
+        const info = await resolveCombinationPublic(tmplId, [cId, sId]);
 
-        let price = info.price, stock = info.stock;
-        if (info.product_id && (price == null || stock == null)) {
-            const more = await enrichFromProduct(info.product_id);
-            if (price == null) price = more.price ?? null;
-            if (stock == null) stock = more.stock ?? null;
-        }
+        if (info?.product_id) input.dataset.productId = String(info.product_id);
+
         const meta = input.parentElement.querySelector(".sp-meta");
         const bits = [];
-        if (price != null) bits.push(`Precio: ${price}`);
-        if (stock != null) bits.push(`Stock: ${stock}`);
+        if (info?.price != null) bits.push(`Precio: ${info.price}`);
+        if (info?.stock != null) bits.push(`Stock: ${info.stock}`);
         meta.textContent = bits.join(" · ");
     }
 }
 
-// ================== AÑADIR AL CARRITO ==================
+// ========== AÑADIR AL CARRITO ==========
 async function addSelection(page) {
     const items = Array.from(page.querySelectorAll("#sp-matrix .sp-qty"))
         .map(i => ({ pid: Number(i.dataset.productId || 0), qty: Number(i.value || 0) }))
@@ -277,12 +202,15 @@ async function addSelection(page) {
         try {
             await fetch("/shop/cart/update_json", {
                 method: "POST",
-                headers: { "Content-Type": "application/json", ...(token ? { "X-CSRFToken": token } : {}) },
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { "X-CSRFToken": token } : {}),
+                },
                 credentials: "same-origin",
                 body: JSON.stringify({ product_id: it.pid, add_qty: it.qty }),
             });
         } catch (_) {}
-        await sleep(100);
+        await sleep(80);
     }
     // Fallback clásico
     for (const it of items) {
@@ -293,18 +221,18 @@ async function addSelection(page) {
             if (token) fd.append("csrf_token", token);
             await fetch("/shop/cart/update", { method: "POST", body: fd, credentials: "same-origin" });
         } catch (_) {}
-        await sleep(100);
+        await sleep(80);
     }
 
     document.dispatchEvent(new Event("sp:cart-updated"));
 }
 
-// ================== INSERCIÓN/RENDER ==================
+// ========== INSERCIÓN / POSICIÓN ==========
 function anchors(page) {
-    const info = page.querySelector(".o_wsale_product_information") || page;
-    const attrs  = info.querySelector(".js_attributes");
-    const form   = info.querySelector("form.o_wsale_product_configurator, form[action*=\"/shop\"]") || page.querySelector("form[action*=\"/shop\"]");
-    const actions = info.querySelector(".o_wsale_product_actions") || form?.querySelector(".o_wsale_product_actions");
+    const info    = page.querySelector(".o_wsale_product_information") || page;
+    const attrs   = info.querySelector(".js_attributes");
+    const actions = info.querySelector(".o_wsale_product_actions") ||
+                    info.querySelector('button[name="add_to_cart"]')?.closest(".o_wsale_product_actions");
     return { info, attrs, actions };
 }
 
@@ -315,16 +243,20 @@ async function ensureMatrix() {
     const page = document.querySelector(".o_wsale_product_page");
     if (!page) { SP.rendering = false; return; }
 
-    // borra duplicados
+    // elimina duplicados
     page.querySelectorAll("#sp-matrix").forEach(n => n.remove());
 
     const { color, size } = getAttributeBlocks(page);
-    if (!color || !size) { document.body.classList.remove("sp-matrix-active"); SP.rendering = false; return; }
+    if (!color || !size) {
+        document.body.classList.remove("sp-matrix-active");
+        SP.rendering = false;
+        return;
+    }
 
     const html = renderGrid(color, size);
     const { info, attrs, actions } = anchors(page);
 
-    // **Posición fija: SIEMPRE antes del Add to cart**
+    // SIEMPRE justo antes del Add to cart
     if (actions && actions.parentNode) {
         actions.insertAdjacentHTML("beforebegin", html);
     } else if (attrs && attrs.parentNode) {
@@ -348,5 +280,5 @@ async function ensureMatrix() {
     SP.rendering = false;
 }
 
-// ================== START ==================
+// ========== START ==========
 onReady(ensureMatrix);
