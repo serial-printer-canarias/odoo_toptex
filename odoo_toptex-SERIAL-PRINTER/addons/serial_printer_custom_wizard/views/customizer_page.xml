@@ -121,7 +121,7 @@
                 <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
+                     onclick="window.spwReset && window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -302,15 +302,14 @@
           window.location.href = withParam;
         }
 
-        // Descarga iOS/Android/Escritorio
+        // Descarga iOS/Android/Escritorio (recuperado)
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
             var a = document.createElement("a");
             a.href = dataUrl; a.download = "personalizacion.png";
             if (typeof a.download === "undefined") {
-              // iOS Safari: abrir en la misma pestaña para "mantener pulsado → Guardar imagen"
-              window.location.href = dataUrl;
+              window.location.href = dataUrl; // iOS Safari
             } else {
               document.body.appendChild(a); a.click(); a.remove();
             }
@@ -354,7 +353,7 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN EN website.layout: preview por línea (usa ?spw_line_id y sessionStorage) ============ -->
+  <!-- ============ INYECCIÓN EN website.layout: preview por línea (robusto y sin duplicados) ============ -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript"><![CDATA[
@@ -366,29 +365,39 @@
           function getUrlParam(name){
             try{ return new URL(location.href).searchParams.get(name); }catch(_){ return null; }
           }
-          function parseLineIdFromHref(node){
-            try{
-              var a = node.closest('a[href*="line_id="]') || node.querySelector('a[href*="line_id="]');
-              if(!a) return null;
-              var u = new URL(a.getAttribute('href'), location.origin);
-              return u.searchParams.get('line_id');
-            }catch(_){ return null; }
-          }
           function getLineId(line){
             if(!line) return null;
-            return line.getAttribute('data-line-id')
-                || ((q('input[name="line_id"]', line)||{}).value)
-                || parseLineIdFromHref(line)
-                || null;
+
+            // 1) atributo directo en contenedores o botones
+            var direct = line.getAttribute('data-line-id')
+                       || (q('[data-line-id]', line) && q('[data-line-id]', line).getAttribute('data-line-id'));
+            if (direct) return String(direct);
+
+            // 2) input hidden line_id
+            var inp = q('input[name="line_id"]', line) || q('[name="line_id"]', line);
+            if (inp && inp.value) return String(inp.value);
+
+            // 3) enlaces/botones con ?line_id=
+            var a = q('a[href*="line_id="]', line) || q('form[action*="line_id="]', line);
+            if (a){
+              try{
+                var u = new URL(a.getAttribute('href') || a.getAttribute('action'), location.origin);
+                var lid = u.searchParams.get('line_id');
+                if (lid) return String(lid);
+              }catch(_){}
+            }
+            return null;
           }
+
           function findLines(){
-            var sel = ".js_cart_lines .row, .o_wsale_cart_item, tr.js_cart_line, [data-line-id], .card.js_cart_item";
-            var nodes = qa(sel);
-            // Filtra sólo contenedores raíz de línea (evita nodos anidados)
-            return nodes.filter(function(n){ return !nodes.some(function(m){ return m!==n && m.contains(n); }); })
-                        .filter(function(n){ return !!getLineId(n); });
+            // candidatos típicos de Odoo (17/16/15)
+            var scope = q('.js_cart_lines') || document;
+            var nodes = qa('.o_wsale_cart_item, .js_cart_line, .row.js_cart_line, tr.js_cart_line, .card.js_cart_item, [data-line-id]', scope);
+            // filtra sólo contenedores raíz (evita coger un hijo dentro de la misma línea)
+            return nodes.filter(function(n){ return !nodes.some(function(m){ return m!==n && m.contains(n); }); });
           }
-          function findQtyHolder(line){
+
+          function qtyBlock(line){
             return q(".o_wsale_cart_quantity", line)
                 || q("div[name='quantity']", line)
                 || q(".css_quantity", line)
@@ -398,8 +407,8 @@
           }
 
           function insertPreview(line, src, lineId, hex){
-            // Dedup dentro de la línea
-            qa('.spw-preview[data-line="'+lineId+'"]', line).forEach(function(im){ im.remove(); });
+            // borra previos de esa línea
+            qa('.spw-preview[data-line="'+lineId+'"]', line).forEach(function(x){ x.remove(); });
 
             var wrap = document.createElement("div");
             wrap.className = "spw-preview";
@@ -433,54 +442,51 @@
               wrap.appendChild(sw);
             }
 
-            var holder = findQtyHolder(line);
-            var parent = (holder && holder.parentNode) ? holder.parentNode : line;
-
-            // Inserta justo DESPUÉS del bloque de cantidad, pero como hermano (no dentro)
-            if (holder && holder.parentNode){
-              holder.parentNode.insertBefore(wrap, holder.nextSibling);
+            var qBlock = qtyBlock(line);
+            if (qBlock && qBlock.parentNode){
+              qBlock.parentNode.insertBefore(wrap, qBlock.nextSibling); // hermano del bloque de cantidad
             } else {
-              parent.appendChild(wrap);
+              line.appendChild(wrap);
             }
           }
 
           function inject(){
             if (!/\/shop\/cart/.test(location.pathname)) return;
 
-            var wanted = getUrlParam('spw_line_id'); // viene de la redirección tras añadir
-            var lastId = null, lastPng = null, lastColor = null;
-            try {
-              lastId = sessionStorage.getItem('spw_last_line_id');
-              lastPng = sessionStorage.getItem('spw_last_png');
-              lastColor = sessionStorage.getItem('spw_last_color');
-            } catch(_){}
+            var wanted = getUrlParam('spw_line_id');
+            var lastId=null, lastPng=null, lastColor=null;
+            try{
+              lastId   = sessionStorage.getItem('spw_last_line_id');
+              lastPng  = sessionStorage.getItem('spw_last_png');
+              lastColor= sessionStorage.getItem('spw_last_color');
+            }catch(_){}
 
             var lines = findLines();
 
-            // Limpieza global de duplicados huérfanos
-            qa(".spw-preview").forEach(function(im){
-              var lid = im.getAttribute("data-line");
+            // limpia previews huérfanas
+            qa(".spw-preview").forEach(function(el){
+              var lid = el.getAttribute("data-line");
               var keep = lines.some(function(l){ return getLineId(l) === lid; });
-              if(!keep) im.remove();
+              if(!keep) el.remove();
             });
 
             lines.forEach(function(line){
               var id = getLineId(line);
-              if (!id) return;
+              if(!id) return;
 
-              // Si venimos de crear esta línea ahora, pinta el dataURL inmediato (no duplica)
-              if (wanted && lastId && wanted === lastId && id === lastId && lastPng) {
+              // si venimos de añadir justo ahora
+              if (wanted && lastId && wanted === lastId && id === lastId && lastPng){
                 insertPreview(line, lastPng, id, lastColor);
                 return;
               }
 
-              // Fallback estable desde servidor
+              // fallback estable desde servidor
               var url = "/spw/line_preview/" + encodeURIComponent(id) + ".png?_=" + Date.now();
               insertPreview(line, url, id, null);
             });
 
-            // Limpieza del marcador para no contaminar nuevas visitas
-            if (wanted && lastId && wanted === lastId) {
+            // limpieza de marcadores tras usar
+            if (wanted && lastId && wanted === lastId){
               try{
                 sessionStorage.removeItem('spw_last_line_id');
                 sessionStorage.removeItem('spw_last_png');
@@ -496,13 +502,13 @@
               var mo = new MutationObserver(function(){ requestAnimationFrame(inject); });
               mo.observe(root, {childList:true, subtree:true});
             }
-            setTimeout(inject, 400);
-            setTimeout(inject, 1200);
+            setTimeout(inject, 350);
+            setTimeout(inject, 1000);
           }
 
-          if (document.readyState === 'loading') {
+          if (document.readyState === 'loading'){
             document.addEventListener('DOMContentLoaded', boot);
-          } else {
+          }else{
             boot();
           }
         })();
