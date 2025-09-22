@@ -1,11 +1,11 @@
 /** @odoo-module **/
 
-// === Utilidad que te funcionaba ===
+// === utilidades básicas (las que ya funcionaban) ===
 function onReady(fn){ if(document.readyState!=="loading") fn(); else document.addEventListener("DOMContentLoaded", fn); }
 function escapeHtml(s){return String(s||"").replace(/[&<>"']/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function fmtPrice(v){const n=Number(v||0);const sym=document.querySelector(".oe_currency_symbol")?.textContent?.trim()||"";return `${sym?sym+" ":""}${n.toFixed(2)}`;}
 
-// === Orden tallas ===
+// === orden de tallas numéricas o estándar ===
 function sortSizes(opts){
   const std=["2XS","XXS","XS","S","M","L","XL","2XL","XXL","3XL","4XL","5XL","6XL","7XL","8XL"];
   return [...opts].sort((a,b)=>{
@@ -17,12 +17,14 @@ function sortSizes(opts){
   });
 }
 
-// === Leer bloques de atributos ===
+// === localizar atributos en la página ===
 function getAttributeBlocks(scope){
   const blocks=[];
   const containers=Array.from(scope.querySelectorAll('.js_product .js_attributes > div, .js_attribute, [data-attribute_name]'));
   containers.forEach((el)=>{
-    const name=(el.getAttribute("data-attribute_name")||el.querySelector(".attribute_name, legend, .o_attr_title")?.textContent||el.getAttribute("name")||"").trim().toLowerCase();
+    const name=(el.getAttribute("data-attribute_name")
+      || el.querySelector(".attribute_name, legend, .o_attr_title")?.textContent
+      || el.getAttribute("name") || "").trim().toLowerCase();
     const radios=Array.from(el.querySelectorAll('input[type="radio"]'));
     if(!radios.length) return;
     const options=radios.map((inp)=>{
@@ -55,7 +57,7 @@ async function addBatch(lines){
   return r.json();
 }
 
-// === Utilidades de página ===
+// === utilidades de página ===
 function getTemplateId(page){
   const inp=page.querySelector('input[name="product_template_id"]');
   if(inp) return parseInt(inp.value,10);
@@ -65,13 +67,9 @@ function getTemplateId(page){
   if(any) return parseInt(any.getAttribute('data-product-template-id'),10);
   return null;
 }
-function anchorAfterAttributes(page){
-  const attrs=page.querySelector(".js_product .js_attributes");
-  return attrs ? {el: attrs, where: "afterend"} : null;
-}
 function removeOldGrid(page){ page.querySelectorAll("#sp-matrix").forEach(n=>n.remove()); }
 
-// === Render ===
+// === render ===
 function renderGrid(color,size){
   const cols = size ? size.options : [{pav:0, ptav:0, text:"One Size"}];
   let thead='<thead><tr><th class="sp-sticky-left">Color</th>';
@@ -99,20 +97,26 @@ async function ensureMatrix(){
   const page=document.querySelector(".o_wsale_product_page");
   if(!page) return;
 
-  const pos=anchorAfterAttributes(page);
-  const {color,size}=getAttributeBlocks(page);
-  if(!pos || !color){ removeOldGrid(page); return; }
+  // 1) Ancla fija (QWeb). Si no existe, no pintamos.
+  const anchor = page.querySelector("#sp-matrix-anchor");
+  if(!anchor){ console.warn("[SP] No hay ancla #sp-matrix-anchor"); return; }
 
+  const {color,size}=getAttributeBlocks(page);
+  if(!color){ removeOldGrid(page); console.warn("[SP] Falta atributo Color"); return; }
+
+  // 2) Pinta dentro del ancla y evita duplicados
   removeOldGrid(page);
-  pos.el.insertAdjacentHTML(pos.where, renderGrid(color,size));
+  anchor.insertAdjacentHTML("afterend", renderGrid(color,size));
 
   const matrix=page.querySelector("#sp-matrix");
   const templateId=getTemplateId(page);
-  if(!templateId) return;
+  if(!templateId){ console.warn("[SP] Sin template_id"); return; }
 
+  // 3) Datos de variantes (precio, stock, imagen)
   let combos={ok:false, items:[]};
-  try{ combos=await fetchCombos(templateId); }catch(e){}
+  try{ combos=await fetchCombos(templateId); }catch(e){ console.error(e); }
   const items = combos.ok ? combos.items : [];
+  console.info(`[SP] combos recibidos: ${items.length}`);
 
   // miniaturas por color
   matrix.querySelectorAll("tr[data-color-pav]").forEach(tr=>{
@@ -123,7 +127,7 @@ async function ensureMatrix(){
     img.src = (hit && hit.image) ? hit.image : "/web/static/img/placeholder.png";
   });
 
-  // meta por celda + product_id
+  // meta por celda + product_id para carrito
   matrix.querySelectorAll(".sp-cell").forEach(cell=>{
     const tr=cell.closest("tr");
     const cPTAV=parseInt(tr.dataset.colorPtav||"0",10);
@@ -148,6 +152,7 @@ async function ensureMatrix(){
     }
   });
 
+  // 4) Añadir selección al carrito
   matrix.querySelector(".sp-add")?.addEventListener("click", async (ev)=>{
     const btn=ev.currentTarget;
     const lines=[];
@@ -164,22 +169,26 @@ async function ensureMatrix(){
   });
 }
 
-// Arranque controlado y trazas
+// === arranque estable ===
 onReady(()=>{
   console.info("[SP] product_matrix.js cargado");
   const page=document.querySelector(".o_wsale_product_page");
   if(!page) return;
+
   const paint=()=>ensureMatrix();
+
+  // pinta una vez si ya están los atributos
   if(page.querySelector(".js_product .js_attributes")) paint();
+
+  // repinta cuando cambien radios de atributos
   page.addEventListener("change",(ev)=>{
     if(ev.target.matches('.js_product .js_attributes input[type="radio"]')) paint();
   });
-  const mo=new MutationObserver((muts)=>{
-    for(const m of muts){
-      if(m.type==="childList" && (m.target.closest?.(".js_product .js_attributes") || m.target.matches?.(".js_product .js_attributes"))){ paint(); break; }
-    }
-  });
-  mo.observe(page,{childList:true,subtree:true});
-  // helper de diagnóstico en consola
+
+  // repinta si el tema re-renderiza los atributos
+  const mo=new MutationObserver(()=>paint());
+  mo.observe(page.querySelector(".js_product")||page,{childList:true,subtree:true});
+
+  // helper manual
   window.spMatrixPing = paint;
 });
