@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+  <!-- La mayoría de temas usan esta plantilla -->
+  <template id="sp_matrix_anchor_product" inherit_id="website_sale.product" name="SP Matrix Anchor (product)">
+    <xpath expr="//div[contains(@class,'js_product')]//div[contains(@class,'js_attributes')]" position="after">
+      <div id="sp-matrix-anchor"/>
+    </xpath>
+  </template>
+
+  <!-- Fallback por si el tema usa la otra variante -->
+  <template id="sp_matrix_anchor_product_details" inherit_id="website_sale.product_details" name="SP Matrix Anchor (product_details)">
+    <xpath expr="//div[contains(@class,'js_product')]//div[contains(@class,'js_attributes')]" position="after">
+      <div id="sp-matrix-anchor"/>
+    </xpath>
+  </template>
+</odoo>
