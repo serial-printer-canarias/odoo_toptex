@@ -1,14 +1,14 @@
-# __manifest__.py
+# -*- coding: utf-8 -*-
 {
-    "name": "Serial Printer - Web Custom (Matrix)",
+    "name": "Serial Printer – Product Matrix (Web)",
     "version": "18.0.1.0.0",
+    "category": "Website/Website",
+    "summary": "Matriz de cantidades por color/talla en la ficha de producto",
     "license": "LGPL-3",
-    "category": "Website",
-    "summary": "Grid de cantidades por color/talla en la ficha de producto",
+    "author": "Serial Printer",
     "depends": ["website_sale"],
-    "data": [],  # sin XML ni xpaths
+    "data": [],
     "assets": {
-        # Cargar en TODO el frontend (el JS se auto-limita a la ficha de producto)
         "web.assets_frontend": [
             "serial_printer_web_custom/static/src/js/product_matrix.js",
             "serial_printer_web_custom/static/src/scss/product_matrix.scss",
