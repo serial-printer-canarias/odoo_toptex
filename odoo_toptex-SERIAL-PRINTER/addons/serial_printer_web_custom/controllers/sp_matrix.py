@@ -1,74 +1,101 @@
+# controllers/sp_matrix.py
 # -*- coding: utf-8 -*-
-import json
 from odoo import http
 from odoo.http import request
+import json
+
 
 class SpMatrix(http.Controller):
 
-    @http.route('/sp_matrix/v1/variants', type='http', auth='public', website=True, csrf=False)
-    def variants(self, **kw):
-        """Devuelve imágenes por color y combos (product_id, price, stock) por color/talla."""
-        variant_id = int(request.params.get('variant_id') or 0)
-        variant = request.env['product.product'].sudo().browse(variant_id)
-        if not variant.exists():
-            return request.make_response(json.dumps({}), headers=[('Content-Type','application/json')])
+    @http.route(
+        "/sp/matrix/variants/<int:template_id>",
+        type="http", auth="public", website=True, csrf=False
+    )
+    def sp_matrix_variants(self, template_id, **kw):
+        """Devuelve mapping variante -> (product_id, imagen, precio, stock)
+        en JSON plano (sin JSON-RPC, para poder usar fetch())."""
+        tmpl = request.env["product.template"].sudo().browse(template_id)
+        if not tmpl.exists():
+            return request.make_response(
+                json.dumps({"ok": False, "error": "template_not_found"}),
+                headers=[("Content-Type", "application/json")],
+            )
 
-        tmpl = variant.product_tmpl_id
+        # Mapa de combinación por conjunto de valores de atributo
+        # key = "sorted(value_ids)". p.ej. "23-249"
+        var_map = {}
+        for p in tmpl.product_variant_ids.sudo():
+            value_ids = p.product_template_attribute_value_ids.product_attribute_value_id.ids
+            key = "-".join(str(i) for i in sorted(value_ids))
+            var_map[key] = p
 
-        # detectar líneas color/talla
-        color_line = False
-        size_line = False
+        # Detectar (opcional) cuáles son color/size
+        color_attr = size_attr = None
         for line in tmpl.attribute_line_ids:
-            name = (line.attribute_id.name or '').lower()
-            if not color_line and ('color' in name or 'colour' in name):
-                color_line = line
-            if not size_line and (name in ('size','talla','talle','taille','größe','maat') or 'talla' in name):
-                size_line = line
+            n = (line.attribute_id.name or "").lower()
+            if not color_attr and ("color" in n or "colour" in n):
+                color_attr = line.attribute_id
+            if not size_attr and (n in ("size", "talla", "talle", "taille") or "size" in n):
+                size_attr = line.attribute_id
 
-        color_values = color_line.value_ids if color_line else request.env['product.attribute.value'].sudo()
-        size_values = size_line.value_ids if size_line else request.env['product.attribute.value'].sudo()
+        # Listas de valores
+        colors = request.env["product.attribute.value"]
+        sizes = request.env["product.attribute.value"]
+        if color_attr:
+            colors = tmpl.attribute_line_ids.filtered(lambda l: l.attribute_id == color_attr).value_ids
+        if size_attr:
+            sizes = tmpl.attribute_line_ids.filtered(lambda l: l.attribute_id == size_attr).value_ids
 
-        pp = request.env['product.product'].sudo().search([('product_tmpl_id','=',tmpl.id)])
-        var_map = []
-        for p in pp:
-            avs = set(p.product_template_attribute_value_ids.mapped('product_attribute_value_id').ids)
-            var_map.append((p, avs))
+        # Si no hay talla, tratamos como "One Size" con id -1
+        size_ids = sizes.ids or [-1]
 
-        images = {}
-        for cv in color_values:
-            prod = next((p for (p,avs) in var_map if cv.id in avs), False)
-            if prod:
-                images[str(cv.id)] = f"/web/image/product.product/{prod.id}/image_128"
-            else:
-                images[str(cv.id)] = f"/web/image/product.template/{tmpl.id}/image_128"
-
-        combos = {}
-        size_ids = size_values.ids or [0]  # 0 = sin talla (una columna)
-        for c in (color_values.ids or []):
+        records = []
+        for c in (colors or request.env["product.attribute.value"]):
             for s in size_ids:
-                prod = False
-                for p, avs in var_map:
-                    if c in avs and (s == 0 or s in avs):
-                        prod = p
-                        break
-                if prod:
-                    price = float(prod.lst_price)
-                    stock = float(getattr(prod, 'qty_available', 0.0))
-                    combos[f"{c}-{s}"] = {"product_id": prod.id, "price": price, "stock": stock}
+                comb = sorted([c.id] + ([] if s == -1 else [s]))
+                key = "-".join(str(i) for i in comb)
+                p = var_map.get(key)
+                if not p:
+                    continue
+                # Imagen, precio y stock (usamos website context por simplicidad)
+                img_url = f"/web/image/product.product/{p.id}/image_128"
+                price = p.sudo().website_price
+                qty = p.sudo().qty_available  # "On hand" como pediste
+                records.append({
+                    "color_id": c.id,
+                    "size_id": s,
+                    "product_id": p.id,
+                    "image": img_url,
+                    "price": price,
+                    "qty_available": qty,
+                })
 
-        payload = {"template_id": tmpl.id, "images": images, "combos": combos}
-        return request.make_response(json.dumps(payload), headers=[('Content-Type','application/json')])
+        payload = {"ok": True, "template_id": tmpl.id, "records": records}
+        return request.make_response(
+            json.dumps(payload), headers=[("Content-Type", "application/json")]
+        )
 
-    @http.route('/sp_matrix/v1/add', type='http', auth='public', website=True, csrf=False)
-    def add(self, **kw):
-        """Añade múltiples líneas al carrito: body JSON -> {lines:[{product_id:int, qty:number}, ...]}"""
-        body = request.jsonrequest or {}
-        lines = body.get('lines') or []
+    @http.route(
+        "/sp/matrix/add",
+        type="http", auth="public", website=True, csrf=False, methods=["POST"]
+    )
+    def sp_matrix_add(self, **kw):
+        """Añade varias líneas al carrito de una vez.
+        Espera: {"lines":[{"product_id":123, "qty":2}, ...]}
+        """
+        try:
+            data = json.loads(request.httprequest.data or b"{}")
+        except Exception:
+            data = {}
+        lines = data.get("lines", []) or []
         order = request.website.sale_get_order(force_create=True)
-        for l in lines:
-            pid = int(l.get('product_id', 0))
-            qty = float(l.get('qty', 0))
-            if pid and qty:
+        for line in lines:
+            pid = int(line.get("product_id") or 0)
+            qty = float(line.get("qty") or 0)
+            if pid and qty > 0:
+                # _cart_update maneja impuestos, pricelist, etc.
                 order._cart_update(product_id=pid, add_qty=qty)
-        return request.make_response(json.dumps({"ok": True, "order_id": order.id}),
-                                     headers=[('Content-Type','application/json')])
+        return request.make_response(
+            json.dumps({"ok": True, "cart_qty": order.cart_quantity}),
+            headers=[("Content-Type", "application/json")],
+        )
