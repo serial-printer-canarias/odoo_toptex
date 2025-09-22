@@ -5,14 +5,14 @@
     "category": "Website",
     "summary": "Product matrix (color x talla) con precio/stock",
     "depends": ["website_sale"],
-    "data": [],
+    "data": [
+        "views/sp_matrix_anchor.xml",   # <<< ancla estable bajo los atributos
+    ],
     "assets": {
-        # Algunas vistas de producto cargan este bundle
         "web.assets_frontend": [
             "serial_printer_web_custom/static/src/js/product_matrix.js",
             "serial_printer_web_custom/static/src/scss/product_matrix.scss",
         ],
-        # Otras vistas (themes/plantillas) cargan este otro
         "website.assets_frontend": [
             "serial_printer_web_custom/static/src/js/product_matrix.js",
             "serial_printer_web_custom/static/src/scss/product_matrix.scss",
