@@ -3,7 +3,7 @@
     "version": "18.0.1.0.0",
     "category": "Website",
     "summary": "Product matrix (color x talla) con precio/stock",
-    "depends": ["website_sale", "stock"],
+    "depends": ["website_sale"],
     "data": [],
     "assets": {
         "web.assets_frontend": [
