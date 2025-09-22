@@ -1,8 +1,6 @@
 #sp-matrix { margin-top: 1rem; }
 .sp-matrix__table { width:100%; border-collapse:separate; border-spacing:.5rem; table-layout:fixed; }
-.sp-matrix__table th, .sp-matrix__table td {
-  background:#fff; border:1px solid #e5e7eb; border-radius:.75rem; padding:.6rem; vertical-align:top;
-}
+.sp-matrix__table th, .sp-matrix__table td { background:#fff; border:1px solid #e5e7eb; border-radius:.75rem; padding:.6rem; vertical-align:top; }
 .sp-matrix__table thead th { font-weight:600; background:#f6f7f8; }
 .sp-sticky-left { position:sticky; left:0; background:#f6f7f8; z-index:1; min-width:12rem; }
 .sp-color { display:flex; align-items:center; gap:.6rem; }
