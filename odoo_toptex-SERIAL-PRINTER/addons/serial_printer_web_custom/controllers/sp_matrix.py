@@ -6,6 +6,7 @@ class SpMatrix(http.Controller):
 
     @http.route('/sp/matrix/combos/<int:template_id>', type='json', auth='public', csrf=False, website=True)
     def sp_matrix_combos(self, template_id, **kw):
+        """Devuelve (por variante) ids de PTAV/PAV, precio web, stock y miniatura."""
         template = request.env['product.template'].sudo().browse(template_id)
         if not template.exists():
             return {"ok": False, "items": []}
@@ -29,6 +30,7 @@ class SpMatrix(http.Controller):
 
     @http.route('/sp/cart/add_batch', type='json', auth='public', csrf=False, website=True)
     def sp_cart_add_batch(self, lines=None, **kw):
+        """Añade varias líneas al carrito (product_id/qty)."""
         lines = lines or []
         order = request.website.sale_get_order(force_create=1)
         for l in lines:
