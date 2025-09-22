@@ -1,11 +1,11 @@
 /** @odoo-module **/
 
-// ===== Util =====
-function onReady(fn) { if (document.readyState !== "loading") fn(); else document.addEventListener("DOMContentLoaded", fn); }
+// === Utilidad básica (la que te funcionaba) ===
+function onReady(fn){ if(document.readyState!=="loading") fn(); else document.addEventListener("DOMContentLoaded", fn); }
 function escapeHtml(s){return String(s||"").replace(/[&<>"']/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function fmtPrice(v){const n=Number(v||0);const sym=document.querySelector(".oe_currency_symbol")?.textContent?.trim()||"";return `${sym?sym+" ":""}${n.toFixed(2)}`;}
 
-// ===== Atributos =====
+// === Detección de atributos ===
 function sortSizes(opts){
   const std=["2XS","XXS","XS","S","M","L","XL","2XL","XXL","3XL","4XL","5XL","6XL","7XL","8XL"];
   return [...opts].sort((a,b)=>{
@@ -24,12 +24,14 @@ function getAttributeBlocks(scope){
     const name=(el.getAttribute("data-attribute_name")||el.querySelector(".attribute_name, legend, .o_attr_title")?.textContent||el.getAttribute("name")||"").trim().toLowerCase();
     const radios=Array.from(el.querySelectorAll('input[type="radio"]'));
     if(!radios.length) return;
+
     const options=radios.map((inp)=>{
-      const pav=parseInt(inp.dataset.attributeValueId || inp.getAttribute('data-attribute_value_id') || "0",10)||0; // Product Attribute Value
-      const ptav=parseInt(inp.dataset.valueId || inp.getAttribute('data-value-id') || "0",10)||0; // Product Template Attribute Value
+      const pav=parseInt(inp.dataset.attributeValueId || inp.getAttribute('data-attribute_value_id') || "0",10)||0;
+      const ptav=parseInt(inp.dataset.valueId || inp.getAttribute('data-value-id') || "0",10)||0;
       const txt=(inp.closest("label")?.textContent || inp.getAttribute("title") || "").replace(/\s+/g," ").trim();
       return (pav||ptav)? {pav, ptav, text: txt} : null;
     }).filter(Boolean);
+
     if(options.length) blocks.push({name, options});
   });
 
@@ -39,7 +41,7 @@ function getAttributeBlocks(scope){
   return {color,size};
 }
 
-// ===== API =====
+// === API ===
 async function fetchCombos(templateId){
   const r=await fetch(`/sp/matrix/combos/${templateId}`,{
     method:"POST", headers:{"Content-Type":"application/json","X-Requested-With":"XMLHttpRequest"},
@@ -55,18 +57,34 @@ async function addBatch(lines){
   return r.json();
 }
 
-// ===== Render =====
-function buildGridHTML(color,size){
-  const hasSize=!!size;
-  const cols=hasSize? size.options : [{pav:0,ptav:0,text:"One Size"}];
+// === Helpers de página ===
+function getTemplateId(page){
+  const inp=page.querySelector('input[name="product_template_id"]');
+  if(inp) return parseInt(inp.value,10);
+  const self=page.getAttribute("data-product-template-id");
+  if(self) return parseInt(self,10);
+  const any=page.querySelector('[data-product-template-id]');
+  if(any) return parseInt(any.getAttribute('data-product-template-id'),10);
+  return null;
+}
+function anchorAfterAttributes(page){
+  // Colocar SIEMPRE justo debajo de los atributos (si no existen, no pintamos: así nunca "se va abajo")
+  const attrs=page.querySelector(".js_product .js_attributes");
+  return attrs ? {el: attrs, where: "afterend"} : null;
+}
+function removeOldGrid(page){ page.querySelectorAll("#sp-matrix").forEach(n=>n.remove()); }
 
-  let thead='<thead><tr><th class="sp-sticky-left">Color</th>';
-  cols.forEach(s=> thead+=`<th>${escapeHtml(s.text)}</th>`);
-  thead+='</tr></thead>';
+// === Render ===
+function renderGrid(color,size){
+  const cols = size ? size.options : [{pav:0, ptav:0, text:"One Size"}];
 
-  let tbody='<tbody>';
+  let thead = '<thead><tr><th class="sp-sticky-left">Color</th>';
+  cols.forEach(s=> thead += `<th>${escapeHtml(s.text)}</th>`);
+  thead += '</tr></thead>';
+
+  let tbody = '<tbody>';
   color.options.forEach(c=>{
-    tbody+=`<tr data-color-ptav="${c.ptav||""}" data-color-pav="${c.pav||""}">
+    tbody += `<tr data-color-ptav="${c.ptav||""}" data-color-pav="${c.pav||""}">
       <th class="sp-sticky-left">
         <div class="sp-color">
           <img class="sp-color__img" alt="">
@@ -74,16 +92,16 @@ function buildGridHTML(color,size){
         </div>
       </th>`;
     cols.forEach(s=>{
-      tbody+=`<td>
+      tbody += `<td>
         <div class="sp-cell" data-size-ptav="${s.ptav||""}" data-size-pav="${s.pav||""}">
           <input class="sp-qty" type="number" min="0" step="1" inputmode="numeric" placeholder="0">
           <div class="sp-meta"></div>
         </div>
       </td>`;
     });
-    tbody+='</tr>';
+    tbody += `</tr>`;
   });
-  tbody+='</tbody>';
+  tbody += '</tbody>';
 
   return `<div id="sp-matrix" class="sp-matrix-box">
     <table class="sp-matrix__table">${thead}${tbody}</table>
@@ -92,44 +110,27 @@ function buildGridHTML(color,size){
   </div>`;
 }
 
-// ==== [MEJORA] Obtener template id de más sitios ====
-function getTemplateId(page){
-  const inp=page.querySelector('input[name="product_template_id"]');
-  if(inp) return parseInt(inp.value,10);
-  const self = page.getAttribute("data-product-template-id"); // algunos themes lo ponen aquí
-  if(self) return parseInt(self,10);
-  const any = page.querySelector('[data-product-template-id]'); // p.ej. #product_details
-  if(any) return parseInt(any.getAttribute('data-product-template-id'),10);
-  return null;
-}
-
-function findInsertPoint(page){
-  const attrs=page.querySelector(".js_product .js_attributes");
-  if(!attrs) return null;                     // Solo pintamos si existen atributos (evita que salga abajo)
-  return {el: attrs, where: "afterend"};      // Inmediatamente debajo de los atributos
-}
-
-function removeOldGrid(page){ page.querySelectorAll("#sp-matrix").forEach(n=>n.remove()); }
-
 async function ensureMatrix(){
   const page=document.querySelector(".o_wsale_product_page");
   if(!page) return;
 
+  const pos=anchorAfterAttributes(page);
   const {color,size}=getAttributeBlocks(page);
-  const pos=findInsertPoint(page);
-  if(!color || !pos){ removeOldGrid(page); return; }
+
+  // si no hay atributos (o no hay color), no pintamos (evita que salga en mala posición)
+  if(!pos || !color){ removeOldGrid(page); return; }
 
   removeOldGrid(page);
-  pos.el.insertAdjacentHTML(pos.where, buildGridHTML(color,size));
+  pos.el.insertAdjacentHTML(pos.where, renderGrid(color,size));
 
   const matrix=page.querySelector("#sp-matrix");
   const templateId=getTemplateId(page);
   if(!templateId) return;
 
-  // Datos del servidor
-  let combos={};
-  try{ combos=await fetchCombos(templateId);}catch(e){ combos={ok:false}; }
-  const items = combos.ok ? (combos.items||[]) : [];
+  // Cargar info de servidor (precio, stock, imagen, product_id por combinación)
+  let combos={ok:false, items:[]};
+  try{ combos=await fetchCombos(templateId); }catch(e){ /* silencio */ }
+  const items = combos.ok ? combos.items : [];
 
   // Imagen por color (match por PTAV o PAV)
   matrix.querySelectorAll("tr[data-color-pav]").forEach(tr=>{
@@ -140,7 +141,7 @@ async function ensureMatrix(){
     img.src = (hit && hit.image) ? hit.image : "/web/static/img/placeholder.png";
   });
 
-  // Info por celda y product_id
+  // Meta + product_id por celda
   matrix.querySelectorAll(".sp-cell").forEach(cell=>{
     const tr=cell.closest("tr");
     const cPTAV=parseInt(tr.dataset.colorPtav||"0",10);
@@ -176,42 +177,41 @@ async function ensureMatrix(){
       const qty=parseFloat(cell.querySelector(".sp-qty")?.value||"0");
       if(pid && qty>0) lines.push({product_id:pid, qty});
     });
-    if(!lines.length){ btn.classList.add("shake"); setTimeout(()=>btn.classList.remove("shake"),500); return; }
+    if(!lines.length){ btn.classList.add("disabled"); setTimeout(()=>btn.classList.remove("disabled"),400); return; }
     btn.disabled=true; btn.textContent="Añadiendo…";
     try{
       const res=await addBatch(lines);
-      if(!res.ok) throw new Error("cart error");
+      if(!res.ok) throw new Error("cart");
       btn.textContent="Añadido ✔";
-      document.querySelectorAll(".o_website_sale .my_cart_quantity, .js_cart_qty").forEach(el=>el.dispatchEvent(new Event("change")));
+      // Dispara actualización de mini-carrito si el theme la escucha
+      document.querySelectorAll(".o_website_sale .my_cart_quantity, .js_cart_qty")
+        .forEach(el=>el.dispatchEvent(new Event("change")));
     }catch(e){ btn.textContent="Error"; }
     finally{ setTimeout(()=>{ btn.disabled=false; btn.textContent="Añadir selección"; },1200); }
   });
 }
 
-// ===== Arranque y anti-duplicados =====
+// === Arranque muy controlado (sin duplicar) ===
 onReady(()=>{
   const page=document.querySelector(".o_wsale_product_page");
   if(!page) return;
 
-  // 1) Si ya están los atributos, pinto
-  let attrs=page.querySelector(".js_product .js_attributes");
-  if (attrs) {
-    ensureMatrix();
-    attrs.addEventListener("change",(ev)=>{ if(ev.target.matches('input[type="radio"]')) ensureMatrix(); });
-    const mo=new MutationObserver(()=>ensureMatrix());
-    mo.observe(attrs,{childList:true, subtree:true});
-  } else {
-    // 2) [NUEVO] Esperar a que aparezcan los atributos (evita “grid desaparecido”)
-    const wait = new MutationObserver(()=>{
-      attrs = page.querySelector(".js_product .js_attributes");
-      if (attrs) {
-        wait.disconnect();
-        ensureMatrix();
-        attrs.addEventListener("change",(ev)=>{ if(ev.target.matches('input[type="radio"]')) ensureMatrix(); });
-        const mo=new MutationObserver(()=>ensureMatrix());
-        mo.observe(attrs,{childList:true, subtree:true});
+  const paint = ()=>ensureMatrix();
+
+  // Pinta si ya están los atributos…
+  if (page.querySelector(".js_product .js_attributes")) paint();
+
+  // …y repinta cuando cambian radios o se re-renderiza ese bloque
+  page.addEventListener("change",(ev)=>{
+    if(ev.target.matches('.js_product .js_attributes input[type="radio"]')) paint();
+  });
+
+  const mo=new MutationObserver((muts)=>{
+    for(const m of muts){
+      if(m.type==="childList" && (m.target.closest?.(".js_product .js_attributes") || m.target.matches?.(".js_product .js_attributes"))){
+        paint(); break;
       }
-    });
-    wait.observe(page, {childList:true, subtree:true});
-  }
+    }
+  });
+  mo.observe(page, {childList:true, subtree:true});
 });
