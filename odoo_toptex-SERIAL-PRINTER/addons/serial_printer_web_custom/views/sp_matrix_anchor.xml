@@ -1,11 +1,9 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <data>
-    <!-- Ancla robusta dentro del formulario del producto -->
-    <template id="sp_matrix_anchor_product" inherit_id="website_sale.product" name="SP Matrix Anchor (product)">
-      <xpath expr="//form[contains(@class,'o_wsale_product_configurator')]" position="inside">
-        <div id="sp-matrix-anchor" class="sp-matrix-anchor"/>
-      </xpath>
-    </template>
-  </data>
+  <template id="sp_matrix_anchor_product" inherit_id="website_sale.product" name="SP Matrix Anchor (product)">
+    <!-- Insertar ancla justo después del bloque de atributos -->
+    <xpath expr="//div[contains(@class,'js_attributes')]" position="after">
+      <div id="sp-matrix-anchor"/>
+    </xpath>
+  </template>
 </odoo>
