@@ -92,18 +92,21 @@ function buildGridHTML(color,size){
   </div>`;
 }
 
+// ==== [MEJORA] Obtener template id de más sitios ====
 function getTemplateId(page){
   const inp=page.querySelector('input[name="product_template_id"]');
   if(inp) return parseInt(inp.value,10);
-  const attr=page.getAttribute("data-product-template-id");
-  if(attr) return parseInt(attr,10);
+  const self = page.getAttribute("data-product-template-id"); // algunos themes lo ponen aquí
+  if(self) return parseInt(self,10);
+  const any = page.querySelector('[data-product-template-id]'); // p.ej. #product_details
+  if(any) return parseInt(any.getAttribute('data-product-template-id'),10);
   return null;
 }
 
 function findInsertPoint(page){
   const attrs=page.querySelector(".js_product .js_attributes");
-  if(!attrs) return null;                     // Solo pintamos si existen atributos
-  return {el: attrs, where: "afterend"};      // Siempre inmediatamente debajo
+  if(!attrs) return null;                     // Solo pintamos si existen atributos (evita que salga abajo)
+  return {el: attrs, where: "afterend"};      // Inmediatamente debajo de los atributos
 }
 
 function removeOldGrid(page){ page.querySelectorAll("#sp-matrix").forEach(n=>n.remove()); }
@@ -179,7 +182,6 @@ async function ensureMatrix(){
       const res=await addBatch(lines);
       if(!res.ok) throw new Error("cart error");
       btn.textContent="Añadido ✔";
-      // (opcional) refrescar mini-carrito si existe
       document.querySelectorAll(".o_website_sale .my_cart_quantity, .js_cart_qty").forEach(el=>el.dispatchEvent(new Event("change")));
     }catch(e){ btn.textContent="Error"; }
     finally{ setTimeout(()=>{ btn.disabled=false; btn.textContent="Añadir selección"; },1200); }
@@ -191,11 +193,25 @@ onReady(()=>{
   const page=document.querySelector(".o_wsale_product_page");
   if(!page) return;
 
-  ensureMatrix();
-
-  const attrs=page.querySelector(".js_product .js_attributes");
-  attrs?.addEventListener("change",(ev)=>{ if(ev.target.matches('input[type="radio"]')) ensureMatrix(); });
-
-  const mo=new MutationObserver(()=>ensureMatrix());
-  if(attrs) mo.observe(attrs,{childList:true, subtree:true});
+  // 1) Si ya están los atributos, pinto
+  let attrs=page.querySelector(".js_product .js_attributes");
+  if (attrs) {
+    ensureMatrix();
+    attrs.addEventListener("change",(ev)=>{ if(ev.target.matches('input[type="radio"]')) ensureMatrix(); });
+    const mo=new MutationObserver(()=>ensureMatrix());
+    mo.observe(attrs,{childList:true, subtree:true});
+  } else {
+    // 2) [NUEVO] Esperar a que aparezcan los atributos (evita “grid desaparecido”)
+    const wait = new MutationObserver(()=>{
+      attrs = page.querySelector(".js_product .js_attributes");
+      if (attrs) {
+        wait.disconnect();
+        ensureMatrix();
+        attrs.addEventListener("change",(ev)=>{ if(ev.target.matches('input[type="radio"]')) ensureMatrix(); });
+        const mo=new MutationObserver(()=>ensureMatrix());
+        mo.observe(attrs,{childList:true, subtree:true});
+      }
+    });
+    wait.observe(page, {childList:true, subtree:true});
+  }
 });
