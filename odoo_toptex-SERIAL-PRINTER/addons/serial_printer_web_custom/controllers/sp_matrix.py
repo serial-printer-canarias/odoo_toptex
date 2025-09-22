@@ -2,89 +2,58 @@
 from odoo import http
 from odoo.http import request
 
+class SPMatrixController(http.Controller):
 
-class SPMatrix(http.Controller):
+    @http.route('/sp/matrix/combos/<int:template_id>', type='json', auth='public', website=True, csrf=False)
+    def sp_matrix_combos(self, template_id, **kw):
+        """Devuelve las combinaciones del template con:
+           - ptav_ids (ids de product.template.attribute.value)
+           - product_id
+           - price (con la lista del website)
+           - stock (On hand)
+           - image (url)
+        """
+        tmpl = request.env['product.template'].sudo().browse(template_id)
+        if not tmpl.exists():
+            return {'ok': False, 'error': 'template not found'}
 
-    @http.route('/sp/combination', type='json', auth='public', cors='*')
-    def sp_combination(self, template_id=None, ptav_ids=None, qty=1.0):
-        """Devuelve variante, precio, stock e imagen para una combinación de valores de atributo."""
-        try:
-            if not template_id or not ptav_ids:
-                return {"ok": False, "error": "missing-params"}
+        website   = request.website
+        partner   = request.env.user.sudo().partner_id
+        pricelist = website.get_current_pricelist()
 
-            template = request.env["product.template"].sudo().browse(int(template_id))
-            if not template.exists():
-                return {"ok": False, "error": "template-not-found"}
-
-            need = set(int(v) for v in ptav_ids)
-            product = False
-            for p in template.sudo().product_variant_ids:
-                got = set(p.product_template_attribute_value_ids.ids)
-                if need.issubset(got):
-                    product = p
-                    break
-            if not product:
-                # último recurso: primera variante
-                product = template.sudo().product_variant_ids[:1]
-
-            if not product:
-                return {"ok": False, "error": "product-not-found"}
-
-            # Precio por tarifa del website si existe; si no, lst_price
-            pricelist = getattr(request, "website", False) and request.website.get_current_pricelist() or False
-            partner = request.env.user.sudo().partner_id
-            price = product.sudo().lst_price
+        items = []
+        for p in tmpl.product_variant_ids.sudo():
+            # precio con la lista del website (fallback a lst_price)
+            price = p.lst_price
             try:
-                if pricelist:
-                    price_ctx = product.sudo().with_context(
-                        partner=partner.id,
-                        quantity=float(qty or 1.0),
-                        pricelist=pricelist.id,
-                    )
-                    # _get_product_price es estable en website_sale (Odoo 15-18)
-                    price = pricelist.sudo()._get_product_price(product, float(qty or 1.0), partner=partner) or price
+                if hasattr(p, '_get_tax_included_unit_price'):
+                    price = p._get_tax_included_unit_price(pricelist, 1.0, partner)
+                else:
+                    price = p.with_context(
+                        pricelist=pricelist.id, partner=partner.id, quantity=1.0
+                    ).price or p.lst_price
             except Exception:
                 pass
 
-            stock = product.sudo().qty_available  # usa free_qty si lo prefieres
-            image = f"/web/image/product.product/{product.id}/image_128"
+            items.append({
+                'product_id': p.id,
+                'ptav_ids'  : p.product_template_attribute_value_ids.ids,
+                'price'     : price,
+                'stock'     : p.qty_available,  # On hand (cámbialo por free_qty si quieres)
+                'image'     : f'/web/image/product.product/{p.id}/image_128',
+            })
+        return {'ok': True, 'items': items}
 
-            return {
-                "ok": True,
-                "product_id": product.id,
-                "price": price,
-                "stock": stock,
-                "image": image,
-            }
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+    @http.route('/sp/cart/add_batch', type='json', auth='public', website=True, csrf=False)
+    def sp_cart_add_batch(self, lines=None, **kw):
+        """Recibe [{'product_id':id, 'qty':x}, ...] y los añade al carrito."""
+        if not isinstance(lines, list):
+            return {'ok': False, 'error': 'bad payload'}
 
-    @http.route('/sp/product_info/<int:product_id>', type='json', auth='public', cors='*')
-    def sp_product_info(self, product_id, qty=1.0):
-        """Info directa por product_id (fallback público)."""
-        try:
-            product = request.env["product.product"].sudo().browse(int(product_id))
-            if not product.exists():
-                return {"ok": False, "error": "product-not-found"}
-
-            pricelist = getattr(request, "website", False) and request.website.get_current_pricelist() or False
-            partner = request.env.user.sudo().partner_id
-            price = product.sudo().lst_price
-            try:
-                if pricelist:
-                    price = pricelist.sudo()._get_product_price(product, float(qty or 1.0), partner=partner) or price
-            except Exception:
-                pass
-
-            stock = product.sudo().qty_available
-            image = f"/web/image/product.product/{product.id}/image_128"
-
-            return {
-                "ok": True,
-                "product_id": product.id,
-                "price": price,
-                "stock": stock,
-                "image": image,
-            }
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+        order = request.website.sale_get_order(force_create=True).sudo()
+        for ln in lines:
+            pid = int(ln.get('product_id') or 0)
+            qty = float(ln.get('qty') or 0)
+            if pid and qty > 0:
+                order._cart_update(product_id=pid, add_qty=qty)
+        return {'ok': True, 'order_id': order.id}
