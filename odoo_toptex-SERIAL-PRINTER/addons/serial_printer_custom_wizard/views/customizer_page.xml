@@ -150,8 +150,6 @@
         function loadImage(src){return new Promise(function(res,rej){var i=new Image();i.onload=function(){res(i)};i.onerror=rej;i.src=src;});}
         function readAsDataURL(f){return new Promise(function(res,rej){var r=new FileReader();r.onload=function(){res(r.result)};r.onerror=rej;r.readAsDataURL(f);});}
 
-        var S={};
-
         function applyTransform(){
           var logo=$("#spw_logo_preview"); if(!logo) return;
           var base=$("#spw_product_img");  if(!base) return;
@@ -197,7 +195,7 @@
             var cy=((lr.top +lr.height/2)-br.top )/bh * c.height;
             var drawW=(lr.width/bw)*c.width;
 
-            var lim=await loadImage(logo.src);
+            var lim=new Image(); await new Promise((ok,ko)=>{lim.onload=ok;lim.onerror=ko;lim.src=logo.src;});
             var ratio=(lim.naturalHeight||lim.height)/(lim.naturalWidth||lim.width);
             var drawH=drawW*ratio;
             var rot=(+($val("spw_rotation","0")||0) * Math.PI)/180;
@@ -325,6 +323,7 @@
           return qa(sel);
         }
         function findMetaContainer(line){
+          // donde está el “Técnica / Color…”
           var elems = qa('p,div,li,span', line);
           var meta = elems.find(function(el){
             var t=(el.textContent||"").toLowerCase();
@@ -337,17 +336,15 @@
           return m ? ('#'+m[1]) : null;
         }
 
-        // Elimina toda preview suelta que no está dentro de ninguna línea válida
         function cleanupOrphans(lines){
-          var previews=qa(".spw-preview");
-          previews.forEach(function(p){
+          qa(".spw-preview").forEach(function(p){
             var inside = lines.some(function(ln){ return ln.contains(p); });
             if(!inside) p.remove();
           });
         }
 
         function insertPreview(line, src, lineId, hex){
-          // 1) **CLAVE**: borrar cualquier preview previa dentro de ESTA línea
+          // borra cualquier preview previa DENTRO de esta línea
           qa(".spw-preview", line).forEach(function(n){ n.remove(); });
 
           var meta = findMetaContainer(line);
@@ -370,8 +367,8 @@
           meta.insertAdjacentElement("afterend", wrap);
         }
 
-        var tick=null;
-        function schedule(fn){ if(tick) cancelAnimationFrame(tick); tick=requestAnimationFrame(fn); }
+        // throttle
+        var rafId=null; function schedule(fn){ if(rafId) cancelAnimationFrame(rafId); rafId=requestAnimationFrame(fn); }
 
         function inject(){
           if(!/\/shop\/cart/.test(location.pathname)) return;
@@ -387,18 +384,15 @@
           var lines=findLines();
           if(!lines.length) return;
 
-          // limpiar previews fuera de líneas válidas
           cleanupOrphans(lines);
 
           lines.forEach(function(line){
             var id=getLineId(line);
 
-            // si acabamos de crear esta línea, usa el PNG en memoria (no se duplica xq limpiamos antes)
             if (wanted && lastId && id===lastId && lastPng){
               insertPreview(line, lastPng, id, lastColor);
               return;
             }
-            // fallback estable al PNG del servidor
             if (id){
               var url="/spw/line_preview/"+encodeURIComponent(id)+".png?_="+Date.now();
               insertPreview(line, url, id, null);
@@ -415,14 +409,25 @@
         }
 
         function boot(){
-          inject();
-          var root=q(".js_cart_lines") || q(".o_wsale_cart") || q("main") || document.body;
+          // OBSERVAR SIEMPRE EL BODY (Odoo reemplaza contenedores del carrito)
+          var root=document.body;
           if(window.MutationObserver && root){
             var mo=new MutationObserver(function(){ schedule(inject); });
             mo.observe(root,{childList:true,subtree:true});
           }
-          setTimeout(inject,300);
+          // Reintentos escalonados para cubrir parches de OWL
+          setTimeout(inject,120);
+          setTimeout(inject,360);
           setTimeout(inject,900);
+          setTimeout(inject,1800);
+
+          // También en eventos de navegación
+          window.addEventListener('pageshow', inject);
+          window.addEventListener('popstate', inject);
+          window.addEventListener('hashchange', inject);
+
+          // Primera pasada
+          inject();
         }
 
         if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded", boot); } else { boot(); }
