@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- ================= PÁGINA DEL PERSONALIZADOR (SIN CAMBIOS) ================= -->
+  <!-- ============ PÁGINA DEL PERSONALIZADOR ============ -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
@@ -141,7 +141,7 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (descarga móvil/desktop + redirección con spw_line_id) ====== -->
+      <!-- ====== JS INLINE: export PNG (iOS ok) + addToCart con redirección spw_line_id ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -150,7 +150,7 @@
         function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
         function $val(id, d){ var el=$("#"+id); return el?el.value:d; }
 
-        async function loadImage(src){
+        function loadImage(src){
           return new Promise(function(resolve, reject){
             var im=new Image();
             im.onload=function(){ resolve(im); };
@@ -166,9 +166,8 @@
             r.readAsDataURL(file);
           });
         }
-        function dataURLtoBase64(u){ var i=u.indexOf(','); return i!==-1?u.slice(i+1):u; }
 
-        var S={ logoDataURL:"", isSVG:false };
+        var S={ isSVG:false };
 
         function applyTransform(){
           var logo = $("#spw_logo_preview"); if(!logo) return;
@@ -269,16 +268,15 @@
           var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
-          var pngB64="";
+          var pngB64="", du=null;
           try{
-            var du = await renderPNGDataURL();
+            du = await renderPNGDataURL();
             sessionStorage.setItem('spw_last_product_id', String(variantId));
             sessionStorage.setItem('spw_last_png', du || '');
             sessionStorage.setItem('spw_last_color', svgColor || '');
             pngB64 = du ? du.split('base64,')[1] : "";
           }catch(_){}
 
-          // 1) meta JSON -> fallback HTTP
           var r1 = await postJSON("/spw/add_to_cart_meta", {
             variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
           });
@@ -289,26 +287,24 @@
 
           try { if (r1.data && r1.data.line_id) sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id)); } catch(_){}
 
-          // 2) PNG JSON -> fallback HTTP (no bloquea redirección)
           if(pngB64){
             var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
           }
 
-          // Redirige con ?spw_line_id para que el carrito sepa dónde pintar
           var baseUrl = (r1.data && r1.data.cart_url) || "/shop/cart";
           var withParam = (r1.data && r1.data.line_id) ? (baseUrl + (baseUrl.indexOf('?')===-1?'?':'&') + 'spw_line_id=' + encodeURIComponent(r1.data.line_id)) : baseUrl;
           window.location.href = withParam;
         }
 
-        // Descarga segura para iOS (y resto si no soporta atributo download)
+        // iOS/Android/Escritorio: abrir en misma pestaña si no hay soporte de download
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
             var a = document.createElement("a");
             a.href = dataUrl; a.download = "personalizacion.png";
             if (typeof a.download === "undefined") {
-              window.location.href = dataUrl; // iOS: abre en la misma pestaña (tocar y guardar)
+              window.location.href = dataUrl; // iOS Safari
             } else {
               document.body.appendChild(a); a.click(); a.remove();
             }
@@ -324,7 +320,6 @@
               var name=(f.name||"").toLowerCase();
               S.isSVG = name.endsWith(".svg");
               var dataURL = await readAsDataURL(f);
-              S.logoDataURL = dataURL;
               logoEl.src = dataURL;
               applyTransform();
             });
@@ -352,181 +347,162 @@
     </t>
   </template>
 
-  <!-- =================== INYECCIÓN EN website.layout: PREVIEW EN CARRITO (MEJORA) =================== -->
+  <!-- ============ INYECCIÓN EN website.layout: preview en carrito (una sola, debajo de Técnica/Color) ============ -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
+
+      <style>
+        .spw-preview{display:flex;align-items:center;gap:.5rem;margin:.35rem 0 0}
+        .spw-preview img{max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px}
+        .spw-swatch{display:inline-block;width:14px;height:14px;border-radius:999px;border:1px solid #e5e7eb}
+      </style>
+
       <script type="text/javascript"><![CDATA[
-        (function(){
-          "use strict";
-          function q(sel, root){return (root||document).querySelector(sel);}
-          function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
+      (function(){
+        "use strict";
+        function q(sel, root){return (root||document).querySelector(sel);}
+        function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
 
-          function getUrlParam(name){
-            try{ return new URL(location.href).searchParams.get(name); }catch(_){ return null; }
+        function getUrlParam(name){
+          try{ return new URL(location.href).searchParams.get(name); }catch(_){ return null; }
+        }
+        function parseLineIdFromHref(node){
+          try{
+            var a = (node.closest && node.closest('a[href*="line_id="]')) || (node.querySelector && node.querySelector('a[href*="line_id="]'));
+            if(!a) return null;
+            var u = new URL(a.getAttribute('href'), location.origin);
+            return u.searchParams.get('line_id');
+          }catch(_){ return null; }
+        }
+        function getLineId(line){
+          if(!line) return null;
+          var cand =
+            line.getAttribute('data-line-id') ||
+            (q('input[name="line_id"]', line)||{}).value ||
+            (q('input[name="product_id"] + input[name="line_id"]', line)||{}).value ||
+            parseLineIdFromHref(line) ||
+            null;
+          return cand;
+        }
+
+        // Localiza el bloque de texto donde aparece "Técnica / Color"
+        function findMetaContainer(line){
+          var elems = qa('p,div,li,span', line);
+          var meta = elems.find(function(el){
+            var t = (el.textContent||"").toLowerCase();
+            return /t[eé]cnica/.test(t) || /color svg/.test(t) || /color\s*#/.test(t);
+          });
+          if (meta) return meta;
+          // fallback: columna de texto a la izquierda
+          var col = q('.col, .col-8, .oe_structure, .o_wsale_prod_info', line) || line;
+          return col;
+        }
+
+        function extractHexFromText(text){
+          var m = (text||"").match(/#([0-9a-fA-F]{6})\b/);
+          return m ? ('#'+m[1]) : null;
+        }
+
+        function findLines(){
+          // Cubrimos varios temas/versiones
+          var sel = ".js_cart_lines .row, .o_wsale_cart_item, tr.js_cart_line, [data-line-id], .card.js_cart_item, .o_cart_line";
+          return qa(sel).filter(function(n){ return !!getLineId(n); });
+        }
+
+        function insertPreviewAfterMeta(line, src, lineId, hex){
+          // Evitar duplicados en esa línea
+          qa('.spw-preview[data-line="'+lineId+'"]', line).forEach(function(im){ im.remove(); });
+
+          var meta = findMetaContainer(line);
+          if (!meta) return;
+
+          var wrap = document.createElement('div');
+          wrap.className = 'spw-preview';
+          wrap.setAttribute('data-line', lineId);
+
+          var img = new Image();
+          img.alt = 'Personalización';
+          img.loading = 'lazy';
+          img.src = src;
+          img.onerror = function(){ wrap.remove(); };
+          wrap.appendChild(img);
+
+          // Swatch de color (extraído del texto visible o pasado por sesión)
+          var hexFromText = extractHexFromText((meta.textContent||""));
+          var colorToShow = hexFromText || hex;
+          if (colorToShow && /^#[0-9A-F]{6}$/i.test(colorToShow)){
+            var sw = document.createElement('span');
+            sw.className = 'spw-swatch';
+            sw.title = colorToShow;
+            sw.style.background = colorToShow;
+            wrap.appendChild(sw);
           }
-          function parseLineIdFromHref(node){
+
+          meta.insertAdjacentElement('afterend', wrap);
+        }
+
+        function inject(){
+          if (!/\/shop\/cart/.test(location.pathname)) return;
+
+          var wanted = getUrlParam('spw_line_id'); // línea recién añadida
+          var lastId = null, lastPng = null, lastColor = null;
+          try {
+            lastId = sessionStorage.getItem('spw_last_line_id');
+            lastPng = sessionStorage.getItem('spw_last_png');
+            lastColor = sessionStorage.getItem('spw_last_color');
+          } catch(_){}
+
+          var lines = findLines();
+
+          // Limpieza global de huérfanos
+          qa(".spw-preview").forEach(function(im){
+            var lid = im.getAttribute("data-line");
+            var keep = lines.some(function(l){ return getLineId(l) === lid; });
+            if(!keep) im.remove();
+          });
+
+          lines.forEach(function(line){
+            var id = getLineId(line);
+            if (!id) return;
+
+            // 1) Si venimos de crear esa línea ahora mismo, usar el dataURL en sesión (instantáneo)
+            if (wanted && lastId && wanted === lastId && id === lastId && lastPng) {
+              insertPreviewAfterMeta(line, lastPng, id, lastColor);
+              return;
+            }
+
+            // 2) Fallback: imagen guardada en servidor
+            var url = "/spw/line_preview/" + encodeURIComponent(id) + ".png?_=" + Date.now();
+            insertPreviewAfterMeta(line, url, id, null);
+          });
+
+          // Limpiar la sesión para no “contaminar” posteriores
+          if (wanted && lastId && wanted === lastId) {
             try{
-              var a = node.closest && node.closest('a[href*="line_id="]');
-              if(!a && node.querySelector){ a = node.querySelector('a[href*="line_id="]'); }
-              if(!a) return null;
-              var u = new URL(a.getAttribute('href'), location.origin);
-              return u.searchParams.get('line_id');
-            }catch(_){ return null; }
+              sessionStorage.removeItem('spw_last_line_id');
+              sessionStorage.removeItem('spw_last_png');
+              sessionStorage.removeItem('spw_last_color');
+            }catch(_){}
           }
-          function getLineId(line){
-            if(!line) return null;
-            return line.getAttribute('data-line-id')
-                || ((q('input[name="line_id"]', line)||{}).value)
-                || parseLineIdFromHref(line)
-                || null;
+        }
+
+        function boot(){
+          inject();
+          var root = q(".js_cart_lines") || q(".o_wsale_cart") || q("main") || document.body;
+          if (window.MutationObserver && root){
+            var mo = new MutationObserver(function(){ requestAnimationFrame(inject); });
+            mo.observe(root, {childList:true, subtree:true});
           }
-          function findLines(){
-            var sel = ".js_cart_lines .row, .o_wsale_cart_item, tr.js_cart_line, [data-line-id], .card.js_cart_item";
-            return qa(sel).filter(function(n){ return !!getLineId(n); });
-          }
+          setTimeout(inject, 400);
+          setTimeout(inject, 1200);
+        }
 
-          // Ancla justo después del texto de personalización
-          function anchorFor(line){
-            var candidates = qa("p, li, div, span", line);
-            for (var i=candidates.length-1; i>=0; i--){
-              var t = (candidates[i].innerText||"").replace(/\s+/g," ").trim();
-              if (/T[ée]cnica/i.test(t) || /Color\s*SVG/i.test(t)) {
-                return candidates[i];
-              }
-            }
-            return q(".o_wsale_product_information", line)
-                || q(".product_name", line)
-                || line;
-          }
-
-          function extractHexFromText(line){
-            try{
-              var txt = (line.textContent||"").replace(/\s+/g," ").trim();
-              var m = txt.match(/Color SVG:\s*(#[0-9A-F]{6})/i);
-              return m ? m[1] : null;
-            }catch(_){ return null; }
-          }
-
-          function insertPreviewOnce(line, src, lineId, hex){
-            // Evitar duplicados en toda la página para esa línea
-            qa('.spw-preview[data-line="'+lineId+'"]').forEach(function(el){ el.remove(); });
-
-            var wrap = document.createElement("div");
-            wrap.className = "spw-preview";
-            wrap.setAttribute("data-line", lineId);
-            wrap.style.display = "flex";
-            wrap.style.alignItems = "center";
-            wrap.style.gap = "10px";
-            wrap.style.marginTop = "8px";
-
-            var img = new Image();
-            img.alt = "Personalización";
-            img.loading = "lazy";
-            img.src = src;
-            img.style.maxWidth = "140px";
-            img.style.height = "auto";
-            img.style.border = "1px solid #e5e7eb";
-            img.style.borderRadius = "6px";
-            img.onerror = function(){ wrap.remove(); };
-
-            wrap.appendChild(img);
-
-            // Swatch de color (visual)
-            var color = hex || extractHexFromText(line);
-            if (color && /^#[0-9A-F]{6}$/i.test(color)) {
-              var info = document.createElement("div");
-              info.style.display = "flex";
-              info.style.alignItems = "center";
-              info.style.gap = "8px";
-
-              var sw = document.createElement("span");
-              sw.title = color;
-              sw.setAttribute("aria-label","Color "+color);
-              sw.style.display = "inline-block";
-              sw.style.width = "14px";
-              sw.style.height = "14px";
-              sw.style.borderRadius = "999px";
-              sw.style.border = "1px solid #e5e7eb";
-              sw.style.background = color;
-
-              var label = document.createElement("span");
-              label.textContent = "Color";
-              label.style.fontSize = "12px";
-              label.style.opacity = "0.8";
-
-              info.appendChild(sw);
-              info.appendChild(label);
-              wrap.appendChild(info);
-            }
-
-            var anchor = anchorFor(line);
-            if (anchor && anchor.parentElement) {
-              anchor.insertAdjacentElement("afterend", wrap);
-            } else {
-              line.appendChild(wrap);
-            }
-          }
-
-          function inject(){
-            if (!/\/shop\/cart/.test(location.pathname)) return;
-
-            var wanted = getUrlParam('spw_line_id'); // línea recién creada
-            var lastId = null, lastPng = null, lastColor = null;
-            try {
-              lastId   = sessionStorage.getItem('spw_last_line_id');
-              lastPng  = sessionStorage.getItem('spw_last_png');
-              lastColor= sessionStorage.getItem('spw_last_color');
-            } catch(_){}
-
-            var lines = findLines();
-
-            // Limpia huérfanos
-            qa(".spw-preview").forEach(function(im){
-              var lid = im.getAttribute("data-line");
-              var keep = lines.some(function(l){ return getLineId(l) === lid; });
-              if(!keep) im.remove();
-            });
-
-            // Inserta exactamente una preview por línea
-            lines.forEach(function(line){
-              var id = getLineId(line);
-              if (!id) return;
-
-              if (wanted && lastId && wanted === lastId && id === lastId && lastPng) {
-                insertPreviewOnce(line, lastPng, id, lastColor);
-                return;
-              }
-              var url = "/spw/line_preview/" + encodeURIComponent(id) + ".png?_=" + Date.now();
-              insertPreviewOnce(line, url, id, null);
-            });
-
-            // Limpia la memoria temporal tras usarla
-            if (wanted && lastId && wanted === lastId) {
-              try{
-                sessionStorage.removeItem('spw_last_line_id');
-                sessionStorage.removeItem('spw_last_png');
-                sessionStorage.removeItem('spw_last_color');
-              }catch(_){}
-            }
-          }
-
-          function boot(){
-            inject();
-            var root = q(".js_cart_lines") || q(".o_wsale_cart") || q("main") || document.body;
-            if (window.MutationObserver && root){
-              var mo = new MutationObserver(function(){ requestAnimationFrame(inject); });
-              mo.observe(root, {childList:true, subtree:true});
-            }
-            setTimeout(inject, 400);
-            setTimeout(inject, 1200);
-          }
-
-          if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', boot);
-          } else {
-            boot();
-          }
-        })();
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', boot);
+        } else {
+          boot();
+        }
+      })();
       ]]></script>
     </xpath>
   </template>
