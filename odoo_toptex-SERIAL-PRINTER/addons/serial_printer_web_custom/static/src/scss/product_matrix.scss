@@ -1,11 +1,47 @@
-#sp-matrix { margin: 1.25rem 0; border: 1px solid #e5e5e5; border-radius: 12px; padding: 12px; background: #fff; }
-.sp-matrix__hdr { font-weight: 600; margin-bottom: 8px; }
-.sp-matrix__table { width: 100%; border-collapse: separate; border-spacing: 6px; table-layout: fixed; }
-.sp-matrix__table th, .sp-matrix__table td { background: #f8f8f8; border-radius: 10px; padding: 10px; vertical-align: middle; }
-.sp-sticky-left { position: sticky; left: 0; z-index: 1; background: #f8f8f8; }
-.sp-color { display: flex; align-items: center; gap: 10px; }
-.sp-color__img { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; background: #fafafa; border: 1px solid #eee; }
-.sp-qty { width: 100%; text-align: center; border: 1px solid #dcdcdc; border-radius: 8px; padding: 8px 6px; }
-.sp-meta { margin-top: 6px; font-size: 12px; color: #666; text-align: center; }
-.sp-add { margin-top: 10px; }
-.sp-add.sp-ok { filter: brightness(1.05); transform: translateY(-1px); transition: 150ms; }
+#sp-matrix {
+  margin-top: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.sp-matrix__table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: .5rem;
+}
+
+.sp-matrix__table th,
+.sp-matrix__table td {
+  background: #fff;
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: .75rem;
+  padding: .75rem;
+  vertical-align: middle;
+}
+
+.sp-sticky-left {
+  position: sticky;
+  left: 0;
+  background: #fff;
+  z-index: 1;
+}
+
+.sp-color { display: flex; align-items: center; gap: .5rem; }
+.sp-color__img {
+  width: 48px; height: 48px; object-fit: cover; border-radius: .5rem;
+  border: 1px solid rgba(0,0,0,.08);
+}
+
+.sp-cell { display: flex; flex-direction: column; gap: .25rem; }
+.sp-qty { width: 100%; text-align: center; border-radius: .75rem; }
+.sp-meta { font-size: .75rem; opacity: .8; display: flex; gap: .5rem; justify-content: center; }
+.sp-price { font-weight: 600; }
+.sp-stock { }
+
+.sp-add {
+  display: inline-block; margin-top: .75rem;
+}
+
+@media (max-width: 768px) {
+  .sp-color__img { width: 40px; height: 40px; }
+  .sp-matrix__table th, .sp-matrix__table td { padding: .5rem; }
+}
