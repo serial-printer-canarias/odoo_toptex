@@ -141,12 +141,13 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (NO TOCO la descarga móvil que ya funciona) ====== -->
+      <!-- ====== JS INLINE (móvil OK + redirección con spw_line_id) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
 
         function $(sel, root){return (root||document).querySelector(sel);}
+        function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
         function $val(id, d){ var el=$("#"+id); return el?el.value:d; }
 
         async function loadImage(src){
@@ -193,17 +194,14 @@
         async function renderPNGDataURL(){
           var internalBaseEl = $("#spw-base-img");
           var baseSrc = (internalBaseEl && internalBaseEl.getAttribute("src")) ||
-                        $val("spw_img_src","") ||
-                        ($("#spw_product_img")||{}).getAttribute("src");
+                        ($val("spw_img_src","") || ($("#spw_product_img")||{}).getAttribute("src"));
           if(!baseSrc) throw new Error("Sin imagen base.");
 
           var baseIm = await loadImage(baseSrc);
-
           var canvas = document.createElement("canvas");
           var ctx = canvas.getContext("2d");
           canvas.width  = baseIm.naturalWidth  || baseIm.width;
           canvas.height = baseIm.naturalHeight || baseIm.height;
-
           ctx.drawImage(baseIm, 0, 0, canvas.width, canvas.height);
 
           var logoEl = $("#spw_logo_preview");
@@ -231,7 +229,6 @@
             ctx.drawImage(logoIm, -drawW/2, -drawH/2, drawW, drawH);
             ctx.restore();
           }
-
           return canvas.toDataURL("image/png");
         }
 
@@ -293,22 +290,20 @@
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
           }
 
-          // Redirección con marcador de línea
+          // Redirige con ?spw_line_id= para que el carrito pinte solo esa línea
           var baseUrl = (r1.data && r1.data.cart_url) || "/shop/cart";
-          var withParam = (r1.data && r1.data.line_id)
-            ? (baseUrl + (baseUrl.indexOf('?')===-1?'?':'&') + 'spw_line_id=' + encodeURIComponent(r1.data.line_id))
-            : baseUrl;
+          var withParam = (r1.data && r1.data.line_id) ? (baseUrl + (baseUrl.indexOf('?')===-1?'?':'&') + 'spw_line_id=' + encodeURIComponent(r1.data.line_id)) : baseUrl;
           window.location.href = withParam;
         }
 
-        // Descarga iOS/Android/Escritorio (ya OK, no tocar)
+        // Descarga en iOS/Android/desktop (mantengo lo que ya iba bien)
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
             var a = document.createElement("a");
             a.href = dataUrl; a.download = "personalizacion.png";
             if (typeof a.download === "undefined") {
-              window.location.href = dataUrl; // iOS Safari
+              window.location.href = dataUrl; // iOS: abrir en misma pestaña
             } else {
               document.body.appendChild(a); a.click(); a.remove();
             }
@@ -352,7 +347,7 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN EN website.layout: PREVIEW EN CARRITO (más robusto, 1 por línea, colocado tras cantidad) ============ -->
+  <!-- ============ INYECCIÓN EN website.layout: preview por línea (solo la correcta) ============ -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript"><![CDATA[
@@ -364,112 +359,116 @@
           function getUrlParam(name){
             try{ return new URL(location.href).searchParams.get(name); }catch(_){ return null; }
           }
-
-          // ==== Obtención robusta del line_id (soporta múltiples temas) ====
+          function parseLineIdFromHref(node){
+            try{
+              var a = node.closest('a[href*="line_id="]') || node.querySelector('a[href*="line_id="]') || node.querySelector('button[data-line-id]');
+              if(!a) return null;
+              var href = a.getAttribute('href') || '';
+              if (href.indexOf('line_id=') !== -1){
+                var u = new URL(href, location.origin);
+                return u.searchParams.get('line_id');
+              }
+              return a.getAttribute('data-line-id') || null;
+            }catch(_){ return null; }
+          }
           function getLineId(line){
             if(!line) return null;
-
-            // 1) atributo en contenedor o subnodos
-            var own = line.getAttribute('data-line-id');
-            if (own) return String(own);
-            var sub = q('[data-line-id]', line);
-            if (sub && sub.getAttribute('data-line-id')) return String(sub.getAttribute('data-line-id'));
-
-            // 2) input hidden line_id
-            var inp = q('input[name="line_id"]', line) || q('[name="line_id"]', line);
-            if (inp && inp.value) return String(inp.value);
-
-            // 3) href/action con ?line_id=
-            var anchor = q('a[href*="line_id="]', line) || q('form[action*="line_id="]', line);
-            if (anchor){
-              try{
-                var u = new URL(anchor.getAttribute('href') || anchor.getAttribute('action'), location.origin);
-                var lid = u.searchParams.get('line_id');
-                if (lid) return String(lid);
-              }catch(_){}
-            }
-
-            // 4) data-oe-id de sale.order.line (modo editor/temas)
-            var oe = q('[data-oe-model="sale.order.line"][data-oe-id]', line);
-            if (oe && oe.getAttribute('data-oe-id')) return String(oe.getAttribute('data-oe-id'));
-
-            return null;
+            var x = line.getAttribute('data-line-id')
+                  || ((q('input[name="line_id"]', line)||{}).value)
+                  || parseLineIdFromHref(line)
+                  || null;
+            return x;
           }
-
-          // ==== Localiza contenedores raíz de líneas de carrito (evita hijos anidados) ====
           function findLines(){
-            var scope = q('.js_cart_lines') || q('.o_wsale_cart') || document;
-            var nodes = qa(
-              '.o_wsale_cart_item, .js_cart_line, .row.js_cart_line, tr.js_cart_line, .card.js_cart_item, [data-line-id], [data-oe-model="sale.order.line"]',
-              scope
-            );
-            return nodes.filter(function(n){ return !nodes.some(function(m){ return m!==n && m.contains(n); }); });
+            var sel = ".js_cart_lines .row, .o_wsale_cart_item, tr.js_cart_line, [data-line-id], .card.js_cart_item";
+            return qa(sel).filter(function(n){ return !!getLineId(n); });
           }
-
-          // ==== Dónde insertar: justo detrás del bloque de cantidad (no dentro de +/-) ====
-          function qtyBlock(line){
+          function quantityHolder(line){
+            // contenedor del widget de cantidad (no dentro de los +/-)
             return q(".o_wsale_cart_quantity", line)
                 || q("div[name='quantity']", line)
                 || q(".css_quantity", line)
-                || q(".input-group", line)
                 || q(".input-group-append", line)
-                || null;
-          }
-          function infoBlock(line){
-            return q(".o_wsale_product_information", line)
-                || q(".o_cart_product_information", line)
-                || q(".o_wsale_cart_item_info", line)
-                || q(".o_wsale_product_info", line)
-                || null;
+                || q(".input-group", line)
+                || line;
           }
 
-          function insertPreview(line, src, lineId, hex){
-            // dedup por línea
-            qa('.spw-preview[data-line="'+lineId+'"]', line).forEach(function(x){ x.remove(); });
+          function ensurePreview(line, lineId){
+            var id = "spw-prev-"+String(lineId);
+            var ex = q("#"+id, line);
+            if (ex) return ex;
 
             var wrap = document.createElement("div");
+            wrap.id = id;
             wrap.className = "spw-preview";
             wrap.setAttribute("data-line", lineId);
             wrap.style.display = "flex";
             wrap.style.alignItems = "center";
             wrap.style.gap = "8px";
-            wrap.style.marginTop = "8px";
+            wrap.style.marginTop = "6px";
 
             var img = new Image();
             img.alt = "Personalización";
             img.loading = "lazy";
-            img.src = src;
             img.style.maxWidth = "110px";
             img.style.height = "auto";
             img.style.border = "1px solid #e5e7eb";
             img.style.borderRadius = "6px";
-            img.onerror = function(){ wrap.remove(); };
-
             wrap.appendChild(img);
 
-            if (hex && /^#[0-9A-F]{6}$/i.test(hex)) {
-              var sw = document.createElement("span");
-              sw.title = hex;
-              sw.style.display = "inline-block";
-              sw.style.width = "14px";
-              sw.style.height = "14px";
-              sw.style.borderRadius = "999px";
-              sw.style.border = "1px solid #e5e7eb";
-              sw.style.background = hex;
-              wrap.appendChild(sw);
-            }
+            var sw = document.createElement("span");
+            sw.className = "spw-color-dot";
+            sw.style.display = "inline-block";
+            sw.style.width = "14px";
+            sw.style.height = "14px";
+            sw.style.borderRadius = "999px";
+            sw.style.border = "1px solid #e5e7eb";
+            wrap.appendChild(sw);
 
-            var qBlock = qtyBlock(line);
-            if (qBlock && qBlock.parentNode){
-              qBlock.parentNode.insertBefore(wrap, qBlock.nextSibling);
-              return;
+            var anchor = quantityHolder(line);
+            if (anchor && anchor.parentElement) {
+              anchor.parentElement.insertAdjacentElement('afterend', wrap);
+            } else {
+              line.appendChild(wrap);
             }
-            var iBlock = infoBlock(line);
-            if (iBlock && iBlock.parentNode){
-              iBlock.parentNode.insertBefore(wrap, iBlock.nextSibling);
-              return;
+            return wrap;
+          }
+
+          function setPreview(wrap, src, hex){
+            var img = wrap.querySelector("img");
+            var dot = wrap.querySelector(".spw-color-dot");
+            if (img && src) img.src = src;
+            if (dot){
+              if (hex && /^#[0-9A-F]{6}$/i.test(hex)){ dot.style.background = hex; dot.title = hex; dot.style.display="inline-block"; }
+              else { dot.style.display="none"; }
             }
-            line.appendChild(wrap);
+          }
+
+          function colorTextToSwatch(line){
+            // Convierte "Color SVG: #xxxxxx" a un punto de color
+            qa("*", line).forEach(function(el){
+              if (!el || !el.childNodes) return;
+              el.childNodes.forEach(function(n){
+                if (n.nodeType===3){
+                  var m = /Color\s+SVG:\s*(#[0-9a-fA-F]{6})/.exec(n.nodeValue||"");
+                  if (m){
+                    var color = m[1];
+                    var span = document.createElement("span");
+                    span.style.display="inline-block";
+                    span.style.width="12px";
+                    span.style.height="12px";
+                    span.style.borderRadius="999px";
+                    span.style.border="1px solid #e5e7eb";
+                    span.style.background=color;
+                    span.style.marginLeft="4px";
+                    var frag = document.createDocumentFragment();
+                    frag.appendChild(document.createTextNode("Color "));
+                    frag.appendChild(span);
+                    n.parentNode.replaceChild(frag, n);
+                  }
+                }
+              });
+            });
           }
 
           function inject(){
@@ -478,37 +477,36 @@
             var wanted = getUrlParam('spw_line_id');
             var lastId=null, lastPng=null, lastColor=null;
             try{
-              lastId   = sessionStorage.getItem('spw_last_line_id');
-              lastPng  = sessionStorage.getItem('spw_last_png');
-              lastColor= sessionStorage.getItem('spw_last_color');
+              lastId    = sessionStorage.getItem('spw_last_line_id');
+              lastPng   = sessionStorage.getItem('spw_last_png');
+              lastColor = sessionStorage.getItem('spw_last_color');
             }catch(_){}
 
+            var targetId = wanted || lastId;
+            if (!targetId) return; // no objetivo claro → no pintamos para evitar errores
+
             var lines = findLines();
+            var targetLine = lines.find(function(l){ return getLineId(l) === String(targetId); });
+            if (!targetLine) return;
 
-            // limpia huérfanos globales
-            qa(".spw-preview").forEach(function(el){
-              var lid = el.getAttribute("data-line");
-              var keep = lines.some(function(l){ return getLineId(l) === lid; });
-              if(!keep) el.remove();
-            });
+            // Siempre una sola preview en esa línea
+            qa(".spw-preview", targetLine).forEach(function(x){ x.remove(); });
 
-            lines.forEach(function(line){
-              var id = getLineId(line);
-              if(!id) return;
+            var holder = ensurePreview(targetLine, targetId);
 
-              // si venimos del customizador, pinta inmediato con dataURL de esa línea
-              if (wanted && lastId && wanted === lastId && id === lastId && lastPng){
-                insertPreview(line, lastPng, id, lastColor);
-                return;
-              }
+            if (lastPng && lastId && String(lastId)===String(targetId)) {
+              setPreview(holder, lastPng, lastColor);
+            } else {
+              // Fallback desde servidor si existe el endpoint
+              var url = "/spw/line_preview/" + encodeURIComponent(targetId) + ".png?_=" + Date.now();
+              setPreview(holder, url, null);
+            }
 
-              // fallback estable: PNG servido por backend
-              var url = "/spw/line_preview/" + encodeURIComponent(id) + ".png?_=" + Date.now();
-              insertPreview(line, url, id, null);
-            });
+            // Swatch también en el texto
+            colorTextToSwatch(targetLine);
 
-            // limpia marcadores tras uso
-            if (wanted && lastId && wanted === lastId){
+            // Limpieza de sesión (para no contaminar compras posteriores)
+            if (wanted && lastId && String(wanted)===String(lastId)) {
               try{
                 sessionStorage.removeItem('spw_last_line_id');
                 sessionStorage.removeItem('spw_last_png');
@@ -525,14 +523,11 @@
               mo.observe(root, {childList:true, subtree:true});
             }
             setTimeout(inject, 350);
-            setTimeout(inject, 1000);
+            setTimeout(inject, 1200);
           }
 
-          if (document.readyState === 'loading'){
-            document.addEventListener('DOMContentLoaded', boot);
-          }else{
-            boot();
-          }
+          if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+          else boot();
         })();
       ]]></script>
     </xpath>
