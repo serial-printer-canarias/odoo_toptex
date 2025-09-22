@@ -1,19 +1,28 @@
 /** @odoo-module **/
 
-// === Utilidad: ejecutar cuando el DOM está listo ===
+// ===== Utilidad: ejecutar cuando el DOM está listo =====
 function onReady(fn) {
     if (document.readyState !== "loading") fn();
     else document.addEventListener("DOMContentLoaded", fn);
 }
 
-// === Buscar bloques de atributos y detectar Color/Talla ===
+// Utilidades DOM
+const $ = (sel, ctx = document) => ctx.querySelector(sel);
+const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
+
+// ===== Datos base =====
+function getProductTemplateId() {
+    const a = $('input[name="product_template_id"]');
+    if (a && a.value) return parseInt(a.value, 10) || null;
+    const b = $('.o_wsale_product_page [data-product-template-id]');
+    if (b && b.dataset.productTemplateId) return parseInt(b.dataset.productTemplateId, 10) || null;
+    return null;
+}
+
+// ===== Lectura de atributos (Color / Talla) desde el HTML de Odoo =====
 function getAttributeBlocks(scope) {
     const blocks = [];
-    const containers = Array.from(
-        scope.querySelectorAll(
-            '[data-attribute_name], .js_attribute, .o_product_configurator [name], .js_attributes > div'
-        )
-    );
+    const containers = $$('[data-attribute_name], .js_attribute, .o_product_configurator [name], .js_attributes > div', scope);
 
     containers.forEach((el) => {
         const name = (
@@ -23,7 +32,7 @@ function getAttributeBlocks(scope) {
             ""
         ).trim().toLowerCase();
 
-        const radios = Array.from(el.querySelectorAll('input[type="radio"]'));
+        const radios = $$('input[type="radio"]', el);
         if (!radios.length) return;
 
         const options = radios.map((inp) => {
@@ -31,13 +40,14 @@ function getAttributeBlocks(scope) {
                 inp.dataset.valueId || inp.dataset.attributeValueId || inp.value || "0",
                 10
             ) || 0;
+
             const txt = (inp.closest("label")?.textContent || inp.getAttribute("title") || "")
-                .replace(/\s+/g, " ")
-                .trim();
-            return id ? { id, text: txt, _radio: inp } : null;
+                .replace(/\s+/g, " ").trim();
+
+            return id ? { id, text: txt } : null;
         }).filter(Boolean);
 
-        if (options.length) blocks.push({ name, options, el });
+        if (options.length) blocks.push({ name, options });
     });
 
     const color = blocks.find((b) => /(color|colour|colou?r|c[oó]lor)/i.test(b.name));
@@ -47,10 +57,10 @@ function getAttributeBlocks(scope) {
     return { color, size };
 }
 
-// === Ordena tallas: numéricas o estándar ===
+// ===== Ordenación de tallas (númericas y estándar) =====
 function sortSizes(opts) {
     const std = ["2XS","XXS","XS","S","M","L","XL","2XL","XXL","3XL","4XL","5XL","6XL","7XL","8XL"];
-    return [...opts].sort((a,b) => {
+    return [...opts].sort((a, b) => {
         const na = parseFloat(a.text), nb = parseFloat(b.text);
         if (!isNaN(na) && !isNaN(nb)) return na - nb;
         const ia = std.indexOf(a.text.toUpperCase()), ib = std.indexOf(b.text.toUpperCase());
@@ -60,59 +70,189 @@ function sortSizes(opts) {
 }
 
 function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+    return String(s).replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
 }
 
-// === Construye el HTML de la matriz (UI) ===
+// ===== Render de la tabla (solo UI) =====
 function renderGrid(color, size) {
     let thead = '<thead><tr><th class="sp-sticky-left">Color</th>';
     size.options.forEach((s) => { thead += `<th>${escapeHtml(s.text)}</th>`; });
-    thead += '</tr></thead>';
+    thead += "</tr></thead>";
 
-    let tbody = '<tbody>';
+    let tbody = "<tbody>";
     color.options.forEach((c) => {
         tbody += `<tr data-color-id="${c.id}">
             <th class="sp-sticky-left">
-                <div class="sp-color">
-                    <img class="sp-color__img" alt="" />
-                    <span>${escapeHtml(c.text)}</span>
-                </div>
+              <div class="sp-color">
+                <img class="sp-color__img" alt="" />
+                <span>${escapeHtml(c.text)}</span>
+              </div>
             </th>`;
         size.options.forEach((s) => {
             tbody += `<td>
                 <div class="sp-cell">
-                    <input class="sp-qty" type="number" min="0" step="1" inputmode="numeric"
-                           placeholder="0" data-color="${c.id}" data-size="${s.id}">
-                    <div class="sp-meta"></div>
+                  <input class="sp-qty" type="number" min="0" step="1" inputmode="numeric"
+                         placeholder="0" data-color="${c.id}" data-size="${s.id}">
+                  <div class="sp-meta"></div>
                 </div>
-            </td>`;
+              </td>`;
         });
-        tbody += '</tr>';
+        tbody += "</tr>";
     });
-    tbody += '</tbody>';
+    tbody += "</tbody>";
 
     return `
       <div id="sp-matrix" class="sp-matrix-box">
         <table class="sp-matrix__table">${thead}${tbody}</table>
-        <button type="button" id="sp-matrix-add" class="btn btn-primary mt-2">Añadir selección</button>
+        <div class="sp-actions">
+          <button type="button" class="sp-add-selection o_wsale_apply btn btn-primary">Añadir selección</button>
+        </div>
         <p class="sp-help">Indica cantidades por color y talla.</p>
       </div>
     `;
 }
 
-// === Inserta/actualiza la matriz y engancha eventos ===
-async function ensureMatrix() {
-    const page = document.querySelector(".o_wsale_product_page");
+// ===== RPC helper contra rutas estándar de Odoo =====
+async function rpc(url, payload) {
+    const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+        },
+        body: JSON.stringify(payload || {}),
+        credentials: "same-origin",
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.json();
+}
+
+// ===== Poblar miniaturas por color (variante) =====
+async function populateColorImages(color) {
+    const ptId = getProductTemplateId();
+    if (!ptId || !color) return;
+
+    for (const c of color.options) {
+        const tr = document.querySelector(`#sp-matrix tr[data-color-id="${c.id}"]`);
+        const img = tr?.querySelector("img.sp-color__img");
+        if (!img) continue;
+
+        try {
+            // Normalmente basta con pasar solo el color: Odoo resolverá una combinación válida
+            const info = await rpc("/website_sale/get_combination_info", {
+                product_template_id: ptId,
+                combination: [c.id],
+                add_qty: 1,
+            });
+
+            // Campos típicos según versión/tema:
+            const url = info?.image_url || info?.display_image || info?.variant_image || null;
+            if (url) img.src = url;
+            else {
+                // Fallback: usa la imagen principal si no hay específica
+                const main = $(".o_wsale_product_img img, .product_detail_img img, .carousel img");
+                if (main?.src) img.src = main.src;
+            }
+        } catch (e) {
+            console.warn("[SP] imagen variante color", c.id, e);
+        }
+    }
+}
+
+// ===== Precio/stock por celda al enfocar =====
+function wireMetaOnFocus() {
+    const ptId = getProductTemplateId();
+    if (!ptId) return;
+    $$("#sp-matrix input.sp-qty").forEach((inp) => {
+        inp.addEventListener("focus", async () => {
+            const colorId = parseInt(inp.dataset.color, 10);
+            const sizeId  = parseInt(inp.dataset.size, 10);
+            const meta = inp.closest(".sp-cell").querySelector(".sp-meta");
+            meta.textContent = "…";
+            try {
+                const info = await rpc("/website_sale/get_combination_info", {
+                    product_template_id: ptId,
+                    combination: [colorId, sizeId],
+                    add_qty: 1,
+                });
+                // Mostramos lo que devuelva cada instalación (html/strings)
+                const priceHtml = info?.price_html || (info?.price ? `${info.price}` : "");
+                const stockHtml = info?.stock_availability || info?.availability || "";
+                meta.innerHTML = [priceHtml, stockHtml].filter(Boolean).join(" · ");
+            } catch (e) {
+                meta.textContent = "";
+                console.warn("[SP] meta precio/stock", e);
+            }
+        });
+    });
+}
+
+// ===== Añadir selección (varias líneas) al carrito real =====
+function wireAddSelection() {
+    const btn = $("#sp-matrix .sp-add-selection");
+    if (!btn) return;
+
+    btn.addEventListener("click", async () => {
+        const ptId = getProductTemplateId();
+        if (!ptId) return;
+
+        const cells = $$("#sp-matrix input.sp-qty");
+        const tasks = [];
+        for (const inp of cells) {
+            const qty = parseInt(inp.value, 10) || 0;
+            if (qty <= 0) continue;
+            const colorId = parseInt(inp.dataset.color, 10);
+            const sizeId  = parseInt(inp.dataset.size, 10);
+
+            // 1) resolvemos el product_id exacto de la combinación
+            tasks.push((async () => {
+                try {
+                    const info = await rpc("/website_sale/get_combination_info", {
+                        product_template_id: ptId,
+                        combination: [colorId, sizeId],
+                        add_qty: qty,
+                    });
+                    const product_id = info?.product_id;
+                    if (!product_id) return;
+
+                    // 2) añadimos al carrito
+                    await rpc("/shop/cart/update_json", {
+                        product_id,
+                        add_qty: qty,
+                        display: true,
+                    });
+                } catch (e) {
+                    console.warn("[SP] add to cart", colorId, sizeId, e);
+                }
+            })());
+        }
+
+        await Promise.all(tasks);
+        // Refrescamos mini resumen/total
+        window.location.reload();
+    });
+}
+
+// ===== Inserta/actualiza la matriz, siempre debajo de los atributos =====
+function ensureMatrix() {
+    const page = $(".o_wsale_product_page");
     if (!page) return;
 
-    const anchor =
-        document.getElementById("sp-matrix-anchor") ||
-        page.querySelector(".js_attributes") ||
-        page.querySelector("form.o_wsale_product_configurator") ||
-        page;
+    // El host deseado: bloque de atributos
+    const attrBlock = $(".js_attributes", page);
+    if (!attrBlock) {
+        // Si no hay atributos, ocultamos matriz
+        const existing = $("#sp-matrix");
+        if (existing) existing.remove();
+        document.body.classList.remove("sp-matrix-active");
+        return;
+    }
 
-    const prev = page.querySelector("#sp-matrix");
-    if (prev) prev.remove();
+    // Evitar duplicados
+    const existing = $("#sp-matrix");
+    if (existing) existing.remove();
 
     const { color, size } = getAttributeBlocks(page);
     if (!color || !size) {
@@ -120,75 +260,23 @@ async function ensureMatrix() {
         return;
     }
 
-    anchor.insertAdjacentHTML("beforeend", renderGrid(color, size));
+    // Insertar justo después del bloque de atributos
+    attrBlock.insertAdjacentHTML("afterend", renderGrid(color, size));
     document.body.classList.add("sp-matrix-active");
 
-    // datos backend (imágenes / precio / stock)
-    try {
-        const curVariantId = parseInt(
-            page.querySelector('input[name="product_id"]')?.value || "0",
-            10
-        ) || 0;
-
-        const resp = await fetch(`/sp_matrix/v1/variants?variant_id=${curVariantId}`, {
-            credentials: "same-origin",
-        });
-        if (resp.ok) {
-            const data = await resp.json();
-            for (const [colorId, url] of Object.entries(data.images || {})) {
-                const img = page.querySelector(`tr[data-color-id="${colorId}"] .sp-color__img`);
-                if (img) img.src = url;
-            }
-            const matrix = page.querySelector("#sp-matrix");
-            matrix.dataset.combos = JSON.stringify(data.combos || {});
-            matrix.dataset.templateId = String(data.template_id || "");
-        }
-    } catch (e) {}
-
-    // handler Añadir selección
-    const addBtn = page.querySelector("#sp-matrix-add");
-    addBtn?.addEventListener("click", async () => {
-        const matrix = page.querySelector("#sp-matrix");
-        const combos = JSON.parse(matrix?.dataset?.combos || "{}");
-
-        const qtyInputs = Array.from(page.querySelectorAll("#sp-matrix input.sp-qty"));
-        const toSend = [];
-        qtyInputs.forEach((inp) => {
-            const q = parseInt(inp.value || "0", 10) || 0;
-            if (!q) return;
-            const c = String(inp.dataset.color), s = String(inp.dataset.size);
-            const key = `${c}-${s}`;
-            const combo = combos[key];
-            if (combo?.product_id) {
-                toSend.push({ product_id: combo.product_id, qty: q });
-            }
-        });
-
-        if (!toSend.length) return;
-
-        try {
-            const r = await fetch("/sp_matrix/v1/add", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "same-origin",
-                body: JSON.stringify({ lines: toSend }),
-            });
-            if (r.ok) {
-                qtyInputs.forEach((i) => (i.value = ""));
-                document.querySelectorAll(".my_cart_quantity").forEach((el) => {
-                    const n = parseInt(el.textContent || "0", 10) || 0;
-                    const add = toSend.reduce((acc, it) => acc + (it.qty || 0), 0);
-                    el.textContent = String(n + add);
-                });
-            }
-        } catch (e) {}
-    });
+    // Poblar imágenes y wiring
+    populateColorImages(color);
+    wireMetaOnFocus();
+    wireAddSelection();
+    console.log("[SP] product_matrix.js cargado");
 }
 
-// === Arranque y reconstrucción si cambian radios ===
+// ===== Arranque =====
 onReady(() => {
     ensureMatrix();
-    const page = document.querySelector(".o_wsale_product_page");
+
+    // Si cambian radios, reconstruimos (sin duplicar)
+    const page = $(".o_wsale_product_page");
     if (!page) return;
     page.addEventListener("change", (ev) => {
         if (ev.target.matches('input[type="radio"]')) ensureMatrix();
