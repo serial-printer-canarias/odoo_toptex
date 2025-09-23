@@ -1,287 +1,191 @@
-/** Serial Printer – Product Matrix (Odoo 18, ES modules sin rpc_service) */
-import publicWidget from "@web/legacy/js/public/public_widget";
+// No AMD, no imports: ESM puro y DOM + fetch JSON-RPC
+console.log("[SP] product_matrix activo");
 
-const Q  = (root, sel) => root.querySelector(sel);
-const QA = (root, sel) => Array.from(root.querySelectorAll(sel));
-const esc = (s="") => s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const rpc = async (route, params) => {
+  const res = await fetch(route, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({jsonrpc: "2.0", method: "call", params, id: Date.now()}),
+    credentials: "same-origin",
+  });
+  const j = await res.json();
+  if (j && j.result !== undefined) return j.result;
+  throw new Error("RPC failed: " + route);
+};
 
-/* ---------------- JSON-RPC sin dependencias ---------------- */
-async function rpc(route, params) {
-    const payload = { jsonrpc: "2.0", method: "call", params };
-    const headers = {
-        "Content-Type": "application/json",
-        "X-Requested-With": "XMLHttpRequest",
-    };
-    if (window.odoo?.csrf_token) headers["X-CSRFToken"] = window.odoo.csrf_token;
+const getCombination = (avIds, root) => {
+  const tmplId = parseInt(
+    root.querySelector("[data-product-template-id]")?.dataset.productTemplateId ||
+    root.querySelector("input[name='product_id']")?.value || "0", 10
+  ) || 0;
 
-    const res = await fetch(route, {
-        method: "POST",
-        credentials: "same-origin",
-        headers,
-        body: JSON.stringify(payload),
+  const pricelistId = parseInt(
+    root.querySelector("[data-pricelist-id]")?.dataset.pricelistId || "0", 10
+  ) || 0;
+
+  const params = {
+    product_template_id: tmplId || undefined,
+    product_id: 0,
+    combination: avIds,
+    add_qty: 1,
+    parent_combination: [],
+    pricelist_id: pricelistId || undefined,
+  };
+  return rpc("/shop/get_combination_info", params)
+    .catch(() => rpc("/sale/get_combination_info", params));
+};
+
+const getStock = async (productId) => {
+  const r = await rpc("/web/dataset/call_kw", {
+    model: "product.product",
+    method: "read",
+    args: [[productId], ["qty_available"]],
+    kwargs: {},
+  });
+  return (r && r[0] && typeof r[0].qty_available === "number") ? r[0].qty_available : null;
+};
+
+const addToCart = (productId, qty) =>
+  rpc("/shop/cart/update_json", {product_id: productId, add_qty: qty, display: false});
+
+const fmtPrice = (v) => {
+  try {
+    const lang = document.documentElement.lang || "es-ES";
+    const curr = document.querySelector("[data-website-currency-code]")?.dataset.websiteCurrencyCode || "EUR";
+    return new Intl.NumberFormat(lang, {style: "currency", currency: curr}).format(v);
+  } catch {
+    return (Math.round(v * 100) / 100).toFixed(2);
+  }
+};
+
+const isColorName = n => /color|couleur|farbe|colou?r|colore|kleur/i.test(n || "");
+const isSizeName  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || "");
+
+const parseAttributeBlocks = (root) => {
+  const blocks = [];
+  root.querySelectorAll(".js_product .js_attributes [data-attribute_name]").forEach(block => {
+    const name = (block.getAttribute("data-attribute_name") || "").trim();
+    const options = Array.from(block.querySelectorAll("input[type='radio']")).map(inp => {
+      const id = parseInt(inp.dataset.valueId || inp.dataset.attributeValueId || inp.value || "0", 10);
+      if (!id) return null;
+      const label = (inp.closest("label")?.textContent || inp.title || "").trim();
+      return {id, name: label};
+    }).filter(Boolean);
+    if (options.length) blocks.push({name, options, el: block});
+  });
+  return blocks;
+};
+
+const buildMatrix = async (root) => {
+  const page = root.closest(".o_wsale_product_page") || root;
+  if (!page || page.querySelector("#sp-matrix")) return;
+
+  const blocks = parseAttributeBlocks(page);
+  if (blocks.length < 2) return;
+
+  const color = blocks.find(b => isColorName(b.name)) || blocks[0];
+  const size  = blocks.find(b => isSizeName(b.name))  || blocks[1];
+  if (!color || !size) return;
+
+  const anchor = page.querySelector(".product_price") || page;
+  const wrap   = document.createElement("div");
+  wrap.id = "sp-matrix";
+  wrap.className = "sp-matrix o-pt-3";
+  anchor.after(wrap);
+
+  const table = document.createElement("table"); table.className = "sp-matrix__table";
+  const thead = document.createElement("thead");
+  thead.innerHTML = `<tr><th class="sp-sticky-left">Color</th>${size.options.map(o=>`<th>${(o.name||"").replace(/</g,"&lt;")}</th>`).join("")}</tr>`;
+  const tbody = document.createElement("tbody");
+
+  for (const c of color.options) {
+    const tr = document.createElement("tr");
+    tr.dataset.colorId = String(c.id);
+    tr.innerHTML = `
+      <th class="sp-sticky-left">
+        <div class="sp-color">
+          <img class="sp-color__img" alt="">
+          <span class="sp-color__name">${(c.name||"").replace(/</g,"&lt;")}</span>
+        </div>
+      </th>
+    `;
+    for (const s of size.options) {
+      const td = document.createElement("td");
+      td.dataset.sizeId = String(s.id);
+      td.innerHTML = `
+        <div class="sp-cell">
+          <input type="number" min="0" step="1" class="sp-qty" data-color-id="${c.id}" data-size-id="${s.id}">
+          <div class="sp-meta">
+            <span class="sp-price"></span>
+            <span class="sp-stock"></span>
+          </div>
+        </div>`;
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+
+  table.appendChild(thead); table.appendChild(tbody);
+  wrap.appendChild(table);
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "btn btn-primary mt-2 sp-add-to-cart";
+  btn.textContent = "Añadir selección";
+  wrap.appendChild(btn);
+
+  // Hidratar precio/stock/imagen
+  const cells = [...wrap.querySelectorAll("td")];
+  const queue = cells.slice();
+  const workers = new Array(6).fill(0).map(async function run() {
+    while (queue.length) {
+      const td = queue.shift();
+      const colorId = parseInt(td.dataset.colorId || td.closest("tr")?.dataset.colorId || "0", 10);
+      const sizeId  = parseInt(td.dataset.sizeId || "0", 10);
+      if (!colorId || !sizeId) continue;
+
+      try {
+        const info = await getCombination([colorId, sizeId], page);
+        if (!info || !info.product_id) { td.classList.add("sp-unavailable"); continue; }
+
+        const input = td.querySelector(".sp-qty");
+        input.dataset.variantId = String(info.product_id);
+
+        if (typeof info.price === "number") {
+          td.querySelector(".sp-price").textContent = fmtPrice(info.price);
+        }
+
+        let stock = (info.stock_quantity !== undefined) ? info.stock_quantity : null;
+        if (stock === null) stock = await getStock(info.product_id);
+        if (stock !== null) td.querySelector(".sp-stock").textContent = `Stock: ${stock}`;
+
+        const rowImg = td.closest("tr").querySelector(".sp-color__img");
+        if (rowImg && !rowImg.src) {
+          rowImg.src = `/web/image/product.product/${info.product_id}/image_128`;
+        }
+      } catch (e) {
+        td.classList.add("sp-unavailable");
+      }
+    }
+  });
+  await Promise.all(workers);
+
+  // Añadir al carrito
+  btn.addEventListener("click", async (ev) => {
+    ev.preventDefault();
+    const calls = [];
+    wrap.querySelectorAll(".sp-qty").forEach(inp => {
+      const qty = parseFloat(inp.value || "0");
+      const pid = parseInt(inp.dataset.variantId || "0", 10);
+      if (qty > 0 && pid) calls.push(addToCart(pid, qty));
     });
+    if (!calls.length) return;
+    await Promise.all(calls);
+    window.location.reload();
+  });
+};
 
-    let data = null;
-    try { data = await res.json(); } catch (_) {}
-    if (!res.ok || !data) throw new Error(`RPC ${route} failed`);
-    if (data.error) throw new Error(data.error.message || `RPC ${route} error`);
-    return data.result;
-}
-
-async function getCombinationInfo(args) {
-    try { return await rpc("/shop/get_combination_info", args); }
-    catch (_) {
-        try { return await rpc("/sale/get_combination_info", args); }
-        catch (__) { return null; }
-    }
-}
-
-async function readStock(variantId) {
-    try {
-        const r = await rpc("/web/dataset/call_kw", {
-            model: "product.product",
-            method: "read",
-            args: [[variantId], ["qty_available"]],
-            kwargs: {},
-        });
-        return (r && r[0] && typeof r[0].qty_available === "number") ? r[0].qty_available : null;
-    } catch {
-        return null;
-    }
-}
-
-function fmtPrice(v) {
-    try {
-        const lang = document.documentElement.lang || "es-ES";
-        const curr = document.querySelector("[data-website-currency-code]")?.dataset.websiteCurrencyCode || "EUR";
-        return new Intl.NumberFormat(lang, { style: "currency", currency: curr }).format(v);
-    } catch {
-        return (Math.round(v * 100) / 100).toFixed(2);
-    }
-}
-
-/* --------- Lectura de bloques de atributos en la página --------- */
-function detectBlocks(page) {
-    const cont =
-        Q(page, ".o_wsale_product_page") ||
-        Q(page, ".js_product") ||
-        page;
-
-    const holders = QA(cont, ".js_attributes [data-attribute_name], .product_variant_attributes [data-attribute_name]");
-    const blocks = [];
-
-    holders.forEach((el) => {
-        const name = (el.getAttribute("data-attribute_name") || "").trim();
-        const options = [];
-        QA(el, "input[type='radio']").forEach((inp) => {
-            const id = parseInt(inp.dataset.valueId || inp.dataset.attributeValueId || inp.value || "0", 10) || 0;
-            const label = (inp.closest("label")?.textContent || inp.title || "").trim();
-            if (id) options.push({ id, name: label });
-        });
-        if (options.length) blocks.push({ name, options, el });
-    });
-    return blocks;
-}
-
-function pickColorSize(blocks) {
-    const isColor = (n) => /color|couleur|farbe|colou?r|colore|kleur/i.test(n || "");
-    const isSize  = (n) => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || "");
-    let color = blocks.find((b) => isColor(b.name));
-    let size  = blocks.find((b) => isSize(b.name));
-    if (!color && blocks.length) color = blocks[0];
-    if (!size  && blocks.length > 1) size  = blocks[1];
-    return { color, size };
-}
-
-publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
-    /* Usamos <body> para no depender del nombre exacto de la vista */
-    selector: "body",
-    disabledInEditableMode: false,
-
-    start() {
-        // Evitar duplicados
-        if (document.getElementById("sp-matrix")) return this._super(...arguments);
-
-        // Sólo en páginas de producto
-        if (!document.querySelector(".js_product, .o_wsale_product_page")) return this._super(...arguments);
-
-        this._buildIfPossible();
-        return this._super(...arguments);
-    },
-
-    async _buildIfPossible() {
-        const page = document;
-        const blocks = detectBlocks(page);
-        if (!blocks.length) return;
-
-        const { color, size } = pickColorSize(blocks);
-        if (!color) return;
-
-        // Anchor preferente: debajo del precio
-        const anchor =
-            Q(page, ".product_price") ||
-            Q(page, ".o_wsale_product_information") ||
-            Q(page, ".js_product") ||
-            document.body;
-
-        const matrix = document.createElement("div");
-        matrix.id = "sp-matrix";
-        matrix.className = "sp-matrix o-pt-3 o-mt-2";
-        anchor.parentNode.insertBefore(matrix, anchor.nextSibling);
-
-        const table = document.createElement("table");
-        table.className = "sp-matrix__table";
-        const thead = document.createElement("thead");
-        const trh = document.createElement("tr");
-        const thLeft = document.createElement("th");
-        thLeft.className = "sp-sticky-left";
-        thLeft.textContent = "Color";
-        trh.appendChild(thLeft);
-
-        const columns = size ? size.options : [{ id: 0, name: "Qty" }];
-        columns.forEach((o) => {
-            const th = document.createElement("th");
-            th.textContent = o.name || "Qty";
-            trh.appendChild(th);
-        });
-        thead.appendChild(trh);
-        table.appendChild(thead);
-
-        const tbody = document.createElement("tbody");
-
-        for (const c of color.options) {
-            const tr = document.createElement("tr");
-            tr.dataset.colorId = String(c.id);
-
-            const th = document.createElement("th");
-            th.className = "sp-sticky-left";
-            th.innerHTML = `
-                <div class="sp-color">
-                  <img class="sp-color__img" alt="">
-                  <span class="sp-color__name">${esc(c.name)}</span>
-                </div>`;
-            tr.appendChild(th);
-
-            for (const s of columns) {
-                const td = document.createElement("td");
-                td.dataset.sizeId = String(s.id);
-                td.innerHTML = `
-                  <div class="sp-cell">
-                    <input type="number" min="0" step="1"
-                           class="sp-qty"
-                           data-color-id="${c.id}"
-                           data-size-id="${s.id}">
-                    <div class="sp-meta">
-                      <span class="sp-price"></span>
-                      <span class="sp-stock"></span>
-                    </div>
-                  </div>`;
-                tr.appendChild(td);
-            }
-            tbody.appendChild(tr);
-        }
-
-        table.appendChild(tbody);
-        matrix.appendChild(table);
-
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "btn btn-primary mt-2 sp-add-to-cart";
-        btn.textContent = "Añadir selección";
-        btn.addEventListener("click", (ev) => this._onAddAllToCart(ev));
-        matrix.appendChild(btn);
-
-        await this._hydrateCells(matrix);
-    },
-
-    _comboArgs(avIds) {
-        // Obtener template_id o product_id de varias ubicaciones (según tema)
-        const candidates = [
-            "[data-product-template-id]",
-            ".js_product[data-product-template-id]",
-            "input[name='product_template_id']",
-        ];
-        let tmplId = 0;
-        for (const sel of candidates) {
-            const el = Q(document, sel);
-            if (el) {
-                const v = el.dataset?.productTemplateId || el.value;
-                tmplId = parseInt(v || "0", 10) || 0;
-                if (tmplId) break;
-            }
-        }
-        if (!tmplId) {
-            const pid = parseInt(Q(document, "input[name='product_id']")?.value || "0", 10) || 0;
-            if (pid) return { product_id: pid, combination: avIds, add_qty: 1, parent_combination: [] };
-        }
-        const pricelistId =
-            parseInt(Q(document, "[data-pricelist-id]")?.dataset.pricelistId || "0", 10) ||
-            parseInt(Q(document, "input[name='pricelist_id']")?.value || "0", 10) || 0;
-
-        return {
-            product_template_id: tmplId || undefined,
-            product_id: 0,
-            combination: avIds,
-            add_qty: 1,
-            parent_combination: [],
-            pricelist_id: pricelistId || undefined,
-        };
-    },
-
-    async _hydrateCells(root) {
-        const cells = QA(root, "td");
-        const queue = cells.slice();
-        const self = this;
-
-        const workers = new Array(6).fill(0).map(async function run() {
-            while (queue.length) {
-                const td = queue.shift();
-                const colorId = parseInt(td.closest("tr")?.dataset.colorId || "0", 10);
-                const sizeId  = parseInt(td.dataset.sizeId || "0", 10);
-                const avIds = sizeId ? [colorId, sizeId] : [colorId];
-
-                const info = await getCombinationInfo(self._comboArgs(avIds));
-                if (info && info.product_id) {
-                    Q(td, ".sp-qty").dataset.variantId = String(info.product_id);
-
-                    if (typeof info.price === "number") {
-                        Q(td, ".sp-price").textContent = fmtPrice(info.price);
-                    }
-                    let stock = (info.stock_quantity !== undefined) ? info.stock_quantity : null;
-                    if (stock === null) stock = await readStock(info.product_id);
-                    if (stock !== null) Q(td, ".sp-stock").textContent = `Stock: ${stock}`;
-
-                    // Foto por color (primera combinación que llegue)
-                    const row = td.closest("tr");
-                    const img = Q(row, ".sp-color__img");
-                    if (!img.getAttribute("src")) {
-                        img.setAttribute("src", `/web/image/product.product/${info.product_id}/image_128`);
-                    }
-                } else {
-                    td.classList.add("sp-unavailable");
-                }
-            }
-        });
-
-        await Promise.all(workers);
-    },
-
-    _onAddAllToCart(ev) {
-        ev.preventDefault();
-        const inputs = QA(document, "#sp-matrix .sp-qty");
-        const calls = [];
-        inputs.forEach((inp) => {
-            const qty = parseFloat(inp.value || "0");
-            const product_id = parseInt(inp.dataset.variantId || "0", 10);
-            if (qty > 0 && product_id) {
-                calls.push(rpc("/shop/cart/update_json", {
-                    product_id, add_qty: qty, display: false,
-                }));
-            }
-        });
-        if (!calls.length) return;
-        Promise.all(calls).then(() => window.location.reload());
-    },
+document.addEventListener("DOMContentLoaded", () => {
+  const page = document.querySelector(".o_wsale_product_page");
+  if (page) buildMatrix(page);
 });
-
-export default publicWidget.registry.SerialPrinterMatrix;
