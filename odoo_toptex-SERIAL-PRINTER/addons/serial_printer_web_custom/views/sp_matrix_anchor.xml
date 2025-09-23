@@ -1,9 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <template id="sp_matrix_anchor_product" inherit_id="website_sale.product" name="SP Matrix Anchor (product)">
-    <!-- Insertar ancla justo después del bloque de atributos -->
-    <xpath expr="//div[contains(@class,'js_attributes')]" position="after">
-      <div id="sp-matrix-anchor"/>
-    </xpath>
-  </template>
+    <!-- Nunca rompe: inserta un ancla DENTRO del formulario del configurador -->
+    <template id="sp_matrix_anchor_product"
+              name="SP Matrix Anchor (product)"
+              inherit_id="website_sale.product"
+              priority="50">
+        <xpath expr="//form[contains(@class,'o_wsale_product_configurator')]" position="inside">
+            <div id="sp-matrix-anchor"/>
+        </xpath>
+    </template>
+
+    <!-- (carga explícita de assets en frontend) -->
+    <template id="sp_matrix_assets" inherit_id="web.assets_frontend">
+        <xpath expr="." position="inside">
+            <link rel="stylesheet" type="text/scss"
+                  href="/serial_printer_web_custom/static/src/scss/product_matrix.scss"/>
+            <script type="text/javascript" defer="defer"
+                    src="/serial_printer_web_custom/static/src/js/product_matrix.js"/>
+        </xpath>
+    </template>
 </odoo>
