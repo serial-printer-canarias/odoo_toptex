@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Serial Printer | Web Custom (Matrix)",
-    "version": "18.0.1.0.0",
+    "version": "18.0.1.0.1",
     "category": "Website/Website",
     "summary": "Product matrix (color/size) on product page",
     "author": "Serial Printer",
-    "website": "https://example.com",
     "license": "LGPL-3",
     "depends": ["website_sale"],
     "data": [
@@ -19,5 +18,4 @@
         ],
     },
     "installable": True,
-    "application": False,
 }
