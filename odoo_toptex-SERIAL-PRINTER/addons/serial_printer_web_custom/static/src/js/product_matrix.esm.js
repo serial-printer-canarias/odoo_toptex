@@ -1,6 +1,7 @@
-// Matriz simple; ESM puro; sin odoo.define ni dependencias AMD
-console.log("[SP] product_matrix activo");
+// Matriz ESM – robusta a cambios de tema/markup
+console.log("[SP] product_matrix activo (robusto)");
 
+/* ------------------ Utils: RPC ------------------ */
 const rpc = async (route, params) => {
   const r = await fetch(route, {
     method: "POST",
@@ -23,11 +24,8 @@ const getCombination = (avIds, root) => {
   ) || 0;
   const params = {
     product_template_id: tmplId || undefined,
-    product_id: 0,
-    combination: avIds,
-    add_qty: 1,
-    parent_combination: [],
-    pricelist_id: pricelistId || undefined,
+    product_id: 0, combination: avIds, add_qty: 1,
+    parent_combination: [], pricelist_id: pricelistId || undefined,
   };
   return rpc("/shop/get_combination_info", params)
     .catch(() => rpc("/sale/get_combination_info", params));
@@ -35,10 +33,8 @@ const getCombination = (avIds, root) => {
 
 const getStock = async (variantId) => {
   const res = await rpc("/web/dataset/call_kw", {
-    model: "product.product",
-    method: "read",
-    args: [[variantId], ["qty_available"]],
-    kwargs: {},
+    model: "product.product", method: "read",
+    args: [[variantId], ["qty_available"]], kwargs: {},
   });
   return (res && res[0] && typeof res[0].qty_available === "number") ? res[0].qty_available : null;
 };
@@ -54,33 +50,79 @@ const fmtPrice = (v) => {
   } catch { return (Math.round(v*100)/100).toFixed(2); }
 };
 
+/* --------- Detección robusta de atributos --------- */
 const isColor = n => /color|couleur|farbe|colou?r|colore|kleur/i.test(n||"");
 const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n||"");
 
+/** Devuelve [{name, options:[{id,name}], el}] buscando varias variantes de markup */
 const parseBlocks = (root) => {
   const out = [];
-  root.querySelectorAll(".js_product .js_attributes [data-attribute_name]").forEach(el => {
-    const name = (el.getAttribute("data-attribute_name")||"").trim();
-    const options = Array.from(el.querySelectorAll("input[type='radio']")).map(inp => {
-      const id = parseInt(inp.dataset.valueId || inp.dataset.attributeValueId || inp.value || "0", 10);
+
+  // 1) Bloques estándar con data-attribute_name
+  root.querySelectorAll("[data-attribute_name]").forEach(el => {
+    const name = (el.getAttribute("data-attribute_name") || "").trim();
+    const radios = el.querySelectorAll("input[type='radio']");
+    const options = Array.from(radios).map(inp => {
+      // Soportar distintos data-* usados por Odoo/temas
+      const id =
+        parseInt(inp.dataset.valueId || inp.dataset.attributeValueId ||
+                 inp.dataset.attribute_value_id || inp.dataset.attributeValueID ||
+                 inp.value || "0", 10);
       if (!id) return null;
       const label = (inp.closest("label")?.textContent || inp.title || "").trim();
-      return {id, name: label};
+      return { id, name: label };
     }).filter(Boolean);
-    if (options.length) out.push({name, options, el});
+    if (options.length) out.push({ name, options, el });
   });
+
+  // 2) Fallback: grupos .js_attribute / .o_wsale_product_attribute sin data-attribute_name
+  if (!out.length) {
+    const groups = root.querySelectorAll(".js_attribute, .o_wsale_product_attribute, .variant_attribute");
+    groups.forEach(el => {
+      const head = el.querySelector(".attribute_name, .o_wsale_attribute_name, .attr_name");
+      const name = (head?.textContent || "").trim();
+      const radios = el.querySelectorAll("input[type='radio']");
+      const options = Array.from(radios).map(inp => {
+        const id = parseInt(inp.dataset.valueId || inp.value || "0", 10);
+        if (!id) return null;
+        const label = (inp.closest("label")?.textContent || inp.title || "").trim();
+        return { id, name: label };
+      }).filter(Boolean);
+      if (name && options.length) out.push({ name, options, el });
+    });
+  }
+
+  console.log("[SP] atributos detectados:", out.map(b => ({name:b.name, n:b.options.length})));
   return out;
 };
 
+/* --------- Dónde insertar (ancla robusta) --------- */
+const pickAnchor = (root) => {
+  const selectors = [
+    ".product_price",
+    ".o_wsale_product_information .product_price",
+    ".o_wsale_product_information",
+    "#product_details",
+    ".o_wsale_product_page .container"
+  ];
+  for (const s of selectors) {
+    const el = root.querySelector(s);
+    if (el) return el;
+  }
+  return root;
+};
+
+/* ---------------------- Build ---------------------- */
 const build = async (page) => {
   if (page.querySelector("#sp-matrix")) return;
+
   const blocks = parseBlocks(page);
-  if (blocks.length < 2) return;
+  if (blocks.length < 2) return; // no hay 2 atributos => no se muestra matriz
 
   const col = blocks.find(b => isColor(b.name)) || blocks[0];
   const siz = blocks.find(b => isSize(b.name))  || blocks[1];
 
-  const anchor = page.querySelector(".product_price") || page;
+  const anchor = pickAnchor(page);
   const wrap = document.createElement("div");
   wrap.id = "sp-matrix";
   wrap.className = "sp-matrix o-pt-3";
@@ -126,7 +168,7 @@ const build = async (page) => {
   btn.textContent = "Añadir selección";
   wrap.appendChild(btn);
 
-  // Hidratar celdas: variant_id, precio, stock e imagen por color
+  // Hidratar celdas
   const cells = Array.from(wrap.querySelectorAll("td"));
   const queue = cells.slice();
   const workers = new Array(6).fill(0).map(async function run() {
@@ -168,9 +210,19 @@ const build = async (page) => {
     await Promise.all(calls);
     window.location.reload();
   });
+
+  console.log("[SP] matriz construida ✔");
 };
 
-document.addEventListener("DOMContentLoaded", () => {
-  const page = document.querySelector(".o_wsale_product_page");
-  if (page) build(page);
-});
+/* --------- Arranque + observador por cambios AJAX --------- */
+const start = () => {
+  const page = document.querySelector(".o_wsale_product_page") || document.body;
+  build(page);
+  const mo = new MutationObserver(() => build(page));
+  mo.observe(page, {childList:true, subtree:true});
+  // Exponer para debug
+  window.__SP = window.__SP || {};
+  window.__SP.build = () => build(page);
+  window.__SP.debug = { parseBlocks: () => parseBlocks(page) };
+};
+document.addEventListener("DOMContentLoaded", start);
