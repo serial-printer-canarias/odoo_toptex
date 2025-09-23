@@ -1,9 +1,9 @@
-/** @odoo-module **/
+// Sonda simple para comprobar carga de assets y evitar ReferenceError
 window._sp = window._sp || {};
-_sp.debug = _sp.debug || {};
-_sp.debug.ok = true;
-_sp.debug.blocks = () =>
-  [...document.querySelectorAll('.js_product .js_attributes [data-attribute_name]')]
-    .map(b => ({ name: b.getAttribute('data-attribute_name'), radios: b.querySelectorAll('input[type="radio"]').length }));
+_sp.debug = _sp.debug || {
+  log: (...a) => console.log('[SP]', ...a),
+  ok:  (msg) => console.log('%c[SP] ' + msg, 'color:#0a0'),
+  warn:(msg) => console.warn('[SP]', msg),
+};
 
-console.log("[SP] web.assets_frontend cargado ✅");
+_sp.debug.ok('web.assets_frontend cargado ✅');
