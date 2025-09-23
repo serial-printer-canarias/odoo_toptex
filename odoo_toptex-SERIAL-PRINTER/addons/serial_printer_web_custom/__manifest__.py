@@ -4,7 +4,7 @@
     "version": "18.0.1.0.0",
     "category": "Website/Website",
     "summary": "Matriz de cantidades por color/talla en la página de producto",
-    "depends": ["website_sale"],
+    "depends": ["base", "website", "website_sale"],
     "data": [
         "views/sp_matrix_anchor.xml",
     ],
