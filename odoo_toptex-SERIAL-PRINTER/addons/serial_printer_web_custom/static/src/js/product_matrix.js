@@ -1,203 +1,221 @@
 /** @odoo-module **/
 
-// === Utilidad: ejecutar cuando el DOM está listo ===
-function onReady(fn) {
-    if (document.readyState !== "loading") fn();
-    else document.addEventListener("DOMContentLoaded", fn);
-}
+import publicWidget from 'web.public.widget';
+import { jsonRpc } from 'web.ajax';
 
-// === Utilidad simple para escapar HTML ===
-function esc(s) {
-    return String(s || "").replace(/[&<>"']/g, (c) => ({
-        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-    }[c]));
-}
+publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
+    selector: '.o_wsale_product_page',
 
-// === Detecta contenedor de atributos (Color / Talla) y opciones ===
-function getAttributeBlocks(scope) {
-    const blocks = [];
-    // Candidatos típicos en Odoo 17/18 + temas
-    const containers = Array.from(
-        scope.querySelectorAll('[data-attribute_name], .js_attributes > div, .js_attribute')
-    );
+    start() {
+        // Construir una única vez por página
+        if (!document.querySelector('#sp-matrix-anchor')) return this._super(...arguments);
+        if (document.querySelector('#sp-matrix')) return this._super(...arguments);
 
-    containers.forEach((el) => {
-        const name =
-            (el.getAttribute("data-attribute_name") ||
-                el.querySelector(".attribute_name, legend, .o_attr_title")?.textContent ||
-                el.getAttribute("name") ||
-                "")
-                .trim()
-                .toLowerCase();
+        this._buildMatrix();
+        return this._super(...arguments);
+    },
 
-        const radios = Array.from(el.querySelectorAll('input[type="radio"]'));
-        if (!radios.length) return;
+    // === helpers ===
+    _dataset() {
+        const root = document.querySelector('.js_product') || document;
+        const tmpl =
+            parseInt(root?.dataset?.productTemplateId || 0, 10) ||
+            parseInt(document.querySelector('[data-product-template-id]')?.dataset?.productTemplateId || 0, 10) ||
+            parseInt(document.querySelector('input[name="product_id"]')?.value || 0, 10);
 
-        const options = radios.map((inp) => {
-            // Preferimos PTAV id si está (data-value-id). Si no, caemos a attribute_value_id o value.
-            const ptav = parseInt(
-                inp.dataset.valueId || inp.dataset.attributeValueId || inp.value || "0",
-                10
-            ) || 0;
+        const pricelist =
+            parseInt(document.querySelector('[data-pricelist-id]')?.dataset?.pricelistId || 0, 10);
 
-            const label = (inp.closest("label")?.textContent || inp.title || "")
-                .replace(/\s+/g, " ")
-                .trim();
+        return { tmplId: tmpl || 0, pricelistId: pricelist || 0 };
+    },
 
-            return ptav ? { id: ptav, text: label } : null;
-        }).filter(Boolean);
-
-        if (options.length) blocks.push({ name, options, el });
-    });
-
-    // Heurística para localizar color/talla por nombre
-    const color = blocks.find((b) => /(color|colour|colou?r|c[oó]lor)/i.test(b.name));
-    const size  = blocks.find((b) => /(size|talla|talle|taille|größe|maat)/i.test(b.name));
-
-    // Ordena tallas con lógica estándar
-    if (size) size.options = sortSizes(size.options);
-
-    return { color, size, blocks };
-}
-
-// === Orden de tallas (numéricas o XS..XXL) ===
-function sortSizes(opts) {
-    const std = ["2XS","XXS","XS","S","M","L","XL","2XL","XXL","3XL","4XL","5XL","6XL","7XL","8XL"];
-    return [...opts].sort((a, b) => {
-        const na = parseFloat(a.text), nb = parseFloat(b.text);
-        if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
-        const ia = std.indexOf(a.text.toUpperCase());
-        const ib = std.indexOf(b.text.toUpperCase());
-        if (ia >= 0 && ib >= 0) return ia - ib;
-        return a.text.localeCompare(b.text, undefined, { numeric: true });
-    });
-}
-
-// === Render del grid (UI) ===
-function renderGrid(color, size) {
-    let thead = '<thead><tr><th class="sp-sticky-left">Color</th>';
-    size.options.forEach((s) => { thead += `<th>${esc(s.text)}</th>`; });
-    thead += "</tr></thead>";
-
-    let tbody = "<tbody>";
-    color.options.forEach((c) => {
-        tbody += `<tr data-color-ptav="${c.id}">
-            <th class="sp-sticky-left">
-                <div class="sp-color">
-                    <img class="sp-color__img" alt="" />
-                    <span>${esc(c.text)}</span>
-                </div>
-            </th>`;
-        size.options.forEach((s) => {
-            tbody += `<td data-size-ptav="${s.id}">
-                <div class="sp-cell">
-                    <input class="sp-qty" type="number" min="0" step="1" inputmode="numeric"
-                           placeholder="0" data-color-ptav="${c.id}" data-size-ptav="${s.id}">
-                    <div class="sp-meta">
-                        <span class="sp-price"></span>
-                        <span class="sp-stock"></span>
-                    </div>
-                </div>
-            </td>`;
+    _getAttributeBlocks() {
+        const container = document.querySelector('.js_product .js_attributes') || document;
+        const blocks = [];
+        container?.querySelectorAll('[data-attribute_name]').forEach((el) => {
+            const name = (el.getAttribute('data-attribute_name') || '').trim();
+            const options = [];
+            el.querySelectorAll('input[type="radio"]').forEach((inp) => {
+                const id = parseInt(
+                    inp.dataset.valueId || inp.dataset.attributeValueId || inp.value || 0,
+                    10
+                );
+                const label = (inp.closest('label')?.textContent || inp.title || '').trim();
+                if (id) options.push({ id, text: label });
+            });
+            if (options.length) blocks.push({ name, options });
         });
-        tbody += "</tr>";
-    });
-    tbody += "</tbody>";
+        return blocks;
+    },
 
-    return `
-      <div id="sp-matrix" class="sp-matrix-box">
-        <table class="sp-matrix__table">${thead}${tbody}</table>
-        <button type="button" class="btn btn-primary sp-add-all">Añadir selección</button>
-        <p class="sp-help">Indica cantidades por color y talla.</p>
-      </div>
-    `;
-}
+    _pickColorSize(blocks) {
+        const isColor = (n) => /color|couleur|farbe|colou?r|colore|kleur/i.test(n || '');
+        const isSize  = (n) => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || '');
+        let color = blocks.find((b) => isColor(b.name));
+        let size  = blocks.find((b) => isSize(b.name));
+        if (!color) color = blocks[0];
+        if (!size)  size  = blocks[1];
+        return { color, size };
+    },
 
-// === Busca un buen “ancla” y coloca el grid (una sola vez) ===
-function mountGrid() {
-    const page = document.querySelector(".o_wsale_product_page");
-    if (!page) return;
+    // === build ===
+    async _buildMatrix() {
+        const anchor = document.querySelector('#sp-matrix-anchor');
+        const blocks = this._getAttributeBlocks();
+        if (!anchor || blocks.length < 2) return;
 
-    // Evita duplicados: si existe y está justo después del ancla, no hacemos nada
-    const existing = page.querySelector("#sp-matrix");
-    if (existing) existing.remove();
+        const { color, size } = this._pickColorSize(blocks);
+        if (!color || !size) return;
 
-    const { color, size } = getAttributeBlocks(page);
-    if (!color || !size) {
-        document.body.classList.remove("sp-matrix-active");
-        return;
-    }
+        const wrap = document.createElement('div');
+        wrap.id = 'sp-matrix';
+        wrap.className = 'sp-matrix o-pt-3';
+        wrap.innerHTML = `
+          <table class="sp-matrix__table">
+            <thead>
+              <tr>
+                <th class="sp-sticky-left">Color</th>
+                ${size.options.map((s) => `<th>${this._esc(s.text)}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${color.options.map((c) => `
+                <tr data-color-id="${c.id}">
+                  <th class="sp-sticky-left">
+                    <div class="sp-color">
+                      <img class="sp-color__img" alt="">
+                      <span class="sp-color__name">${this._esc(c.text)}</span>
+                    </div>
+                  </th>
+                  ${size.options.map((s) => `
+                    <td data-size-id="${s.id}">
+                      <div class="sp-cell">
+                        <input type="number" class="sp-qty" min="0" step="1"
+                               data-color-id="${c.id}" data-size-id="${s.id}">
+                        <div class="sp-meta">
+                          <span class="sp-price"></span>
+                          <span class="sp-stock"></span>
+                        </div>
+                      </div>
+                    </td>`).join('')}
+                </tr>`).join('')}
+            </tbody>
+          </table>
+          <button type="button" class="btn btn-primary mt-2 sp-add-to-cart">Añadir selección</button>
+        `;
+        anchor.after(wrap);
 
-    // 1º preferimos ponerlo justo debajo del bloque de atributos
-    const attrs = page.querySelector(".js_attributes") || page.querySelector(".o_product_configurator");
-    // 2º si no, debajo del precio
-    const price = page.querySelector(".product_price, .oe_currency_value")?.closest("div");
-    const anchor = attrs || price || page;
+        // listeners
+        wrap.querySelector('.sp-add-to-cart').addEventListener('click', (ev) => this._addAllToCart(ev));
 
-    anchor.insertAdjacentHTML("afterend", renderGrid(color, size));
-    document.body.classList.add("sp-matrix-active");
+        // hidratar celdas
+        await this._hydrateCells(wrap);
+        // Log útil para comprobar que se cargó
+        console.debug('[SP] matrix ready');
+    },
 
-    // En este paso: botón “Añadir selección” -> carrito
-    wireCartButton(page);
+    _esc(s) { return (s || '').replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); },
 
-    // (Opcional) En un paso siguiente hidratamos fotos/precio/stock por variante.
-}
+    _comboArgs(avIds) {
+        const { tmplId, pricelistId } = this._dataset();
+        return {
+            product_template_id: tmplId || undefined,
+            product_id: 0,
+            combination: avIds,         // lista de ids de valores de atributo
+            add_qty: 1,
+            parent_combination: [],
+            pricelist_id: pricelistId || undefined,
+        };
+    },
 
-// === Botón añadir selección -> /shop/cart/update_json ===
-function wireCartButton(page) {
-    const btn = page.querySelector("#sp-matrix .sp-add-all");
-    if (!btn) return;
-    btn.addEventListener("click", async (ev) => {
+    async _fetchCombination(avIds) {
+        const args = this._comboArgs(avIds);
+        // Ruta estándar de website_sale (equivale a wSaleUtils._getCombinationInfo)
+        return jsonRpc('/shop/get_combination_info', 'call', args)
+            .catch(() => jsonRpc('/sale/get_combination_info', 'call', args))
+            .catch(() => null);
+    },
+
+    async _getStock(variantId) {
+        // On hand (qty_available) como referencia rápida
+        try {
+            const res = await jsonRpc('/web/dataset/call_kw', 'call', {
+                model: 'product.product',
+                method: 'read',
+                args: [[variantId], ['qty_available']],
+                kwargs: {},
+            });
+            return (res && res[0] && typeof res[0].qty_available === 'number') ? res[0].qty_available : null;
+        } catch {
+            return null;
+        }
+    },
+
+    async _hydrateCells(root) {
+        const cells = Array.from(root.querySelectorAll('td[data-size-id]'));
+        const workers = 6;
+        const queue = cells.slice();
+
+        const run = async () => {
+            while (queue.length) {
+                const td = queue.shift();
+                const colorId = parseInt(td.closest('tr')?.dataset?.colorId || '0', 10);
+                const sizeId  = parseInt(td.dataset.sizeId || '0', 10);
+                if (!colorId || !sizeId) continue;
+
+                const info = await this._fetchCombination([colorId, sizeId]);
+                if (!info || !info.product_id) { td.classList.add('sp-unavailable'); continue; }
+
+                // Guardamos variant_id en el input
+                const input = td.querySelector('.sp-qty');
+                input.dataset.variantId = String(info.product_id);
+
+                // Precio
+                if (typeof info.price === 'number') {
+                    td.querySelector('.sp-price').textContent = this._formatPrice(info.price);
+                }
+
+                // Stock
+                let stock = (info.stock_quantity !== undefined) ? info.stock_quantity : null;
+                if (stock === null) stock = await this._getStock(info.product_id);
+                if (stock !== null) td.querySelector('.sp-stock').textContent = `Stock: ${stock}`;
+
+                // Imagen por color (solo se pone si aún no está)
+                const img = td.closest('tr').querySelector('.sp-color__img');
+                if (!img.getAttribute('src')) {
+                    img.setAttribute('src', `/web/image/product.product/${info.product_id}/image_128`);
+                }
+            }
+        };
+
+        await Promise.all(new Array(workers).fill(0).map(run));
+    },
+
+    _formatPrice(v) {
+        try {
+            const lang = document.documentElement.lang || 'es-ES';
+            const code = document.querySelector('[data-website-currency-code]')?.dataset.websiteCurrencyCode || 'EUR';
+            return new Intl.NumberFormat(lang, { style: 'currency', currency: code }).format(v);
+        } catch {
+            return (Math.round(v * 100) / 100).toFixed(2);
+        }
+    },
+
+    _addAllToCart(ev) {
         ev.preventDefault();
-        const inputs = Array.from(page.querySelectorAll("#sp-matrix .sp-qty"));
-        // De momento no dependemos de variant_id para que no falle nada;
-        // añadimos el producto “padre” con las combinaciones actuales.
-        // Próximo paso: hidratar variant_id por celda y hacer las llamadas correctas.
         const calls = [];
-        inputs.forEach((inp) => {
-            const qty = parseFloat(inp.value || "0");
-            if (qty > 0) {
-                // Fallback mínimo: añade el producto seleccionado (padre) “qty” veces.
-                calls.push(fetch("/shop/cart/update_json", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ add_qty: qty }),
-                    credentials: "include",
+        document.querySelectorAll('#sp-matrix .sp-qty').forEach((inp) => {
+            const qty = parseFloat(inp.value || '0');
+            const product_id = parseInt(inp.dataset.variantId || '0', 10);
+            if (qty > 0 && product_id) {
+                calls.push(jsonRpc('/shop/cart/update_json', 'call', {
+                    product_id, add_qty: qty, display: false,
                 }));
             }
         });
         if (!calls.length) return;
-        try {
-            await Promise.all(calls);
-            window.location.reload();
-        } catch (_) {
-            // Silencioso: si falla, no bloqueamos la página
-        }
-    });
-}
-
-// === Observa cambios en atributos (cuando el tema re-renderiza) y rehace el grid sin duplicar ===
-function observeAndRemount() {
-    const page = document.querySelector(".o_wsale_product_page");
-    if (!page) return;
-
-    // Re-montar cuando cambien radios
-    page.addEventListener("change", (ev) => {
-        if (ev.target.matches('input[type="radio"]')) mountGrid();
-    });
-
-    // Extra: si el tema re-dibuja atributos, lo detectamos
-    const target = page.querySelector(".js_attributes") || page;
-    const obs = new MutationObserver(() => mountGrid());
-    obs.observe(target, { childList: true, subtree: true });
-}
-
-// === Arranque (solo website product) ===
-onReady(() => {
-    const page = document.querySelector(".o_wsale_product_page");
-    if (!page) return;
-    mountGrid();
-    observeAndRemount();
-    // Marca en consola para comprobar carga del asset
-    console.log("[SP] product_matrix.js cargado (frontend único, sin duplicados).");
+        Promise.all(calls).then(() => window.location.reload());
+    },
 });
+
+export default publicWidget.registry.SerialPrinterMatrix;
