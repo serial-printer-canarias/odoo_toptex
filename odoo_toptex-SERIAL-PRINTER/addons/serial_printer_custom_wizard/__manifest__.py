@@ -7,8 +7,11 @@
     "license": "LGPL-3",
     "depends": ["website_sale"],
     "data": [
-        "views/customizer_page.xml",           # <-- aquí está la página del configurador
+        "views/customizer_page.xml",
         "views/product_personalize_button.xml",
+        # ⚠️ Quitamos la inyección JS que causaba duplicados y errores:
+        # "views/spw_cart_preview_inject.xml",
+        # Deja UNA sola variante del QWeb, A o B:
         "views/spw_cart_preview_qweb.xml",
     ],
     "assets": {
