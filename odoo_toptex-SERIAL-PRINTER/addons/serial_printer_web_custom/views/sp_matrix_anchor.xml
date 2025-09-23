@@ -1,11 +1,9 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <template id="sp_matrix_anchor_product"
-            name="SP Matrix Anchor (product)"
-            inherit_id="website_sale.product">
-    <xpath expr="//div[contains(concat(' ', normalize-space(@class), ' '), ' js_product ')]"
-           position="inside">
-      <div id="sp-matrix-anchor" class="sp-matrix-anchor"/>
+  <!-- Inserta un contenedor fijo para la matriz justo después del precio -->
+  <template id="sp_matrix_anchor_product" inherit_id="website_sale.product" name="SP Matrix Anchor (product)">
+    <xpath expr="//div[contains(@class,'o_wsale_product_page')]//div[contains(@class,'product_price')]" position="after">
+      <div id="sp-matrix" class="sp-matrix o-pt-3"></div>
     </xpath>
   </template>
 </odoo>
