@@ -2,22 +2,14 @@
 <odoo>
   <data>
 
-    <!-- Bloque reutilizable: miniatura + píldora de color -->
     <template id="spw_cart_line_preview_block" name="SPW Cart line preview block">
-      <t t-if="line">
-        <!-- Tomar el color: campo directo o meta_json -->
-        <t t-set="hex"
-           t-value="(getattr(line, 'spw_svg_color', False)
-                     or (getattr(line, 'spw_meta_json', False) and (line.spw_meta_json.get('svg_color') or line.spw_meta_json.get('color')))
-                     or False)"/>
+      <t t-if="line and line.id">
         <div class="spw-preview" style="display:flex;align-items:center;gap:8px;margin-top:6px">
-          <!-- Píldora (no mostramos el código, solo el color) -->
-          <t t-if="hex and hex.startswith('#') and len(hex) in (4,7)">
-            <span t-att-title="hex"
+          <t t-if="getattr(line, 'spw_svg_color', False)">
+            <span t-att-title="line.spw_svg_color"
                   style="display:inline-block;width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb"
-                  t-att-style="'background:%s' % hex"/>
+                  t-att-style="'background:%s' % line.spw_svg_color"/>
           </t>
-          <!-- Miniatura generada en backend -->
           <img t-att-src="'/spw/line_preview/%s.png' % line.id"
                alt="Personalización" loading="lazy"
                style="max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px"/>
@@ -25,7 +17,7 @@
       </t>
     </template>
 
-    <!-- Insertar el bloque en la plantilla del carrito debajo del texto -->
+    <!-- Insertar dentro del contenedor de info del producto -->
     <template id="spw_cart_lines_inherit" inherit_id="website_sale.cart_lines" priority="99">
       <xpath expr=".//div[contains(@class,'o_wsale_product_information')]" position="inside">
         <t t-set="line" t-value="line"/>
