@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- ===================== PÁGINA DEL PERSONALIZADOR (SIN CAMBIOS FUNCIONALES) ===================== -->
+  <!-- ===================== PÁGINA DEL PERSONALIZADOR ===================== -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
@@ -121,7 +121,7 @@
                 <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset && window.spwReset();">Reset</a>
+                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -252,129 +252,119 @@
     </t>
   </template>
 
-  <!-- ===================== INYECCIÓN SOLO EN /shop/cart (UNA MINIATURA POR LÍNEA, EN DESCRIPCIÓN) ===================== -->
+  <!-- ===================== INYECCIÓN EN /shop/cart ===================== -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <script type="text/javascript"><![CDATA[
       (function(){
         "use strict";
 
-        // Helpers
         function q(s,r){return (r||document).querySelector(s);}
         function qa(s,r){return Array.from((r||document).querySelectorAll(s));}
         function getParam(n){ try{ return new URL(location.href).searchParams.get(n); }catch(_){ return null; } }
 
-        // Buscar contenedor seguro de la DESCRIPCIÓN (nunca la caja de cantidad)
         function descContainer(line){
-          // Preferimos el bloque donde aparece la "Técnica/Color"
-          var meta = (function(){
+          var meta=(function(){
             var nodes=qa("p,div,li,span", line);
             return nodes.find(function(el){
               var t=(el.textContent||"").toLowerCase();
               return /t[eé]cnica/.test(t) || /color\s*svg/.test(t) || /color\s*#/.test(t);
-            }) || null;
+            })||null;
           })();
           if(meta) return meta;
-
-          // Columnas típicas de temas Odoo
-          var pick = q(".media-body", line)
-                  || q(".flex-grow-1", line)
-                  || q(".o_wsale_cart_description", line)
-                  || q(".o_cart_description", line)
-                  || q(".card-body", line)
-                  || q(".col", line);
-          return pick || line;
+          return q(".media-body", line)
+              || q(".flex-grow-1", line)
+              || q(".o_wsale_cart_description", line)
+              || q(".o_cart_description", line)
+              || q(".card-body", line)
+              || q(".col", line)
+              || line;
         }
 
         function lineIdOf(line){
           if(!line) return null;
           try{
             return line.getAttribute("data-line-id")
-                || (q('input[name="line_id"]', line)||{}).value
-                || (function(){
-                     var a=line.closest('a[href*=\"line_id=\"]')||q('a[href*=\"line_id=\"]', line);
-                     if(!a) return null; var u=new URL(a.getAttribute('href'), location.origin); return u.searchParams.get('line_id');
-                   })()
-                || null;
+              || (q('input[name=\"line_id\"]', line)||{}).value
+              || (function(){
+                   var a=line.closest('a[href*=\"line_id=\"]')||q('a[href*=\"line_id=\"]', line);
+                   if(!a) return null; var u=new URL(a.getAttribute('href'), location.origin); return u.searchParams.get('line_id');
+                 })()
+              || null;
           }catch(_){ return null; }
         }
 
         function parseHex(text){
-          var m=(text||"").match(/#([0-9a-fA-F]{6})\b/);
-          return m?("#"+m[1]):null;
+          var m=(text||\"\").match(/#([0-9a-fA-F]{6})\\b/);
+          return m?('#'+m[1]):null;
         }
 
         function insertPreview(line, src, id, colorHex){
           try{
-            // Elimina cualquier previa previa dentro de ESTA línea
-            qa(".spw-preview", line).forEach(function(n){ n.remove(); });
+            qa('.spw-preview', line).forEach(function(n){ n.remove(); });
 
-            var target = descContainer(line);
-            var wrap=document.createElement("div");
-            wrap.className="spw-preview";
-            wrap.setAttribute("data-line", id||"");
-            // Inline CSS seguro; nada de posiciones que tapen botones
-            wrap.style.display="inline-flex";
-            wrap.style.alignItems="center";
-            wrap.style.gap="8px";
-            wrap.style.marginTop="6px";
-            wrap.style.maxWidth="100%";
+            var target=descContainer(line);
+            var wrap=document.createElement('div');
+            wrap.className='spw-preview';
+            wrap.setAttribute('data-line', id||'');
+            wrap.style.display='inline-flex';
+            wrap.style.alignItems='center';
+            wrap.style.gap='8px';
+            wrap.style.marginTop='6px';
+            wrap.style.maxWidth='100%';
 
             var img=new Image();
-            img.alt="Personalización";
-            img.loading="lazy";
+            img.alt='Personalización';
+            img.loading='lazy';
             img.src=src;
-            img.style.maxWidth="120px";
-            img.style.height="auto";
-            img.style.border="1px solid #e5e7eb";
-            img.style.borderRadius="6px";
+            img.style.maxWidth='120px';
+            img.style.height='auto';
+            img.style.border='1px solid #e5e7eb';
+            img.style.borderRadius='6px';
             img.onerror=function(){ wrap.remove(); };
             wrap.appendChild(img);
 
-            var sw = colorHex || parseHex(target.textContent || line.textContent || "");
+            var sw=colorHex || parseHex(target.textContent || line.textContent || '');
             if(sw && /^#[0-9A-F]{6}$/i.test(sw)){
-              var dot=document.createElement("span");
+              var dot=document.createElement('span');
               dot.title=sw;
-              dot.style.display="inline-block";
-              dot.style.width="14px";
-              dot.style.height="14px";
-              dot.style.borderRadius="999px";
-              dot.style.border="1px solid #e5e7eb";
+              dot.style.display='inline-block';
+              dot.style.width='14px';
+              dot.style.height='14px';
+              dot.style.borderRadius='999px';
+              dot.style.border='1px solid #e5e7eb';
               dot.style.background=sw;
               wrap.appendChild(dot);
             }
 
-            // Colocar SIEMPRE debajo del bloque de descripción/meta
             if(target && target.parentElement){
-              target.insertAdjacentElement("afterend", wrap);
+              target.insertAdjacentElement('afterend', wrap);
             }else{
               line.appendChild(wrap);
             }
-          }catch(_){ /* nunca romper la página */ }
+          }catch(_){}
         }
 
         function findLines(){
-          var sel=".o_wsale_cart_item, tr.js_cart_line, .card.js_cart_item, .o_cart_line, [data-line-id]";
+          var sel='.o_wsale_cart_item, tr.js_cart_line, .card.js_cart_item, .o_cart_line, [data-line-id]';
           return qa(sel, document).filter(Boolean);
         }
 
         function inject(){
           try{
-            if(!/\/shop\/cart/.test(location.pathname)) return;
+            if(!/\\/shop\\/cart/.test(location.pathname)) return;
 
-            var wanted=getParam("spw_line_id");
+            var wanted=getParam('spw_line_id');
             var lastId=null,lastPng=null,lastColor=null;
             try{
-              lastId  = sessionStorage.getItem("spw_last_line_id");
-              lastPng = sessionStorage.getItem("spw_last_png");
-              lastColor = sessionStorage.getItem("spw_last_color");
+              lastId  = sessionStorage.getItem('spw_last_line_id');
+              lastPng = sessionStorage.getItem('spw_last_png');
+              lastColor = sessionStorage.getItem('spw_last_color');
             }catch(_){}
 
-            var lines=findLines();
-            if(!lines.length) return;
+            var lines=findLines(); if(!lines.length) return;
 
-            // Limpieza global de huérfanos
-            qa(".spw-preview").forEach(function(el){
+            qa('.spw-preview').forEach(function(el){
               var keep = lines.some(function(ln){ return ln.contains(el); });
               if(!keep) el.remove();
             });
@@ -386,20 +376,19 @@
                 insertPreview(line, lastPng, id, lastColor);
                 return;
               }
-              insertPreview(line, "/spw/line_preview/"+encodeURIComponent(id)+".png?_="+Date.now(), id, null);
+              insertPreview(line, '/spw/line_preview/'+encodeURIComponent(id)+'.png?_='+Date.now(), id, null);
             });
 
             if(wanted && lastId && wanted===lastId){
               try{
-                sessionStorage.removeItem("spw_last_line_id");
-                sessionStorage.removeItem("spw_last_png");
-                sessionStorage.removeItem("spw_last_color");
+                sessionStorage.removeItem('spw_last_line_id');
+                sessionStorage.removeItem('spw_last_png');
+                sessionStorage.removeItem('spw_last_color');
               }catch(_){}
             }
-          }catch(_){ /* silencio seguro */ }
+          }catch(_){}
         }
 
-        // Boot seguro: nunca bloquea eventos del carrito
         function boot(){
           inject();
           var root=document.body;
@@ -414,10 +403,10 @@
           setTimeout(inject,200);
           setTimeout(inject,600);
           setTimeout(inject,1400);
-          window.addEventListener("pageshow", inject);
+          window.addEventListener('pageshow', inject);
         }
 
-        if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded", boot); } else { boot(); }
+        if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', boot); } else { boot(); }
       })();
       ]]></script>
     </xpath>
