@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- ===================== PÁGINA DEL PERSONALIZADOR (SIN CAMBIOS DE LÓGICA) ===================== -->
+  <!-- ===================== PÁGINA DEL PERSONALIZADOR (sin cambios de lógica de negocio) ===================== -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
@@ -15,13 +15,16 @@
         <div class="row g-4">
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
+              <!-- Base same-origin para evitar CORS al exportar -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
 
+              <!-- Imagen visible -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
 
+              <!-- Overlay del logo -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
           </div>
@@ -31,6 +34,7 @@
               <div class="card-body">
                 <h5 class="card-title mb-3">Personalización</h5>
 
+                <!-- Subir logo -->
                 <div class="mb-3">
                   <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
                   <input id="spw_logo_input" class="form-control" type="file"
@@ -38,6 +42,7 @@
                   <small class="text-muted">Máx. 10MB.</small>
                 </div>
 
+                <!-- Técnica -->
                 <div class="mb-3">
                   <label class="form-label">Técnica</label>
                   <div class="d-flex gap-3 flex-wrap">
@@ -56,6 +61,7 @@
                   </div>
                 </div>
 
+                <!-- Color SVG -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
                   <div class="spw-color-row">
@@ -83,6 +89,7 @@
                   <div class="spw-help mt-1">Se aplica solo a logos SVG.</div>
                 </div>
 
+                <!-- Controles -->
                 <div class="mb-3">
                   <label for="spw_size" class="form-label">Tamaño</label>
                   <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
@@ -100,6 +107,7 @@
                   <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
                 </div>
 
+                <!-- Cantidad / Observaciones -->
                 <div class="mb-3">
                   <label for="spw_qty" class="form-label">Cantidad</label>
                   <input id="spw_qty" class="form-control" type="number" min="1" value="1"/>
@@ -110,6 +118,7 @@
                             placeholder="Indica instrucciones para el taller..."></textarea>
                 </div>
 
+                <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
                      onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
@@ -132,7 +141,7 @@
         </div>
       </div>
 
-      <!-- ====== JS: mantiene descarga iOS/Android/desktop y alta a carrito ====== -->
+      <!-- ====== JS del personalizador: mantener descarga iOS y alta al carrito ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -190,10 +199,17 @@
 
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim(); if(!variantId){ alert("Falta la variante del producto."); return; }
-          var qty=+( $val("spw_qty","1")||1 ), tech=(document.querySelector("input[name='spw_tech']:checked")||{}).value||"", svgColor=(document.querySelector("input[name='spw_svg_color']:checked")||{}).value||"", notes=($val("spw_notes","")||"").trim();
+          var qty=+( $val("spw_qty","1")||1 ),
+              tech=(document.querySelector("input[name='spw_tech']:checked")||{}).value||"",
+              svgColor=(document.querySelector("input[name='spw_svg_color']:checked")||{}).value||"",
+              notes=($val("spw_notes","")||"").trim();
 
           var du=await renderPNGDataURL();
-          try{ sessionStorage.setItem('spw_last_product_id', String(variantId)); sessionStorage.setItem('spw_last_png', du||''); sessionStorage.setItem('spw_last_color', svgColor||''); }catch(_){}
+          try{
+            sessionStorage.setItem('spw_last_product_id', String(variantId));
+            sessionStorage.setItem('spw_last_png', du||'');
+            sessionStorage.setItem('spw_last_color', svgColor||'');
+          }catch(_){}
 
           var r1=await postJSON("/spw/add_to_cart_meta",{variant_id:parseInt(variantId,10),qty:qty,tech:tech,svg_color:svgColor,notes:notes});
           if(!r1.ok){ r1=await postForm("/spw/add_to_cart_meta_http",{variant_id:variantId,qty:qty,tech:tech,svg_color:svgColor,notes:notes}); }
@@ -201,7 +217,8 @@
 
           try{ if(r1.data && r1.data.line_id){ sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id)); } }catch(_){}
           try{
-            var b64=(du.split('base64,')[1]||""); if(b64){
+            var b64=(du.split('base64,')[1]||"");
+            if(b64){
               var r2=await postJSON("/spw/attach_png",{line_id:r1.data.line_id,png_b64:b64});
               if(!r2.ok){ await postForm("/spw/attach_png_http",{line_id:r1.data.line_id,png_b64:b64}); }
             }
@@ -224,7 +241,7 @@
           var inFile=document.getElementById("spw_logo_input"), logo=document.getElementById("spw_logo_preview");
           if(inFile){ inFile.addEventListener("change", async (ev)=>{ var f=ev.target.files&&ev.target.files[0]; if(!f) return; logo.src=await readAsDataURL(f); applyTransform(); }); }
           ["spw_size","spw_pos_x","spw_pos_y","spw_rotation"].forEach(id=>{ var el=document.getElementById(id); if(el) el.addEventListener("input", applyTransform); });
-          window.spwReset=function(){ $("#spw_size").value=100; $("#spw_pos_x").value=0; $("#spw_pos_y").value=10; $("#spw_rotation").value=0; applyTransform(); };
+          window.spwReset=function(){ document.getElementById("spw_size").value=100; document.getElementById("spw_pos_x").value=0; document.getElementById("spw_pos_y").value=10; document.getElementById("spw_rotation").value=0; applyTransform(); };
           var dl=$("#spw_download_png"); if(dl){ dl.addEventListener("click", downloadPNGiOSSafe); }
           var add=$("#spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
           applyTransform();
@@ -235,186 +252,40 @@
     </t>
   </template>
 
-  <!-- ===================== INYECCIÓN EN /shop/cart (UNA SOLA MINIATURA + SWATCH) ===================== -->
-  <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
-    <xpath expr="//body" position="inside">
-      <script type="text/javascript"><![CDATA[
-      (function(){
-        "use strict";
+  <!-- ===================== PREVIEW EN CARRITO (renderizado en servidor, 1 por línea) ===================== -->
+  <!-- Intentamos en el parcial estándar de Odoo -->
+  <template id="spw_cart_line_preview_ssr" inherit_id="website_sale.cart_line" priority="99">
+    <!-- Buscar el contenedor de información y añadir el bloque al final -->
+    <xpath expr=".//*[contains(@class,'o_wsale_cart_description') or contains(@class,'media-body') or contains(@class,'o_wsale_product_information')]" position="inside">
+      <t t-if="line and line.id">
+        <div class="spw-preview-server mt-2 d-inline-flex align-items-center" style="gap:8px;">
+          <img t-att-src="'/spw/line_preview/%s.png' % line.id"
+               alt="Personalización" style="max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px;"/>
+          <!-- Swatch de color: usa campo si existe o meta json -->
+          <t t-set="hex" t-value="(getattr(line, 'spw_svg_color', False) and line.spw_svg_color) or (getattr(line, 'spw_meta_json', False) and line.spw_meta_json and line.spw_meta_json.get('svg_color')) or ''"/>
+          <t t-if="hex and isinstance(hex, str) and hex.startswith('#') and len(hex)==7">
+            <span t-att-title="hex"
+                  t-att-style="'display:inline-block;width:14px;height:14px;border-radius:999px;border:1px solid #e5e7eb;background:%s' % hex"></span>
+          </t>
+        </div>
+      </t>
+    </xpath>
+  </template>
 
-        function q(s,r){return (r||document).querySelector(s);}
-        function qa(s,r){return Array.from((r||document).querySelectorAll(s));}
-        function getParam(n){ try{ return new URL(location.href).searchParams.get(n); }catch(_){ return null; } }
-
-        // Dónde insertar: justo DESPUÉS del bloque que contiene "Técnica"/"Color"
-        function findDescNode(line){
-          // 1) Preferimos un nodo con el texto de técnica/color
-          var candidates = qa("p, div, li, span", line);
-          var picked = candidates.find(function(el){
-            var t=(el.textContent||"").toLowerCase();
-            return /t[eé]cnica/.test(t) || /color\s*svg/.test(t) || /color\s*#/.test(t);
-          });
-          if (picked) return picked;
-          // 2) Fallbacks por temas habituales
-          return q(".o_wsale_cart_description", line)
-              || q(".media-body", line)
-              || q(".flex-grow-1", line)
-              || q(".card-body", line)
-              || q(".col", line)
-              || line;
-        }
-
-        function extractLineId(line){
-          if(!line) return null;
-          try{
-            return line.getAttribute("data-line-id")
-                || (q('input[name=\"line_id\"]', line)||{}).value
-                || (function(){ // busca en enlaces con line_id
-                     var a=line.closest('a[href*=\"line_id=\"]') || q('a[href*=\"line_id=\"]', line);
-                     if(!a) return null;
-                     var u=new URL(a.getAttribute('href'), location.origin);
-                     return u.searchParams.get('line_id');
-                   })()
-                || null;
-          }catch(_){ return null; }
-        }
-
-        function parseHexFromText(text){
-          var m=(text||"").match(/#([0-9a-fA-F]{6})\b/);
-          return m ? ('#'+m[1]) : null;
-        }
-
-        // Inserta o actualiza un único preview para esa línea (sin duplicar)
-        function upsertPreview(line, src, lineId, hex){
-          // id único por línea
-          var holderId = "spw-prev-" + (lineId || "x");
-          var holder = document.getElementById(holderId);
-
-          if (!holder) {
-            var afterNode = findDescNode(line);
-            holder = document.createElement("div");
-            holder.id = holderId;
-            holder.className = "spw-preview";
-            holder.style.display = "inline-flex";
-            holder.style.alignItems = "center";
-            holder.style.gap = "8px";
-            holder.style.marginTop = "6px";
-            holder.style.maxWidth = "100%";
-
-            // imagen
-            var img = new Image();
-            img.alt = "Personalización";
-            img.loading = "lazy";
-            img.style.maxWidth = "120px";
-            img.style.height = "auto";
-            img.style.border = "1px solid #e5e7eb";
-            img.style.borderRadius = "6px";
-            holder.appendChild(img);
-
-            // swatch
-            var sw = document.createElement("span");
-            sw.className = "spw-color-dot";
-            sw.title = "";
-            sw.style.display = "inline-block";
-            sw.style.width = "14px";
-            sw.style.height = "14px";
-            sw.style.borderRadius = "999px";
-            sw.style.border = "1px solid #e5e7eb";
-            holder.appendChild(sw);
-
-            if (afterNode && afterNode.parentElement) {
-              afterNode.insertAdjacentElement("afterend", holder);
-            } else {
-              line.appendChild(holder);
-            }
-          }
-
-          // set src/color (evita repintados innecesarios)
-          var imgEl = holder.querySelector("img");
-          if (imgEl && imgEl.src !== src) imgEl.src = src;
-
-          var dot = holder.querySelector(".spw-color-dot");
-          var color = hex || parseHexFromText((findDescNode(line).textContent||"") + " " + (line.textContent||""));
-          if (dot) {
-            if (color && /^#[0-9A-F]{6}$/i.test(color)) {
-              dot.style.background = color;
-              dot.title = color;
-              dot.style.display = "inline-block";
-            } else {
-              dot.style.display = "none";
-            }
-          }
-        }
-
-        function findLines(){
-          // cubre temas comunes de Odoo
-          var sel = ".o_wsale_cart_item, tr.js_cart_line, .card.js_cart_item, .o_cart_line, .js_cart_lines > .row, .table.cart_table tbody tr";
-          return qa(sel, document).filter(Boolean);
-        }
-
-        function inject(){
-          if (!/\/shop\/cart/.test(location.pathname)) return;
-
-          var wanted = getParam("spw_line_id");
-          var lastId = null, lastPng = null, lastColor = null;
-          try {
-            lastId    = sessionStorage.getItem("spw_last_line_id");
-            lastPng   = sessionStorage.getItem("spw_last_png");
-            lastColor = sessionStorage.getItem("spw_last_color");
-          } catch(_) {}
-
-          var lines = findLines();
-          if (!lines.length) return;
-
-          // Limpieza de previews que hayan quedado fuera del DOM
-          qa(".spw-preview").forEach(function(node){
-            if (!document.body.contains(node)) node.remove();
-          });
-
-          lines.forEach(function(line){
-            var id = extractLineId(line) || wanted; // al menos el recién creado
-            if (!id) return;
-
-            // Si acabamos de crear esta línea, pinta instantáneo con el dataURL de sesión
-            if (wanted && lastId && id === lastId && lastPng) {
-              upsertPreview(line, lastPng, id, lastColor);
-              return;
-            }
-            // Fallback estable desde el servidor
-            var url = "/spw/line_preview/" + encodeURIComponent(id) + ".png?_=" + Date.now();
-            upsertPreview(line, url, id, null);
-          });
-
-          // limpiezas de sesión para no contaminar siguientes carritos
-          if (wanted && lastId && wanted === lastId) {
-            try {
-              sessionStorage.removeItem("spw_last_line_id");
-              sessionStorage.removeItem("spw_last_png");
-              sessionStorage.removeItem("spw_last_color");
-            } catch(_) {}
-          }
-        }
-
-        function boot(){
-          inject();
-          var root = q(".js_cart_lines") || q(".o_wsale_cart") || document.body;
-          if (window.MutationObserver && root){
-            var rafId=null;
-            var mo = new MutationObserver(function(){ if(rafId) cancelAnimationFrame(rafId); rafId=requestAnimationFrame(inject); });
-            mo.observe(root, {childList:true, subtree:true});
-          }
-          setTimeout(inject, 250);
-          setTimeout(inject, 900);
-          window.addEventListener("pageshow", inject);
-        }
-
-        if (document.readyState === "loading") {
-          document.addEventListener("DOMContentLoaded", boot);
-        } else {
-          boot();
-        }
-      })();
-      ]]></script>
+  <!-- Fallback por si el tema no usa el parcial anterior: insertamos en cada línea del carrito -->
+  <template id="spw_cart_fallback" inherit_id="website_sale.cart" priority="10">
+    <xpath expr=".//t[@t-foreach='order.order_line']" position="inside">
+      <t t-if="line and line.id">
+        <div class="spw-preview-server mt-2 d-inline-flex align-items-center" style="gap:8px;">
+          <img t-att-src="'/spw/line_preview/%s.png' % line.id"
+               alt="Personalización" style="max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px;"/>
+          <t t-set="hex" t-value="(getattr(line, 'spw_svg_color', False) and line.spw_svg_color) or (getattr(line, 'spw_meta_json', False) and line.spw_meta_json and line.spw_meta_json.get('svg_color')) or ''"/>
+          <t t-if="hex and isinstance(hex, str) and hex.startswith('#') and len(hex)==7">
+            <span t-att-title="hex"
+                  t-att-style="'display:inline-block;width:14px;height:14px;border-radius:999px;border:1px solid #e5e7eb;background:%s' % hex"></span>
+          </t>
+        </div>
+      </t>
     </xpath>
   </template>
 
