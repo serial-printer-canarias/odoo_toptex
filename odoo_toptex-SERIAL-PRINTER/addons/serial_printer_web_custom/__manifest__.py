@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 {
-    "name": "Serial Printer Web Custom",
-    "version": "18.0.0.7",
-    "summary": "Matriz de variantes en la página de producto",
-    "category": "Website",
+    "name": "Serial Printer – Product Matrix (Frontend)",
+    "summary": "Matriz de cantidades por color/talla en la ficha de producto (solo frontend)",
+    "version": "18.0.1.0",
+    "category": "Website/Website",
     "license": "LGPL-3",
+    "author": "Serial Printer",
     "depends": ["website_sale"],
-    "data": [
-        "views/sp_matrix_anchor.xml",
-    ],
+    "data": [],
     "assets": {
         "web.assets_frontend": [
             "serial_printer_web_custom/static/src/js/product_matrix.js",
