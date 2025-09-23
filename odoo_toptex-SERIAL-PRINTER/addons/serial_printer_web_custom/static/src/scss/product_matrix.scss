@@ -1,57 +1,28 @@
-#sp-matrix.sp-matrix-box {
-  margin-top: 1rem;
+#sp-matrix {
+  --sp-gap: .5rem;
 }
-
 .sp-matrix__table {
   width: 100%;
   border-collapse: separate;
-  border-spacing: .75rem .5rem;
+  border-spacing: var(--sp-gap);
 }
-
-.sp-matrix__table th,
-.sp-matrix__table td {
-  vertical-align: middle;
-}
-
 .sp-sticky-left {
   position: sticky;
   left: 0;
   background: #fff;
   z-index: 1;
 }
-
 .sp-color {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
+  display: flex; align-items: center; gap: .5rem;
 }
-
 .sp-color__img {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  object-fit: cover;
-  background: #f2f2f2;
+  width: 44px; height: 44px; object-fit: cover; border-radius: .5rem; background: #f2f2f2;
 }
-
 .sp-cell {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
+  display: flex; flex-direction: column; gap: .25rem;
 }
-
 .sp-qty {
-  width: 72px;
-  text-align: center;
+  width: 100%; text-align: center; border: 1px solid #ddd; border-radius: .5rem; padding: .4rem .6rem;
 }
-
-.sp-meta {
-  font-size: .85rem;
-  color: #6b7280;
-  display: flex;
-  flex-direction: column;
-}
-
-.sp-add-all {
-  margin-top: .75rem;
-}
+.sp-meta { font-size: .82rem; color: #666; display: flex; justify-content: space-between; gap: .5rem; }
+.sp-unavailable { opacity: .4; }
