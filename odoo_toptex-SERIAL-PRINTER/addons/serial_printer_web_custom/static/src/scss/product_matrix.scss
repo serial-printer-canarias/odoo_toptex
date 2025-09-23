@@ -1,24 +1,62 @@
+/* Serial Printer – estilos del grid */
+#sp-matrix {
+  --sp-pad: .5rem;
+  --sp-radius: .75rem;
+}
+
 .sp-matrix__table {
   width: 100%;
   border-collapse: separate;
-  border-spacing: .75rem .5rem;
+  border-spacing: .5rem;
+}
+
+.sp-matrix__table th,
+.sp-matrix__table td {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: var(--sp-radius);
+  padding: var(--sp-pad);
+  vertical-align: middle;
 }
 
 .sp-sticky-left {
   position: sticky;
   left: 0;
-  background: var(--body-bg, #fff);
-  z-index: 2;
+  z-index: 1;
+  background: #fff;
 }
 
 .sp-color {
-  display: flex; align-items: center; gap: .5rem;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
 }
 .sp-color__img {
-  width: 48px; height: 48px; object-fit: cover; border-radius: .5rem;
-  background: #f1f1f1;
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: .5rem;
+  border: 1px solid #e5e7eb;
 }
-.sp-cell { display: grid; gap: .25rem; }
-.sp-qty { width: 100%; text-align: center; border-radius: .5rem; }
-.sp-meta { font-size: .85rem; opacity: .8; display: flex; gap: .5rem; justify-content: center; }
-.sp-unavailable { opacity: .4; pointer-events: none; }
+
+.sp-cell {
+  display: grid;
+  grid-template-rows: auto auto;
+  gap: .25rem;
+}
+.sp-cell input.sp-qty {
+  width: 100%;
+  text-align: center;
+  border-radius: .5rem;
+}
+.sp-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: .85rem;
+  color: #6b7280;
+}
+
+.sp-unavailable {
+  opacity: .5;
+  filter: grayscale(1);
+}
