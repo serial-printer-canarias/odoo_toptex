@@ -1,10 +1,10 @@
-<?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <!-- Inserta un ancla justo DESPUÉS del bloque del precio del producto.
-       No toca nada más del template. -->
-  <template id="sp_matrix_anchor_product" inherit_id="website_sale.product" name="SP Matrix Anchor (product)">
-    <xpath expr="//div[contains(@class,'product_price')]" position="after">
-      <div id="sp-matrix-anchor" class="o_container_sp_matrix"/>
+  <template id="sp_matrix_anchor_product"
+            inherit_id="website_sale.product"
+            name="SP Matrix Anchor (product)"
+            priority="99">
+    <xpath expr="//div[contains(@class, 'o_wsale_product_page')]" position="inside">
+      <div id="sp-matrix-anchor" class="sp-matrix-anchor" data-sp-matrix-anchor="1"/>
     </xpath>
   </template>
 </odoo>
