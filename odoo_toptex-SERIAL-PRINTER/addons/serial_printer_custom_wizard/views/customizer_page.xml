@@ -16,14 +16,14 @@
           <!-- Lienzo -->
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
-              <!-- base same-origin para evitar CORS al exportar -->
+              <!-- Base same-origin para exportar sin CORS -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
-              <!-- visible -->
+              <!-- Imagen visible -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
-              <!-- overlay -->
+              <!-- Overlay del logo -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
           </div>
@@ -107,7 +107,7 @@
                   <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
                 </div>
 
-                <!-- Cantidad/Notas -->
+                <!-- Cantidad / Observaciones -->
                 <div class="mb-3">
                   <label for="spw_qty" class="form-label">Cantidad</label>
                   <input id="spw_qty" class="form-control" type="number" min="1" value="1"/>
@@ -141,16 +141,14 @@
         </div>
       </div>
 
-      <!-- ========= JS de la página (descarga móvil intacta) ========= -->
+      <!-- ========= JS de la página (descarga iOS/Android/PC intacta) ========= -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
         function $(s,r){return (r||document).querySelector(s);}
-        function qa(s,r){return Array.from((r||document).querySelectorAll(s));}
         function $val(id,d){var el=$("#"+id);return el?el.value:d;}
         function loadImage(src){return new Promise(function(res,rej){var i=new Image();i.onload=function(){res(i);};i.onerror=rej;i.src=src;});}
         function readAsDataURL(f){return new Promise(function(res,rej){var r=new FileReader();r.onload=function(){res(r.result);};r.onerror=rej;r.readAsDataURL(f);});}
-        var S={isSVG:false};
 
         function applyTransform(){
           var logo=$("#spw_logo_preview"), base=$("#spw_product_img");
@@ -243,12 +241,12 @@
         }
 
         function init(){
-          var inLogo=$("#spw_logo_input"), logo=$("#spw_logo_preview");
-          if(inLogo){ inLogo.addEventListener("change", async function(ev){ var f=ev.target.files&&ev.target.files[0]; if(!f)return; var name=(f.name||"").toLowerCase(); S.isSVG=name.endsWith(".svg"); var du=await readAsDataURL(f); logo.src=du; applyTransform(); }); }
-          ["spw_size","spw_pos_x","spw_pos_y","spw_rotation"].forEach(id=>{ var el=$("#"+id); if(el) el.addEventListener("input",applyTransform); });
-          window.spwReset=function(){ $("#spw_size").value=100; $("#spw_pos_x").value=0; $("#spw_pos_y").value=10; $("#spw_rotation").value=0; applyTransform(); };
-          var dl=$("#spw_download_png"); if(dl) dl.addEventListener("click", downloadPNGiOSSafe);
-          var add=$("#spw_add_to_cart"); if(add) add.addEventListener("click", addToCart);
+          var inLogo=document.getElementById("spw_logo_input"), logo=document.getElementById("spw_logo_preview");
+          if(inLogo){ inLogo.addEventListener("change", async function(ev){ var f=ev.target.files&&ev.target.files[0]; if(!f)return; var du=await readAsDataURL(f); logo.src=du; applyTransform(); }); }
+          ["spw_size","spw_pos_x","spw_pos_y","spw_rotation"].forEach(function(id){ var el=document.getElementById(id); if(el) el.addEventListener("input",applyTransform); });
+          window.spwReset=function(){ document.getElementById("spw_size").value=100; document.getElementById("spw_pos_x").value=0; document.getElementById("spw_pos_y").value=10; document.getElementById("spw_rotation").value=0; applyTransform(); };
+          var dl=document.getElementById("spw_download_png"); if(dl) dl.addEventListener("click", downloadPNGiOSSafe);
+          var add=document.getElementById("spw_add_to_cart"); if(add) add.addEventListener("click", addToCart);
           applyTransform();
         }
         if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",init);}else{init();}
@@ -257,174 +255,26 @@
     </t>
   </template>
 
-  <!-- =========== INYECCIÓN EN website.layout: preview estable en CARRITO =========== -->
-  <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
-    <xpath expr="//body" position="inside">
-      <script type="text/javascript"><![CDATA[
-      (function(){
-        "use strict";
-        function q(s,r){return (r||document).querySelector(s);}
-        function qa(s,r){return Array.from((r||document).querySelectorAll(s));}
+  <!-- =========== PREVIEW EN SERVIDOR EN CADA LÍNEA DEL CARRITO =========== -->
+  <!-- Odoo 16/17: la plantilla por línea se llama website_sale.cart_item -->
+  <template id="spw_cart_item_preview" inherit_id="website_sale.cart_item" name="SPW - Cart Item Preview" priority="99">
+    <!-- Intentaremos meterlo justo debajo del bloque de descripción -->
+    <xpath expr=".//*[contains(@class,'o_wsale_cart_description') or contains(@class,'o_wsale_product_information') or contains(@class,'media-body')]" position="inside">
+      <t t-if="line and line.id">
+        <div class="spw-preview-server mt-2 d-inline-flex align-items-center" style="gap:8px;">
+          <!-- Miniatura de la personalización almacenada en servidor -->
+          <img t-att-src="'/spw/line_preview/%s.png' % line.id"
+               alt="Personalización"
+               style="max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px"/>
 
-        function urlParam(name){ try{ return new URL(location.href).searchParams.get(name); }catch(_){ return null; } }
-
-        function findCartLines(){
-          // cubrir la mayoría de plantillas
-          var sel=[
-            ".js_cart_lines .row",
-            ".o_wsale_cart_item",
-            "tr.js_cart_line",
-            "[data-line-id]",
-            ".card.js_cart_item",
-            ".oe_website_sale .cart_item",
-            ".oe_website_sale .o_cart_item"
-          ].join(", ");
-          return qa(sel).filter(Boolean);
-        }
-
-        function getLineId(line){
-          if(!line) return null;
-          var id = line.getAttribute("data-line-id");
-          if(!id){
-            var hid = q('input[name="line_id"]', line);
-            if(hid && hid.value) id = hid.value;
-          }
-          if(!id){
-            // enlaces típicos: /shop/cart/update?line_id=XX  o  ...?line_id=XX&set_qty
-            var a = q('a[href*="line_id="]', line) || line.closest('a[href*="line_id="]');
-            if(a){
-              try{ id = new URL(a.getAttribute("href"), location.origin).searchParams.get("line_id"); }catch(_){}
-            }
-          }
-          return id;
-        }
-
-        function textContainer(line){
-          // dónde va el texto descriptivo del producto
-          return q(".o_wsale_cart_description", line)
-              || q(".o_wsale_product_information", line)
-              || q(".media-body", line)
-              || q(".col", line)   // fallback
-              || line;
-        }
-
-        function parseHex(line){
-          try{
-            var txt=(line.textContent||"").replace(/\s+/g," ");
-            var m=txt.match(/Color\s*SVG\s*:\s*#([0-9A-F]{6})/i);
-            return m ? ("#"+m[1].toUpperCase()) : null;
-          }catch(_){ return null; }
-        }
-
-        function mountPreview(line, id, src, hex){
-          var holderId="spw-prev-"+(id||"first");
-          var holder=document.getElementById(holderId);
-          var target=textContainer(line);
-
-          if(!holder){
-            holder=document.createElement("div");
-            holder.id=holderId;
-            holder.className="spw-preview";
-            holder.style.display="flex";
-            holder.style.alignItems="center";
-            holder.style.gap="8px";
-            holder.style.marginTop="6px";
-            target.appendChild(holder);
-          }else if(holder.parentElement!==target){
-            target.appendChild(holder);
-          }
-
-          var img=holder.querySelector("img");
-          if(!img){
-            img=new Image();
-            img.alt="Personalización";
-            img.loading="lazy";
-            img.style.maxWidth="120px";
-            img.style.height="auto";
-            img.style.border="1px solid #e5e7eb";
-            img.style.borderRadius="6px";
-            holder.prepend(img);
-          }
-          if(img.src!==src) img.src=src;
-
-          var sw=holder.querySelector("span.spw-swatch");
-          var useHex = hex || parseHex(line) || (function(){ try{return sessionStorage.getItem('spw_last_color');}catch(_){return null;}})();
-          if(useHex){
-            if(!sw){
-              sw=document.createElement("span");
-              sw.className="spw-swatch";
-              sw.title=useHex;
-              sw.style.display="inline-block";
-              sw.style.width="14px"; sw.style.height="14px";
-              sw.style.borderRadius="999px";
-              sw.style.border="1px solid #e5e7eb";
-              holder.appendChild(sw);
-            }
-            sw.style.background=useHex;
-            sw.title=useHex;
-          }else if(sw){
-            sw.remove();
-          }
-        }
-
-        function inject(){
-          if(!/\/shop\/cart/.test(location.pathname)) return;
-
-          var wanted = urlParam("spw_line_id");
-          var lastId=null,lastPng=null,lastColor=null;
-          try{
-            lastId   = sessionStorage.getItem("spw_last_line_id");
-            lastPng  = sessionStorage.getItem("spw_last_png");
-            lastColor= sessionStorage.getItem("spw_last_color");
-          }catch(_){}
-
-          var lines=findCartLines();
-          if(!lines.length) return;
-
-          // 1) si tenemos spw_line_id y no encontramos id en DOM, usamos la PRIMERA línea como contenedor
-          if(wanted && !lines.some(function(li){ return getLineId(li)===wanted; })){
-            var first=lines[0];
-            var src = lastPng || ("/spw/line_preview/"+encodeURIComponent(wanted)+".png?_="+Date.now());
-            mountPreview(first, wanted, src, lastColor);
-          }
-
-          // 2) normal: por cada línea detectada
-          lines.forEach(function(li){
-            var id=getLineId(li);
-            if(!id) return;
-
-            if(wanted && lastId && wanted===lastId && id===lastId && lastPng){
-              mountPreview(li, id, lastPng, lastColor);
-              return;
-            }
-            var url="/spw/line_preview/"+encodeURIComponent(id)+".png?_="+Date.now();
-            mountPreview(li, id, url, null);
-          });
-
-          // limpiar “últimos” para no contaminar carritos posteriores
-          if(wanted && lastId && wanted===lastId){
-            try{
-              sessionStorage.removeItem("spw_last_line_id");
-              sessionStorage.removeItem("spw_last_png");
-              sessionStorage.removeItem("spw_last_color");
-            }catch(_){}
-          }
-        }
-
-        function boot(){
-          inject();
-          var root = q(".js_cart_lines") || q(".o_wsale_cart") || q("main") || document.body;
-          if(window.MutationObserver && root){
-            var mo=new MutationObserver(function(){ inject(); });
-            mo.observe(root,{childList:true,subtree:true});
-          }
-          setTimeout(inject,400);
-          setTimeout(inject,1200);
-        }
-
-        if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded", boot); } else { boot(); }
-      })();
-      ]]></script>
+          <!-- Píldora de color: usa el campo si existe o el meta json -->
+          <t t-set="hex" t-value="(getattr(line,'spw_svg_color', False) or (getattr(line,'spw_meta_json', False) and line.spw_meta_json.get('svg_color')) or False)"/>
+          <t t-if="hex and isinstance(hex, str) and hex.startswith('#') and len(hex)==7">
+            <span t-att-title="hex"
+                  t-att-style="'display:inline-block;width:14px;height:14px;border-radius:999px;border:1px solid #e5e7eb;background:%s' % hex"/>
+          </t>
+        </div>
+      </t>
     </xpath>
   </template>
 
