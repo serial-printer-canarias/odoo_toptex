@@ -1,21 +1,19 @@
-# __manifest__.py
+# -*- coding: utf-8 -*-
 {
-    "name": "Serial Printer – Web Custom",
-    "version": "18.0.0.0",
-    "summary": "Grid por color/talla en la ficha de producto",
-    "depends": ["website_sale"],
+    "name": "Serial Printer - Web Custom",
+    "version": "18.0.1.0",
+    "category": "Website",
+    "summary": "Grid color x talla en ficha producto (estable, sin duplicados).",
+    "depends": ["website_sale", "web"],
+    "data": [
+        # Por ahora SIN vistas XML para evitar xpaths frágiles
+        # Si más adelante necesitamos ancla server-side, lo añadimos.
+    ],
     "assets": {
         "web.assets_frontend": [
-            # 1) PROBE: comprueba que el bundle se carga
-            "serial_printer_web_custom/static/src/js/sp_probe.js",
-            # 2) Grid real
             "serial_printer_web_custom/static/src/js/product_matrix.js",
             "serial_printer_web_custom/static/src/scss/product_matrix.scss",
         ],
     },
-    # Hook opcional y seguro (no mueve nada, solo pone un data-atributo).
-    "data": [
-        "serial_printer_web_custom/views/product_template.xml",
-    ],
     "license": "LGPL-3",
 }
