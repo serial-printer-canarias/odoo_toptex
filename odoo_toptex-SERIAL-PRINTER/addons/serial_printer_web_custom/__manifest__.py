@@ -1,21 +1,20 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Serial Printer Web Custom",
-    "version": "18.0.1.1.0",  # súbelo para forzar rebuild de assets
-    "category": "Website/Website",
-    "summary": "Matriz de cantidades por color/talla en la ficha de producto",
+    "version": "18.0.0.7",
+    "summary": "Matriz de variantes en la página de producto",
+    "category": "Website",
+    "license": "LGPL-3",
     "depends": ["website_sale"],
     "data": [
         "views/sp_matrix_anchor.xml",
     ],
     "assets": {
         "web.assets_frontend": [
-            # ⚠️ rutas relativas SIN barra inicial y con el nombre del módulo
             "serial_printer_web_custom/static/src/js/product_matrix.js",
             "serial_printer_web_custom/static/src/scss/product_matrix.scss",
         ],
     },
-    "license": "LGPL-3",
     "installable": True,
     "application": False,
 }
