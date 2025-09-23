@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- =========================================================
-       PÁGINA DEL PERSONALIZADOR (SIN CAMBIOS FUNCIONALES)
-       ========================================================= -->
+  <!-- ========= PÁGINA DEL PERSONALIZADOR (NO TOCAR DESCARGA EN MÓVIL) ========= -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
@@ -21,11 +19,9 @@
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
-
               <!-- Imagen visible -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
-
               <!-- Overlay del logo -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
@@ -143,19 +139,17 @@
         </div>
       </div>
 
-      <!-- ====== JS: generación PNG + añadir al carrito (SIN CAMBIOS) ====== -->
+      <!-- ====== JS: descarga iOS/Android y añadir al carrito (INTACTO) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
 
         function $(sel, root){return (root||document).querySelector(sel);}
-        function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
         function $val(id, d){ var el=$("#"+id); return el?el.value:d; }
 
         async function loadImage(src){
           return new Promise(function(resolve, reject){
             var im=new Image();
-            im.crossOrigin = "anonymous";
             im.onload=function(){ resolve(im); };
             im.onerror=function(e){ reject(e); };
             im.src=src;
@@ -170,7 +164,7 @@
           });
         }
 
-        var S={ logoDataURL:"", isSVG:false };
+        var S={};
 
         function applyTransform(){
           var logo = $("#spw_logo_preview"); if(!logo) return;
@@ -264,12 +258,11 @@
         }
 
         async function addToCart(){
-          var variantId=($("#spw_variant_id")||{}).value || "";
-          variantId = (variantId||"").trim();
-          var qty=parseInt($("#spw_qty").value||"1",10)||1;
+          var variantId=($val("spw_variant_id","")||"").trim();
+          var qty=parseInt($val("spw_qty","1"),10)||1;
           var tech=( (document.querySelector("input[name='spw_tech']:checked")||{}).value )||"";
           var svgColor=( (document.querySelector("input[name='spw_svg_color']:checked")||{}).value )||"";
-          var notes=($("#spw_notes")||{}).value || "";
+          var notes=($val("spw_notes","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
           var pngB64="";
@@ -298,7 +291,6 @@
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
           }
 
-          // Redirige con ?spw_line_id=<id> (para nada crítico ya, pero se mantiene)
           var baseUrl = (r1.data && r1.data.cart_url) || "/shop/cart";
           var withParam = (r1.data && r1.data.line_id) ? (baseUrl + (baseUrl.indexOf('?')===-1?'?':'&') + 'spw_line_id=' + encodeURIComponent(r1.data.line_id)) : baseUrl;
           window.location.href = withParam;
@@ -310,7 +302,7 @@
             var a = document.createElement("a");
             a.href = dataUrl; a.download = "personalizacion.png";
             if (typeof a.download === "undefined") {
-              window.location.href = dataUrl;
+              window.location.href = dataUrl; // iOS: abrir y “Guardar imagen”
             } else {
               document.body.appendChild(a); a.click(); a.remove();
             }
@@ -323,10 +315,7 @@
           if(logoInput){
             logoInput.addEventListener("change", async function(ev){
               var f = ev.target.files && ev.target.files[0]; if(!f) return;
-              var name=(f.name||"").toLowerCase();
-              S.isSVG = name.endsWith(".svg");
               var dataURL = await readAsDataURL(f);
-              S.logoDataURL = dataURL;
               logoEl.src = dataURL;
               applyTransform();
             });
@@ -354,57 +343,33 @@
     </t>
   </template>
 
-  <!-- =========================================================
-       DESACTIVAR EL JS ANTIGUO QUE DUPLICABA EN EL CARRITO
-       (mismo xml-id para dejarlo vacío)
-       ========================================================= -->
-  <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview JS (DISABLED)">
-    <xpath expr="//body" position="inside">
-      <t t-if="0"/>
-    </xpath>
-  </template>
+  <!-- ========= CARRITO: PREVIEW ESTABLE EN SERVIDOR (SIN DUPLICADOS) ========= -->
+  <!-- Inserta la miniatura y la píldora de color justo debajo de la descripción de cada línea -->
+  <template id="spw_cart_line_preview" inherit_id="website_sale.cart_line"
+            name="SPW - Cart Preview under description" priority="99">
 
-  <!-- =========================================================
-       PREVIEW + COLOR EN EL CARRITO (UNA SOLA VEZ POR LÍNEA)
-       ========================================================= -->
+    <!-- Dentro del bloque de información del producto -->
+    <xpath expr="//*[contains(concat(' ', normalize-space(@class), ' '), ' o_wsale_product_information ')]"
+           position="inside">
+      <t t-if="line">
+        <!-- Color: primero campo spw_svg_color si existe; si no, buscar en JSON spw_meta_json -->
+        <t t-set="hex"
+           t-value="(getattr(line, 'spw_svg_color', False) or (getattr(line, 'spw_meta_json', False) and (line.spw_meta_json.get('svg_color') or line.spw_meta_json.get('color'))))"/>
 
-  <!-- Bloque reutilizable -->
-  <template id="spw_cart_line_preview_block" name="SPW - Cart Line Preview Block">
-    <!-- hex: toma de campo directo o del meta JSON -->
-    <t t-set="hex"
-       t-value="(getattr(line, 'spw_svg_color', False) or (getattr(line, 'spw_meta_json', False) and line.spw_meta_json.get('svg_color')) or False)"/>
-    <div class="spw-cart-preview mt-1" style="display:flex;align-items:center;gap:8px;">
-      <!-- Imagen servida por el backend; si no existe, se oculta el bloque -->
-      <img t-att-src="'/spw/line_preview/%s.png' % line.id"
-           alt="Personalización"
-           style="max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px"
-           onerror="this.parentNode &amp;&amp; this.parentNode.remove()"/>
+        <div class="spw-preview-server mt-2" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <!-- Miniatura de la personalización, alojada en servidor -->
+          <img t-att-src="'/spw/line_preview/%s.png' % line.id"
+               alt="Personalización" loading="lazy"
+               style="max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px"/>
 
-      <!-- Pastilla de color legible -->
-      <t t-if="hex and hex[:1] == '#' and len(hex) == 7">
-        <span t-att-title="hex"
-              t-att-style="'display:inline-block;width:14px;height:14px;border-radius:999px;border:1px solid #e5e7eb;background:%s' % hex"/>
+          <!-- Píldora de color visual (si hay HEX válido) -->
+          <t t-if="hex and hex[:1]=='#' and len(hex) in (4,7)">
+            <span t-att-title="hex"
+                  style="display:inline-block;width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;"
+                  t-att-style="'background:%s' % hex"/>
+          </t>
+        </div>
       </t>
-    </div>
-  </template>
-
-  <!-- Inserta el bloque justo DESPUÉS de la descripción, si existe -->
-  <template id="spw_cart_line_preview_after_desc"
-            inherit_id="website_sale.cart_line"
-            name="SPW - Cart Preview under description"
-            priority="99">
-    <xpath expr=".//*[contains(@class,'o_wsale_cart_description')]" position="after">
-      <t t-call="serial_printer_custom_wizard.spw_cart_line_preview_block"/>
-    </xpath>
-  </template>
-
-  <!-- Fallback: si el selector anterior no existe en tu tema, lo metemos dentro del bloque de información -->
-  <template id="spw_cart_line_preview_fallback"
-            inherit_id="website_sale.cart_line"
-            name="SPW - Cart Preview fallback"
-            priority="100">
-    <xpath expr=".//*[contains(@class,'o_wsale_product_information') or contains(@class,'o_wsale_product_info') or contains(@class,'media-body')]" position="inside">
-      <t t-call="serial_printer_custom_wizard.spw_cart_line_preview_block"/>
     </xpath>
   </template>
 
