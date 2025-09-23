@@ -9,10 +9,9 @@
     "data": [
         "views/customizer_page.xml",
         "views/product_personalize_button.xml",
-        # ⚠️ Quitamos la inyección JS que causaba duplicados y errores:
-        # "views/spw_cart_preview_inject.xml",
-        # Deja UNA sola variante del QWeb, A o B:
-        "views/spw_cart_preview_qweb.xml",
+        # ⚠️ QUITA el XML que daba error de XPath:
+        # "views/spw_cart_preview_qweb.xml",
+        # ⚠️ Y no cargues ya ningún “*_inject.xml”
     ],
     "assets": {
         "web.assets_frontend": [
@@ -23,6 +22,7 @@
             "serial_printer_custom_wizard/static/src/js/spw_options.js",
             "serial_printer_custom_wizard/static/src/js/spw_cart.js",
             "serial_printer_custom_wizard/static/src/js/spw.js",
+            "serial_printer_custom_wizard/static/src/js/spw_cart_preview.inject.js",  # ⬅️ NUEVO
             "serial_printer_custom_wizard/static/src/css/spw.css",
         ],
     },
