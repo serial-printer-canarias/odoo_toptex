@@ -34,3 +34,5 @@ header.o_header_standard,
   position: relative;
   z-index: 1;
 }
+/* Poner la preview en su propia línea dentro del item del carrito */
+.o_wsale_cart_item .spw-cart-preview { order: 10; width: 100%; }
