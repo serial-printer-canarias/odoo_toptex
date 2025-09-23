@@ -1,15 +1,7 @@
-.sp-matrix__table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: .5rem;
-  table-layout: fixed;
+.sp-matrix-anchor { margin-top: 1rem; }
+.sp-matrix__placeholder {
+  border: 1px dashed rgba(0,0,0,.25);
+  padding: .75rem 1rem;
+  border-radius: .5rem;
+  font-size: .95rem;
 }
-.sp-matrix__table th,
-.sp-matrix__table td { vertical-align: middle; }
-.sp-sticky-left { position: sticky; left: 0; background: var(--o-bg-color, #fff); z-index: 1; }
-.sp-color { display:flex; align-items:center; gap:.5rem; }
-.sp-color__img { width:42px; height:42px; object-fit:cover; border-radius:.5rem; background:#f1f1f1; }
-.sp-cell { display:flex; flex-direction:column; gap:.25rem; }
-.sp-qty { width:100%; text-align:center; border-radius:.5rem; }
-.sp-meta { display:flex; justify-content:space-between; font-size:.85rem; color:#666; }
-.sp-unavailable { opacity:.4; }
