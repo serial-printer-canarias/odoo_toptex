@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- ========= PÁGINA DEL PERSONALIZADOR (NO TOCAR DESCARGA EN MÓVIL) ========= -->
+  <!-- ============ PÁGINA DEL PERSONALIZADOR (SIN CAMBIOS) ============ -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
@@ -19,9 +19,11 @@
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
+
               <!-- Imagen visible -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
+
               <!-- Overlay del logo -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
@@ -139,12 +141,13 @@
         </div>
       </div>
 
-      <!-- ====== JS: descarga iOS/Android y añadir al carrito (INTACTO) ====== -->
+      <!-- ====== JS INLINE (descarga iOS + añadir al carrito) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
 
         function $(sel, root){return (root||document).querySelector(sel);}
+        function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
         function $val(id, d){ var el=$("#"+id); return el?el.value:d; }
 
         async function loadImage(src){
@@ -163,8 +166,9 @@
             r.readAsDataURL(file);
           });
         }
+        function dataURLtoBase64(u){ var i=u.indexOf(','); return i!==-1?u.slice(i+1):u; }
 
-        var S={};
+        var S={ logoDataURL:"", isSVG:false };
 
         function applyTransform(){
           var logo = $("#spw_logo_preview"); if(!logo) return;
@@ -296,13 +300,14 @@
           window.location.href = withParam;
         }
 
+        // Descarga PNG segura en iOS/Android/escritorio
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
             var a = document.createElement("a");
             a.href = dataUrl; a.download = "personalizacion.png";
             if (typeof a.download === "undefined") {
-              window.location.href = dataUrl; // iOS: abrir y “Guardar imagen”
+              window.location.href = dataUrl;
             } else {
               document.body.appendChild(a); a.click(); a.remove();
             }
@@ -315,7 +320,10 @@
           if(logoInput){
             logoInput.addEventListener("change", async function(ev){
               var f = ev.target.files && ev.target.files[0]; if(!f) return;
+              var name=(f.name||"").toLowerCase();
+              S.isSVG = name.endsWith(".svg");
               var dataURL = await readAsDataURL(f);
+              S.logoDataURL = dataURL;
               logoEl.src = dataURL;
               applyTransform();
             });
@@ -343,33 +351,149 @@
     </t>
   </template>
 
-  <!-- ========= CARRITO: PREVIEW ESTABLE EN SERVIDOR (SIN DUPLICADOS) ========= -->
-  <!-- Inserta la miniatura y la píldora de color justo debajo de la descripción de cada línea -->
-  <template id="spw_cart_line_preview" inherit_id="website_sale.cart_line"
-            name="SPW - Cart Preview under description" priority="99">
+  <!-- ============ INYECCIÓN EN website.layout: preview por línea (MEJORADA) ============ -->
+  <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
+    <xpath expr="//body" position="inside">
+      <!-- Estilos del bloque del carrito -->
+      <style id="spw-cart-style">
+        .spw-cart-block{margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+        .spw-cart-block img{max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px}
+        .spw-swatch{width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;display:inline-block}
+      </style>
 
-    <!-- Dentro del bloque de información del producto -->
-    <xpath expr="//*[contains(concat(' ', normalize-space(@class), ' '), ' o_wsale_product_information ')]"
-           position="inside">
-      <t t-if="line">
-        <!-- Color: primero campo spw_svg_color si existe; si no, buscar en JSON spw_meta_json -->
-        <t t-set="hex"
-           t-value="(getattr(line, 'spw_svg_color', False) or (getattr(line, 'spw_meta_json', False) and (line.spw_meta_json.get('svg_color') or line.spw_meta_json.get('color'))))"/>
+      <script type="text/javascript"><![CDATA[
+      (function(){
+        "use strict";
+        if (!/\/shop\/cart/.test(location.pathname)) return;
 
-        <div class="spw-preview-server mt-2" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <!-- Miniatura de la personalización, alojada en servidor -->
-          <img t-att-src="'/spw/line_preview/%s.png' % line.id"
-               alt="Personalización" loading="lazy"
-               style="max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px"/>
+        function q(s,r){return (r||document).querySelector(s);}
+        function qa(s,r){return Array.from((r||document).querySelectorAll(s));}
 
-          <!-- Píldora de color visual (si hay HEX válido) -->
-          <t t-if="hex and hex[:1]=='#' and len(hex) in (4,7)">
-            <span t-att-title="hex"
-                  style="display:inline-block;width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;"
-                  t-att-style="'background:%s' % hex"/>
-          </t>
-        </div>
-      </t>
+        function urlParam(name){
+          try{ return new URL(location.href).searchParams.get(name); }catch(_){ return null; }
+        }
+        function parseLineIdFromHref(node){
+          try{
+            var a = node.closest('a[href*="line_id="]') || node.querySelector('a[href*="line_id="]');
+            if(!a) return null;
+            var u = new URL(a.getAttribute('href'), location.origin);
+            return u.searchParams.get('line_id');
+          }catch(_){ return null; }
+        }
+        function getLineId(line){
+          if(!line) return null;
+          return line.getAttribute('data-line-id')
+            || ((q('input[name="line_id"]', line)||{}).value)
+            || parseLineIdFromHref(line)
+            || null;
+        }
+        function findLines(){
+          var sel = 'tr.js_cart_line, .o_wsale_cart_item, .card.js_cart_item, .o_cart_line';
+          return qa(sel).filter(function(n){ return !!getLineId(n); });
+        }
+        // contenedor "descripción" donde queremos inyectar
+        function infoContainer(line){
+          return q('.o_wsale_product_information', line)
+              || q('.o_cart_product_info', line)
+              || q('td.o_wsale_cart_description', line)
+              || q('.media-body', line)
+              || line;
+        }
+        // lee #RRGGBB del texto visible de la línea
+        function detectHex(line){
+          try{
+            var cont = infoContainer(line);
+            if(!cont) return null;
+            var m = (cont.textContent||'').match(/#([0-9a-fA-F]{6})\b/);
+            return m ? ('#'+m[1].toUpperCase()) : null;
+          }catch(_){ return null; }
+        }
+
+        function insertPreview(line, pngSrc, hex){
+          var id = getLineId(line); if(!id) return;
+          // eliminar duplicados en esa línea
+          qa('.spw-cart-block[data-line="'+id+'"]', line).forEach(function(n){ n.remove(); });
+
+          var wrap = document.createElement('div');
+          wrap.className = 'spw-cart-block';
+          wrap.setAttribute('data-line', id);
+
+          var img = new Image();
+          img.alt = 'Personalización';
+          img.loading = 'lazy';
+          img.src = pngSrc;
+          wrap.appendChild(img);
+
+          if (hex && /^#[0-9A-F]{6}$/.test(hex)) {
+            var sw = document.createElement('span');
+            sw.className = 'spw-swatch';
+            sw.title = hex;
+            sw.style.background = hex;
+            wrap.appendChild(sw);
+          }
+
+          var container = infoContainer(line) || line;
+          container.appendChild(wrap);
+        }
+
+        function inject(){
+          var lines = findLines();
+          // Limpieza global de bloques huérfanos
+          qa('.spw-cart-block').forEach(function(n){
+            var lid = n.getAttribute('data-line');
+            var alive = lines.some(function(l){ return getLineId(l) === lid; });
+            if(!alive) n.remove();
+          });
+
+          lines.forEach(function(line){
+            var id = getLineId(line);
+            if(!id) return;
+            // servidor (estable)
+            var src = '/spw/line_preview/' + encodeURIComponent(id) + '.png?_=' + Date.now();
+            var hex = detectHex(line);
+            insertPreview(line, src, hex);
+          });
+
+          // Si venimos del customizador con ?spw_line_id, sustituimos por la dataURL inmediata
+          var wanted = urlParam('spw_line_id');
+          if (wanted) {
+            try{
+              var lastId = sessionStorage.getItem('spw_last_line_id');
+              var lastPng = sessionStorage.getItem('spw_last_png');
+              var lastColor = sessionStorage.getItem('spw_last_color');
+              if (lastId && lastPng && lastId === wanted) {
+                var line = lines.find(function(l){ return getLineId(l) === wanted; });
+                if (line) {
+                  insertPreview(line, lastPng, lastColor || detectHex(line));
+                }
+              }
+            }catch(_){}
+            try{
+              sessionStorage.removeItem('spw_last_line_id');
+              sessionStorage.removeItem('spw_last_png');
+              sessionStorage.removeItem('spw_last_color');
+            }catch(_){}
+          }
+        }
+
+        function boot(){
+          inject();
+          var root = q('.js_cart_lines') || q('.o_wsale_cart') || q('main') || document.body;
+          if (window.MutationObserver && root){
+            var mo = new MutationObserver(function(){ requestAnimationFrame(inject); });
+            mo.observe(root, {childList:true, subtree:true});
+          }
+          setTimeout(inject, 400);
+          setTimeout(inject, 1200);
+        }
+
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', boot);
+        } else {
+          boot();
+        }
+      })();
+      ]]></script>
     </xpath>
   </template>
 
