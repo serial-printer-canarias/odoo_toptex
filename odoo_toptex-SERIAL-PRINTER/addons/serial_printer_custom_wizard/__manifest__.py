@@ -9,7 +9,6 @@
     "data": [
         "views/customizer_page.xml",           # <-- aquí está la página del configurador
         "views/product_personalize_button.xml",
-        "views/spw_cart_preview_inject.xml",
         "views/spw_cart_preview_qweb.xml",
     ],
     "assets": {
