@@ -1,25 +1,42 @@
-/**  Serial Printer – Product Matrix (Odoo 18, ES modules)
- *   Inserta una matriz de cantidades por Color × Talla en la ficha de producto.
- *   - Foto por color (imagen de la variante)
- *   - Precio por combinación (si lo devuelve Odoo)
- *   - Stock: usa stock_quantity de combination_info; si no, intenta read(qty_available)
- *   - Botón “Añadir selección” agrega todas las celdas >0 al carrito
+/**  Serial Printer – Product Matrix (Odoo 18, ES modules sin rpc_service)
+ *   Grid Color × Talla con foto, precio y stock + botón "Añadir selección".
  */
 
 import publicWidget from "@web/legacy/js/public/public_widget";
-import { jsonrpc } from "@web/core/network/rpc_service";
 
-const Q = (root, sel) => root.querySelector(sel);
+const Q  = (root, sel) => root.querySelector(sel);
 const QA = (root, sel) => Array.from(root.querySelectorAll(sel));
 
-/** Helpers --------------------------------------------------------------- */
+/* ---------------- JSON-RPC sin dependencias ---------------- */
+async function rpc(route, params) {
+    const payload = { jsonrpc: "2.0", method: "call", params };
+    const headers = {
+        "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+    };
+    // CSRF si está disponible (website suele tenerlo)
+    if (window.odoo?.csrf_token) headers["X-CSRFToken"] = window.odoo.csrf_token;
+
+    const res = await fetch(route, {
+        method: "POST",
+        credentials: "same-origin",
+        headers,
+        body: JSON.stringify(payload),
+    });
+
+    let data = null;
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok || !data) throw new Error(`RPC ${route} failed`);
+    if (data.error) throw new Error(data.error.message || `RPC ${route} error`);
+    return data.result;
+}
+
 async function getCombinationInfo(args) {
-    // Primero la ruta de website_sale; si falla, intenta la de sale
     try {
-        return await jsonrpc("/shop/get_combination_info", args);
+        return await rpc("/shop/get_combination_info", args);
     } catch (_) {
         try {
-            return await jsonrpc("/sale/get_combination_info", args);
+            return await rpc("/sale/get_combination_info", args);
         } catch (__) {
             return null;
         }
@@ -28,15 +45,13 @@ async function getCombinationInfo(args) {
 
 async function readStock(variantId) {
     try {
-        const res = await jsonrpc("/web/dataset/call_kw", {
+        const r = await rpc("/web/dataset/call_kw", {
             model: "product.product",
             method: "read",
             args: [[variantId], ["qty_available"]],
             kwargs: {},
         });
-        return (res && res[0] && typeof res[0].qty_available === "number")
-            ? res[0].qty_available
-            : null;
+        return (r && r[0] && typeof r[0].qty_available === "number") ? r[0].qty_available : null;
     } catch {
         return null;
     }
@@ -53,14 +68,14 @@ function fmtPrice(v) {
 }
 
 function detectBlocks($page) {
-    // Bloques estándar website_sale
     const blocks = [];
     QA($page, ".js_product .js_attributes [data-attribute_name]").forEach((el) => {
         const name = (el.getAttribute("data-attribute_name") || "").trim();
         const options = [];
         QA(el, "input[type='radio']").forEach((inp) => {
-            const id =
-                parseInt(inp.dataset.valueId || inp.dataset.attributeValueId || inp.value || "0", 10) || 0;
+            const id = parseInt(
+                inp.dataset.valueId || inp.dataset.attributeValueId || inp.value || "0", 10
+            ) || 0;
             const label = (inp.closest("label")?.textContent || inp.title || "").trim();
             if (id) options.push({ id, name: label });
         });
@@ -79,19 +94,16 @@ function pickColorSize(blocks) {
     return { color, size };
 }
 
-/** Widget ---------------------------------------------------------------- */
 publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
     selector: ".o_wsale_product_page",
     disabledInEditableMode: false,
 
     start() {
-        // Evitar duplicados
-        if (Q(this.el, "#sp-matrix")) return this._super(...arguments);
+        if (Q(this.el, "#sp-matrix")) return this._super(...arguments); // evitar duplicados
         this._buildIfPossible();
         return this._super(...arguments);
     },
 
-    /** Construir matriz si hay al menos 1D (color) y opcionalmente talla. */
     async _buildIfPossible() {
         const page = this.el;
         const blocks = detectBlocks(page);
@@ -100,7 +112,7 @@ publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
         const { color, size } = pickColorSize(blocks);
         if (!color) return;
 
-        // Anchor robusto: debajo del bloque de precio o, si no existe, al final
+        // Anchor: debajo del precio; si no existe, debajo de la info del producto o al final
         const anchor =
             Q(page, ".product_price") ||
             Q(page, ".o_wsale_product_information") ||
@@ -112,7 +124,6 @@ publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
         matrix.className = "sp-matrix o-pt-3 o-mt-2";
         anchor.parentNode.insertBefore(matrix, anchor.nextSibling);
 
-        // Tabla
         const table = document.createElement("table");
         table.className = "sp-matrix__table";
         const thead = document.createElement("thead");
@@ -160,7 +171,6 @@ publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
                       <span class="sp-stock"></span>
                     </div>
                   </div>`;
-                tbody.appendChild(tr);
                 tr.appendChild(td);
             }
             tbody.appendChild(tr);
@@ -176,19 +186,32 @@ publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
         btn.addEventListener("click", (ev) => this._onAddAllToCart(ev));
         matrix.appendChild(btn);
 
-        // Hidratar con info (precio/stock/variant_id + foto color)
         await this._hydrateCells(matrix);
     },
 
-    /** Args para combination_info */
     _comboArgs(avIds) {
-        const tmplId =
-            parseInt(Q(this.el, "[data-product-template-id]")?.dataset.productTemplateId || "0", 10) ||
-            parseInt(Q(this.el, "input[name='product_id']")?.value || "0", 10) ||
-            0;
+        // Varias formas de encontrar el template id según tema
+        const candidates = [
+            "[data-product-template-id]",
+            ".js_product[data-product-template-id]",
+            "input[name='product_template_id']",
+        ];
+        let tmplId = 0;
+        for (const sel of candidates) {
+            const el = Q(this.el, sel);
+            if (el) {
+                const v = el.dataset?.productTemplateId || el.value;
+                tmplId = parseInt(v || "0", 10) || 0;
+                if (tmplId) break;
+            }
+        }
+        // Último recurso: el hidden product_id (no ideal, pero ayuda)
+        if (!tmplId) {
+            const pid = parseInt(Q(this.el, "input[name='product_id']")?.value || "0", 10) || 0;
+            if (pid) return { product_id: pid, combination: avIds, add_qty: 1, parent_combination: [] };
+        }
 
-        const pricelistId =
-            parseInt(Q(this.el, "[data-pricelist-id]")?.dataset.pricelistId || "0", 10) || 0;
+        const pricelistId = parseInt(Q(this.el, "[data-pricelist-id]")?.dataset.pricelistId || "0", 10) || 0;
 
         return {
             product_template_id: tmplId || undefined,
@@ -202,34 +225,29 @@ publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
 
     async _hydrateCells(root) {
         const cells = QA(root, "td");
-        const page = this;
-
         const queue = cells.slice();
-        const workers = new Array(6).fill(0).map(async function worker() {
+        const self = this;
+
+        const workers = new Array(6).fill(0).map(async function run() {
             while (queue.length) {
                 const td = queue.shift();
                 const colorId = parseInt(td.dataset.colorId || td.closest("tr")?.dataset.colorId || "0", 10);
                 const sizeId  = parseInt(td.dataset.sizeId || "0", 10);
-
                 const avIds = sizeId ? [colorId, sizeId] : [colorId];
-                const info = await getCombinationInfo(page._comboArgs(avIds));
 
+                const info = await getCombinationInfo(self._comboArgs(avIds));
                 if (info && info.product_id) {
-                    // Guardar variant id en el input
                     const input = Q(td, ".sp-qty");
                     input.dataset.variantId = String(info.product_id);
 
-                    // Precio
                     if (typeof info.price === "number") {
                         Q(td, ".sp-price").textContent = fmtPrice(info.price);
                     }
 
-                    // Stock
                     let stock = (info.stock_quantity !== undefined) ? info.stock_quantity : null;
                     if (stock === null) stock = await readStock(info.product_id);
                     if (stock !== null) Q(td, ".sp-stock").textContent = `Stock: ${stock}`;
 
-                    // Foto del color (una vez por fila)
                     const row = td.closest("tr");
                     const img = Q(row, ".sp-color__img");
                     if (!img.getAttribute("src")) {
@@ -248,19 +266,17 @@ publicWidget.registry.SerialPrinterMatrix = publicWidget.Widget.extend({
         ev.preventDefault();
         const inputs = QA(this.el, "#sp-matrix .sp-qty");
         const calls = [];
-
         inputs.forEach((inp) => {
             const qty = parseFloat(inp.value || "0");
             const product_id = parseInt(inp.dataset.variantId || "0", 10);
             if (qty > 0 && product_id) {
-                calls.push(jsonrpc("/shop/cart/update_json", {
+                calls.push(rpc("/shop/cart/update_json", {
                     product_id,
                     add_qty: qty,
                     display: false,
                 }));
             }
         });
-
         if (!calls.length) return;
         Promise.all(calls).then(() => window.location.reload());
     },
