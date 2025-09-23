@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- ===================== PÁGINA DEL PERSONALIZADOR ===================== -->
+  <!-- =========================================================
+       PÁGINA DEL PERSONALIZADOR (SIN CAMBIOS FUNCIONALES)
+       ========================================================= -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
@@ -13,7 +15,6 @@
         <input type="hidden" id="spw_img_src" t-att-value="img_src"/>
 
         <div class="row g-4">
-          <!-- Lienzo -->
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
               <!-- Base same-origin para evitar CORS al exportar -->
@@ -30,7 +31,6 @@
             </div>
           </div>
 
-          <!-- Panel derecho -->
           <div class="col-12 col-lg-5">
             <div class="card h-100">
               <div class="card-body">
@@ -66,21 +66,26 @@
                 <!-- Color SVG -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
-                  <div class="d-flex align-items-center flex-wrap gap-2">
-                    <label title="#000000" style="width:22px;height:22px;border-radius:999px;border:1px solid #e5e7eb;background:#000000;cursor:pointer;">
-                      <input type="radio" name="spw_svg_color" value="#000000" checked="checked" style="display:none;"/>
+                  <div class="spw-color-row">
+                    <label class="spw-color-swatch is-black">
+                      <input type="radio" name="spw_svg_color" value="#000000" checked="checked"/>
+                      <span class="spw-color-ring"></span>
                     </label>
-                    <label title="#FFFFFF" style="width:22px;height:22px;border-radius:999px;border:1px solid #e5e7eb;background:#FFFFFF;cursor:pointer;">
-                      <input type="radio" name="spw_svg_color" value="#FFFFFF" style="display:none;"/>
+                    <label class="spw-color-swatch is-white">
+                      <input type="radio" name="spw_svg_color" value="#FFFFFF"/>
+                      <span class="spw-color-ring"></span>
                     </label>
-                    <label title="#D62828" style="width:22px;height:22px;border-radius:999px;border:1px solid #e5e7eb;background:#D62828;cursor:pointer;">
-                      <input type="radio" name="spw_svg_color" value="#D62828" style="display:none;"/>
+                    <label class="spw-color-swatch is-red">
+                      <input type="radio" name="spw_svg_color" value="#D62828"/>
+                      <span class="spw-color-ring"></span>
                     </label>
-                    <label title="#2060FF" style="width:22px;height:22px;border-radius:999px;border:1px solid #e5e7eb;background:#2060FF;cursor:pointer;">
-                      <input type="radio" name="spw_svg_color" value="#2060FF" style="display:none;"/>
+                    <label class="spw-color-swatch is-blue">
+                      <input type="radio" name="spw_svg_color" value="#2060FF"/>
+                      <span class="spw-color-ring"></span>
                     </label>
-                    <label title="#2A9D8F" style="width:22px;height:22px;border-radius:999px;border:1px solid #e5e7eb;background:#2A9D8F;cursor:pointer;">
-                      <input type="radio" name="spw_svg_color" value="#2A9D8F" style="display:none;"/>
+                    <label class="spw-color-swatch is-green">
+                      <input type="radio" name="spw_svg_color" value="#2A9D8F"/>
+                      <span class="spw-color-ring"></span>
                     </label>
                   </div>
                   <div class="spw-help mt-1">Se aplica solo a logos SVG.</div>
@@ -111,7 +116,8 @@
                 </div>
                 <div class="mb-3">
                   <label for="spw_notes" class="form-label">Observaciones</label>
-                  <textarea id="spw_notes" class="form-control" rows="3" placeholder="Indica instrucciones para el taller..."></textarea>
+                  <textarea id="spw_notes" class="form-control" rows="3"
+                            placeholder="Indica instrucciones para el taller..."></textarea>
                 </div>
 
                 <!-- Acciones -->
@@ -137,7 +143,7 @@
         </div>
       </div>
 
-      <!-- ===================== JS de la página (PNG iOS + add-to-cart + estado) ===================== -->
+      <!-- ====== JS: generación PNG + añadir al carrito (SIN CAMBIOS) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -149,6 +155,7 @@
         async function loadImage(src){
           return new Promise(function(resolve, reject){
             var im=new Image();
+            im.crossOrigin = "anonymous";
             im.onload=function(){ resolve(im); };
             im.onerror=function(e){ reject(e); };
             im.src=src;
@@ -162,6 +169,8 @@
             r.readAsDataURL(file);
           });
         }
+
+        var S={ logoDataURL:"", isSVG:false };
 
         function applyTransform(){
           var logo = $("#spw_logo_preview"); if(!logo) return;
@@ -191,12 +200,14 @@
                         $val("spw_img_src","") ||
                         ($("#spw_product_img")||{}).getAttribute("src");
           if(!baseSrc) throw new Error("Sin imagen base.");
+
           var baseIm = await loadImage(baseSrc);
 
           var canvas = document.createElement("canvas");
           var ctx = canvas.getContext("2d");
           canvas.width  = baseIm.naturalWidth  || baseIm.width;
           canvas.height = baseIm.naturalHeight || baseIm.height;
+
           ctx.drawImage(baseIm, 0, 0, canvas.width, canvas.height);
 
           var logoEl = $("#spw_logo_preview");
@@ -219,10 +230,12 @@
             var drawH = drawW * ratio;
 
             var rot = (parseInt($val("spw_rotation","0"),10) * Math.PI)/180;
+
             ctx.save(); ctx.translate(cx, cy); ctx.rotate(rot);
             ctx.drawImage(logoIm, -drawW/2, -drawH/2, drawW, drawH);
             ctx.restore();
           }
+
           return canvas.toDataURL("image/png");
         }
 
@@ -251,11 +264,12 @@
         }
 
         async function addToCart(){
-          var variantId=(document.getElementById("spw_variant_id")||{}).value || "";
-          var qty=parseInt((document.getElementById("spw_qty")||{}).value||"1",10)||1;
+          var variantId=($("#spw_variant_id")||{}).value || "";
+          variantId = (variantId||"").trim();
+          var qty=parseInt($("#spw_qty").value||"1",10)||1;
           var tech=( (document.querySelector("input[name='spw_tech']:checked")||{}).value )||"";
           var svgColor=( (document.querySelector("input[name='spw_svg_color']:checked")||{}).value )||"";
-          var notes=(document.getElementById("spw_notes")||{}).value || "";
+          var notes=($("#spw_notes")||{}).value || "";
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
           var pngB64="";
@@ -267,7 +281,7 @@
             pngB64 = du ? du.split('base64,')[1] : "";
           }catch(_){}
 
-          // 1) Meta JSON -> fallback HTTP
+          // 1) meta JSON -> fallback HTTP
           var r1 = await postJSON("/spw/add_to_cart_meta", {
             variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
           });
@@ -278,25 +292,25 @@
 
           try { if (r1.data && r1.data.line_id) sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id)); } catch(_){}
 
-          // 2) PNG JSON -> fallback HTTP (no bloquea la redirección)
+          // 2) PNG JSON -> fallback HTTP (no bloquea redirección)
           if(pngB64){
             var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
           }
 
+          // Redirige con ?spw_line_id=<id> (para nada crítico ya, pero se mantiene)
           var baseUrl = (r1.data && r1.data.cart_url) || "/shop/cart";
           var withParam = (r1.data && r1.data.line_id) ? (baseUrl + (baseUrl.indexOf('?')===-1?'?':'&') + 'spw_line_id=' + encodeURIComponent(r1.data.line_id)) : baseUrl;
           window.location.href = withParam;
         }
 
-        // Descarga PNG segura para iOS/Android/escritorio
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
             var a = document.createElement("a");
             a.href = dataUrl; a.download = "personalizacion.png";
             if (typeof a.download === "undefined") {
-              window.location.href = dataUrl; // iOS Safari
+              window.location.href = dataUrl;
             } else {
               document.body.appendChild(a); a.click(); a.remove();
             }
@@ -309,9 +323,12 @@
           if(logoInput){
             logoInput.addEventListener("change", async function(ev){
               var f = ev.target.files && ev.target.files[0]; if(!f) return;
-              var r=new FileReader();
-              r.onload=function(){ logoEl.src=r.result; applyTransform(); };
-              r.readAsDataURL(f);
+              var name=(f.name||"").toLowerCase();
+              S.isSVG = name.endsWith(".svg");
+              var dataURL = await readAsDataURL(f);
+              S.logoDataURL = dataURL;
+              logoEl.src = dataURL;
+              applyTransform();
             });
           }
           ["spw_size","spw_pos_x","spw_pos_y","spw_rotation"].forEach(function(id){
@@ -337,162 +354,57 @@
     </t>
   </template>
 
-  <!-- ===================== INYECCIÓN GLOBAL EN CARRITO ===================== -->
-  <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
+  <!-- =========================================================
+       DESACTIVAR EL JS ANTIGUO QUE DUPLICABA EN EL CARRITO
+       (mismo xml-id para dejarlo vacío)
+       ========================================================= -->
+  <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview JS (DISABLED)">
     <xpath expr="//body" position="inside">
-      <style>
-        .spw-cart-preview{display:flex;align-items:center;gap:8px;margin-top:6px;}
-        .spw-cart-preview img{max-width:110px;height:auto;border:1px solid #e5e7eb;border-radius:6px;display:block;}
-        .spw-color-dot{display:inline-block;width:14px;height:14px;border-radius:999px;border:1px solid #e5e7eb;}
-      </style>
-      <script type="text/javascript"><![CDATA[
-        (function(){
-          "use strict";
+      <t t-if="0"/>
+    </xpath>
+  </template>
 
-          function q(sel, root){return (root||document).querySelector(sel);}
-          function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
-          function urlParam(name){ try{ return new URL(location.href).searchParams.get(name); }catch(_){ return null; } }
+  <!-- =========================================================
+       PREVIEW + COLOR EN EL CARRITO (UNA SOLA VEZ POR LÍNEA)
+       ========================================================= -->
 
-          function parseLineIdFromHref(node){
-            try{
-              var a = node.closest('a[href*="line_id="]') || node.querySelector('a[href*="line_id="]');
-              if(!a) return null;
-              var u = new URL(a.getAttribute('href'), location.origin);
-              return u.searchParams.get('line_id');
-            }catch(_){ return null; }
-          }
+  <!-- Bloque reutilizable -->
+  <template id="spw_cart_line_preview_block" name="SPW - Cart Line Preview Block">
+    <!-- hex: toma de campo directo o del meta JSON -->
+    <t t-set="hex"
+       t-value="(getattr(line, 'spw_svg_color', False) or (getattr(line, 'spw_meta_json', False) and line.spw_meta_json.get('svg_color')) or False)"/>
+    <div class="spw-cart-preview mt-1" style="display:flex;align-items:center;gap:8px;">
+      <!-- Imagen servida por el backend; si no existe, se oculta el bloque -->
+      <img t-att-src="'/spw/line_preview/%s.png' % line.id"
+           alt="Personalización"
+           style="max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px"
+           onerror="this.parentNode &amp;&amp; this.parentNode.remove()"/>
 
-          function getLineId(line){
-            if(!line) return null;
-            return line.getAttribute('data-line-id')
-                || ((q('input[name="line_id"]', line)||{}).value)
-                || parseLineIdFromHref(line)
-                || null;
-          }
+      <!-- Pastilla de color legible -->
+      <t t-if="hex and hex[:1] == '#' and len(hex) == 7">
+        <span t-att-title="hex"
+              t-att-style="'display:inline-block;width:14px;height:14px;border-radius:999px;border:1px solid #e5e7eb;background:%s' % hex"/>
+      </t>
+    </div>
+  </template>
 
-          function findLines(){
-            var root = q(".js_cart_lines") || q(".o_wsale_cart") || document;
-            var candidates = qa(".o_wsale_cart_item, tr.js_cart_line, .js_cart_lines .row, .card.js_cart_item, [data-line-id]", root);
-            var uniq = []; var seen = new Set();
-            candidates.forEach(function(n){
-              var id = getLineId(n);
-              if(id && !seen.has(id)){ seen.add(id); uniq.push(n); }
-            });
-            return uniq;
-          }
+  <!-- Inserta el bloque justo DESPUÉS de la descripción, si existe -->
+  <template id="spw_cart_line_preview_after_desc"
+            inherit_id="website_sale.cart_line"
+            name="SPW - Cart Preview under description"
+            priority="99">
+    <xpath expr=".//*[contains(@class,'o_wsale_cart_description')]" position="after">
+      <t t-call="serial_printer_custom_wizard.spw_cart_line_preview_block"/>
+    </xpath>
+  </template>
 
-          function findDescriptionNode(line){
-            return q(".o_wsale_cart_description", line)
-                || q(".o_wsale_product_information", line)
-                || q(".media-body", line)
-                || line;
-          }
-
-          function insertPreview(line, src, lineId, hex){
-            // *** ANTI-DUPLICADOS GLOBAL ***
-            qa('.spw-cart-preview[data-line="'+lineId+'"]').forEach(function(x){ x.remove(); });
-
-            // Evitar doble inserción si en esta línea ya lo acabamos de pintar
-            if (q('.spw-cart-preview[data-line="'+lineId+'"]', line)) return;
-
-            var wrap = document.createElement("div");
-            wrap.className = "spw-cart-preview";
-            wrap.setAttribute("data-line", lineId);
-
-            var img = new Image();
-            img.alt = "Personalización"; img.loading = "lazy";
-            var setSrc = function(){ if(!img.src) img.src = src; };
-            if("IntersectionObserver" in window){
-              var io = new IntersectionObserver(function(ents){
-                ents.forEach(function(e){ if(e.isIntersecting){ setSrc(); io.disconnect(); } });
-              });
-              io.observe(img);
-            } else { setSrc(); }
-            img.onerror = function(){ wrap.remove(); };
-            wrap.appendChild(img);
-
-            if (hex && /^#[0-9A-F]{6}$/i.test(hex)) {
-              var dot = document.createElement("span");
-              dot.className = "spw-color-dot";
-              dot.title = hex;
-              dot.style.background = hex;
-              wrap.appendChild(dot);
-            }
-
-            var desc = findDescriptionNode(line);
-            if (desc && desc.parentElement) {
-              desc.insertAdjacentElement('afterend', wrap);
-            } else {
-              line.appendChild(wrap);
-            }
-          }
-
-          function inject(){
-            if (!/\/shop\/cart/.test(location.pathname)) return;
-
-            var wanted = urlParam('spw_line_id');
-            var lastId=null,lastPng=null,lastColor=null;
-            try{
-              lastId = sessionStorage.getItem('spw_last_line_id');
-              lastPng = sessionStorage.getItem('spw_last_png');
-              lastColor = sessionStorage.getItem('spw_last_color');
-            }catch(_){}
-
-            var lines = findLines();
-
-            // Limpieza de huérfanos por si el DOM cambió
-            qa(".spw-cart-preview").forEach(function(node){
-              var lid = node.getAttribute("data-line");
-              var keep = lines.some(function(l){ return getLineId(l) === lid; });
-              if(!keep) node.remove();
-            });
-
-            lines.forEach(function(line){
-              var id = getLineId(line);
-              if(!id) return;
-
-              // Pintado instantáneo tras añadir
-              if (wanted && lastId && wanted === lastId && id === lastId && lastPng) {
-                insertPreview(line, lastPng, id, lastColor);
-                return;
-              }
-
-              // Fallback servidor
-              var url = "/spw/line_preview/" + encodeURIComponent(id) + ".png?_=" + Date.now();
-              var text = (q(".o_wsale_cart_description, .o_wsale_product_information, .media-body", line)||line).innerText || "";
-              var m = text.match(/#([0-9A-Fa-f]{6})\b/);
-              var hex = m ? ("#"+m[1].toUpperCase()) : (lastColor || null);
-              insertPreview(line, url, id, hex);
-            });
-
-            if (wanted && lastId && wanted === lastId) {
-              try{
-                sessionStorage.removeItem('spw_last_line_id');
-                sessionStorage.removeItem('spw_last_png');
-                sessionStorage.removeItem('spw_last_color');
-              }catch(_){}
-            }
-          }
-
-          function boot(){
-            inject();
-            var root = q(".js_cart_lines") || q(".o_wsale_cart") || q("main") || document.body;
-            if (window.MutationObserver && root){
-              var mo = new MutationObserver(function(){ requestAnimationFrame(inject); });
-              mo.observe(root, {childList:true, subtree:true});
-            }
-            setTimeout(inject, 400);
-            setTimeout(inject, 1200);
-            window.addEventListener('pageshow', inject);
-          }
-
-          if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', boot);
-          } else {
-            boot();
-          }
-        })();
-      ]]></script>
+  <!-- Fallback: si el selector anterior no existe en tu tema, lo metemos dentro del bloque de información -->
+  <template id="spw_cart_line_preview_fallback"
+            inherit_id="website_sale.cart_line"
+            name="SPW - Cart Preview fallback"
+            priority="100">
+    <xpath expr=".//*[contains(@class,'o_wsale_product_information') or contains(@class,'o_wsale_product_info') or contains(@class,'media-body')]" position="inside">
+      <t t-call="serial_printer_custom_wizard.spw_cart_line_preview_block"/>
     </xpath>
   </template>
 
