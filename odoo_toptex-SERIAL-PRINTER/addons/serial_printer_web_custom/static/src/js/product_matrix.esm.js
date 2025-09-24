@@ -38,7 +38,6 @@
   }
   function getAttributeBlocks(root) {
     const blocks = [];
-    // Odoo 17/18: ambos marcados
     const containers = root.querySelectorAll(
       '[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]'
     );
@@ -59,8 +58,6 @@
     const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || '');
     let color = blocks.find(b => isColor(b.name));
     let size  = blocks.find(b => isSize(b.name));
-
-    // Si sólo hay 1 bloque (p.ej. One Size oculto), fabricamos tamaño sintético
     if (!size && blocks.length === 1) {
       size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null }], _synthetic: true };
       if (!color) color = blocks[0];
@@ -83,22 +80,20 @@
     if (data.error) throw new Error(data.error?.message || 'RPC error');
     return data.result;
   }
-  // Variante que envía {args:[...] , kwargs:{}}
   function jsonRpcArgs(url, args) {
     return jsonRpc(url, { args: [args], kwargs: {} });
   }
-  // Variante “plana” (algunas rutas web la aceptan)
-  async function plainRpc(url, payload) {
-    const res = await fetch(url, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
-    const data = await res.json();
-    if (data.error) throw new Error(data.error?.message || 'RPC error');
-    return data.result ?? data; // por si devuelve directamente
+
+  // ---------- contexto web ----------
+  function getPageCtx() {
+    const html = document.documentElement;
+    const body = document.body;
+    const lang = html.getAttribute('lang') || 'es_ES';
+    const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || '0', 10) || false;
+    const websiteId =
+      parseInt(html.dataset.websiteId || body.dataset.websiteId || '0', 10) || false;
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+    return { lang, pricelist: pricelistId || undefined, website_id: websiteId || undefined, tz };
   }
 
   // ---------- combinación / stock ----------
@@ -111,7 +106,6 @@
     return {
       product_template_id: tmplId || undefined,
       product_id: 0,
-      // En Odoo 17/18 deben ser PTAV IDs:
       combination: ptavIds,
       add_qty: 1,
       parent_combination: [],
@@ -119,37 +113,14 @@
     };
   }
 
-  // >>> ÚNICO CAMBIO IMPORTANTE: intentar varias rutas y fallback a call_kw
+  // >>> Ruta robusta sin depender de endpoints web (404)
   async function fetchCombination(ptavIds, root) {
     const P = comboArgs(ptavIds, root);
+    const ctx = getPageCtx();
 
-    const attempts = [
-      // Website sale (distintas firmas según despliegue)
-      () => jsonRpc('/shop/get_combination_info', P),
-      () => plainRpc('/shop/get_combination_info', P),
-      () => jsonRpcArgs('/shop/get_combination_info', P),
-
-      () => jsonRpc('/sale/get_combination_info', P),
-      () => plainRpc('/sale/get_combination_info', P),
-      () => jsonRpcArgs('/sale/get_combination_info', P),
-
-      () => jsonRpc('/website_sale/get_combination_info', P),
-      () => plainRpc('/website_sale/get_combination_info', P),
-      () => jsonRpcArgs('/website_sale/get_combination_info', P),
-    ];
-
-    for (const tryIt of attempts) {
-      try {
-        const r = await tryIt();
-        if (r) return r;
-      } catch (e) {
-        if (String(e.message || '').includes('HTTP 404')) continue; // ruta inexistente
-      }
-    }
-
-    // Fallback robusto: llamada directa al método de modelo
+    // 1) probar método público
     try {
-      const result = await jsonRpc('/web/dataset/call_kw', {
+      return await jsonRpc('/web/dataset/call_kw', {
         model: 'product.template',
         method: 'get_combination_info',
         args: [P.product_template_id],
@@ -160,12 +131,28 @@
           parent_combination: P.parent_combination || [],
           pricelist_id: P.pricelist_id || undefined,
         },
-        context: {},
+        context: ctx,
       });
-      return result || null;
     } catch (e) {
-      console.warn('[SP] fallback call_kw get_combination_info falló:', e.message);
-      return null;
+      // 2) fallback a método interno (algunas instancias sólo exponen este)
+      try {
+        return await jsonRpc('/web/dataset/call_kw', {
+          model: 'product.template',
+          method: '_get_combination_info',
+          args: [P.product_template_id],
+          kwargs: {
+            product_id: P.product_id || 0,
+            combination: P.combination || [],
+            add_qty: P.add_qty || 1,
+            parent_combination: P.parent_combination || [],
+            pricelist_id: P.pricelist_id || undefined,
+          },
+          context: ctx,
+        });
+      } catch (e2) {
+        console.warn('[SP] combination por call_kw falló:', e2.message);
+        return null;
+      }
     }
   }
 
@@ -262,15 +249,15 @@
         const sizePtav  = parseInt(td.dataset.sizePtav || '0', 10) ||
                           parseInt(td.dataset.sizeId   || '0', 10);
 
-        const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav]; // 1D/2D
+        const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
         const info = await fetchCombination(combo, root);
 
         if (info && info.product_id) {
           td.querySelector('.sp-qty').dataset.variantId = info.product_id;
 
-          const price = (typeof info.price === 'number') ? info.price
-                      : (typeof info.list_price === 'number') ? info.list_price
-                      : (typeof info.website_price === 'number') ? info.website_price : null;
+          const price = (typeof info.website_price === 'number') ? info.website_price
+                      : (typeof info.price === 'number') ? info.price
+                      : (typeof info.list_price === 'number') ? info.list_price : null;
           if (price !== null) td.querySelector('.sp-price').textContent = fmtPrice(price);
 
           let stock = (info.stock_quantity !== undefined) ? info.stock_quantity : null;
