@@ -33,14 +33,17 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
             : null;
     }
 
-    // Genera N URLs: /spw/line_preview/<id>.png, /spw/line_preview/<id>-2.png, ...
-    function buildPreviewUrls(lineId, count) {
-        if (!lineId) return [];
-        const n = Math.max(1, count || 1);
+    // Devuelve candidatos de URL para una misma posición i (1..N)
+    function candidatesFor(lineId, i) {
+        const suf = i === 1 ? '' : `-${i}`;
         const urls = [];
-        for (let i = 1; i <= n; i++) {
-            const suf = i === 1 ? '' : `-${i}`;
-            urls.push(`/spw/line_preview/${lineId}${suf}.png`);
+        // patrón base
+        urls.push(`/spw/line_preview/${lineId}${i === 1 ? '' : suf}.png`);
+        // alternativas frecuentes
+        if (i > 1) {
+            urls.push(`/spw/line_preview/${lineId}_${i}.png`);
+            urls.push(`/spw/line_preview/${lineId}.png?i=${i}`);
+            urls.push(`/spw/line_preview/${lineId}-${i}.png?i=${i}`);
         }
         return urls;
     }
@@ -54,34 +57,53 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         return out;
     }
 
+    // Crea un <img> que prueba candidatos en cascada
+    function makeSmartImg(urlCandidates) {
+        const img = new Image();
+        img.alt = 'Personalización';
+        img.loading = 'lazy';
+        img.style.cssText =
+            'max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px';
+
+        let idx = 0;
+        function tryNext() {
+            if (idx >= urlCandidates.length) {
+                // ninguno funcionó → quita el <img>
+                img.remove();
+                return;
+            }
+            img.src = urlCandidates[idx++];
+        }
+        img.onerror = tryNext;
+        tryNext(); // primer intento
+        return img;
+    }
+
     // --- inyección ---
     function injectInto(lineEl) {
         const info = lineEl.querySelector?.(INFO_SEL) || lineEl;
         if (!info) return;
 
-        // Refresco idempotente: elimina inyecciones previas de ESTA línea
+        // Idempotente por línea: limpia inyecciones previas
         info.querySelectorAll?.('.spw-cart-preview').forEach((n) => n.remove());
 
         const lineId = getLineId(lineEl);
-        const hexes = extractHexList(info.textContent || '');
-        const urls  = buildPreviewUrls(lineId, hexes.length);
+        const hexes = extractHexList(info.textContent || []);
+        const count = Math.max(1, hexes.length); // al menos 1 imagen
 
         const wrap = document.createElement('div');
         wrap.className = 'spw-cart-preview';
         wrap.style.cssText =
             'margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap';
 
-        // Imágenes de personalización (una por posición). Si no existe, se oculta.
-        urls.forEach((u) => {
-            const img = new Image();
-            img.src = u;
-            img.alt = 'Personalización';
-            img.loading = 'lazy';
-            img.style.cssText =
-                'max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px';
-            img.onerror = function () { this.remove(); };
-            wrap.appendChild(img);
-        });
+        // Imágenes: una por posición (1..count), con fallback de nombres
+        if (lineId) {
+            for (let i = 1; i <= count; i++) {
+                const img = makeSmartImg(candidatesFor(lineId, i));
+                // si todas fallan, onerror lo elimina
+                wrap.appendChild(img);
+            }
+        }
 
         // Píldoras de color (una por HEX)
         hexes.forEach((hex) => {
