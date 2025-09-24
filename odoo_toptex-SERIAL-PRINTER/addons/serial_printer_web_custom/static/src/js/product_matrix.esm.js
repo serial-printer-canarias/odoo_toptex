@@ -1,20 +1,15 @@
-/** SP Matrix (Odoo 18) – grid con precio/stock y “añadir en bloque”
- *  - Se inserta JUSTO debajo de los atributos del configurador.
- *  - Imagen por color (fila), precio + stock por celda (color x talla).
- *  - Añadir al carrito todas las cantidades > 0.
- */
+// SP Matrix – Odoo 18: hidrata precio/stock/foto y añade al carrito en bloque.
 (function () {
   'use strict';
 
-  const log  = (...a) => (_sp?.debug?.log || console.log.bind(console, '[SP]'))(...a);
-  const ok   = (m) => (_sp?.debug?.ok  || console.log.bind(console, '%c[SP] '+m,'color:#0a0'))();
-  const warn = (m) => (_sp?.debug?.warn|| console.warn.bind(console, '[SP]', m))();
+  // ------- util log (no requiere _sp) -------
+  const log = (...a) => console.log('[SP]', ...a);
 
-  // ---------- Localizadores robustos ----------
+  // ------- localizadores / ancla -------
   function getJsProduct() {
-    return document.querySelector('.o_wsale_product_page .js_product') ||
-           document.querySelector('.js_product') ||
-           document.querySelector('.o_wsale_product_page');
+    return document.querySelector('.o_wsale_product_page .js_product')
+        || document.querySelector('.js_product')
+        || document.querySelector('.o_wsale_product_page');
   }
   function placeAnchor() {
     let anchor = document.getElementById('sp-matrix-anchor');
@@ -23,33 +18,27 @@
       anchor.id = 'sp-matrix-anchor';
       anchor.className = 'sp-matrix-anchor';
     }
-    const jsProduct = getJsProduct();
-    if (!jsProduct) return document.body.appendChild(anchor), anchor;
+    const root = getJsProduct();
+    if (!root) { document.body.appendChild(anchor); return anchor; }
 
-    // Preferimos justo DESPUÉS del bloque de atributos
-    const attrsWrap =
-      jsProduct.querySelector('.js_attributes') ||
-      jsProduct.querySelector('ul.o_wsale_product_attribute') ||
-      jsProduct.querySelector('[data-attribute_name]')?.closest('.row, ul, div');
-    if (attrsWrap) {
-      attrsWrap.after(anchor);
-    } else {
-      // Fallback: después del precio
-      const price = jsProduct.querySelector('.product_price, .o_wsale_product_price_section');
-      (price || jsProduct).after(anchor);
-    }
+    const attrs =
+      root.querySelector('.js_attributes')
+      || root.querySelector('ul.o_wsale_product_attribute')
+      || root.querySelector('[data-attribute_name]')?.closest('.row, ul, div');
+
+    if (attrs) attrs.after(anchor);
+    else (root.querySelector('.product_price, .o_wsale_product_price_section') || root).after(anchor);
     return anchor;
   }
 
-  // ---------- Leer bloques de atributos (color/talla) ----------
+  // ------- leer atributos (color/talla) -------
   function getAttributeBlocks(root) {
     const blocks = [];
-    (root.querySelectorAll('[data-attribute_name]') || []).forEach((el) => {
+    root.querySelectorAll('[data-attribute_name]').forEach((el) => {
       const name = (el.getAttribute('data-attribute_name') || '').trim();
       const options = [];
-      el.querySelectorAll('input[type="radio"], input[type="checkbox"]').forEach((inp) => {
-        const id =
-          parseInt(inp.dataset.valueId || inp.dataset.attributeValueId || inp.value, 10);
+      el.querySelectorAll('input[type="radio"],input[type="checkbox"]').forEach((inp) => {
+        const id = parseInt(inp.dataset.valueId || inp.dataset.attributeValueId || inp.value, 10);
         const label = (inp.closest('label')?.textContent || inp.title || '').trim();
         if (id) options.push({ id, name: label });
       });
@@ -60,67 +49,53 @@
   function pickColorAndSize(blocks) {
     const isColor = n => /color|couleur|farbe|colou?r|colore|kleur/i.test(n || '');
     const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || '');
-    let color = blocks.find(b => isColor(b.name)), size = blocks.find(b => isSize(b.name));
+    let color = blocks.find(b => isColor(b.name));
+    let size  = blocks.find(b => isSize(b.name));
     if (!color && blocks.length) color = blocks[0];
     if (!size  && blocks.length > 1) size  = blocks[1];
     return { color, size };
   }
 
-  // ---------- RPC helpers ----------
+  // ------- JSON-RPC helper -------
+  async function rpc(url, params) {
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params, id: Date.now() }),
+    });
+    if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error?.message || 'RPC error');
+    return data.result;
+  }
+
+  // ------- combo/stock -------
   function comboArgs(avIds, root) {
     const tmplId = parseInt(
-      root.querySelector('[data-product-template-id]')?.dataset.productTemplateId ||
-      root.querySelector('input[name="product_template_id"]')?.value ||
-      root.querySelector('input[name="product_id"]')?.value || 0, 10);
-    const pricelistId = parseInt(
-      document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || 0, 10);
-
-    return {
-      product_template_id: tmplId || undefined,
-      product_id: 0,
-      combination: avIds,
-      add_qty: 1,
-      parent_combination: [],
-      pricelist_id: pricelistId || undefined,
-    };
+      root.querySelector('[data-product-template-id]')?.dataset.productTemplateId
+      || root.querySelector('input[name="product_template_id"]')?.value
+      || root.querySelector('input[name="product_id"]')?.value || 0, 10);
+    const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || 0, 10);
+    return { product_template_id: tmplId || undefined, product_id: 0, combination: avIds, add_qty: 1,
+             parent_combination: [], pricelist_id: pricelistId || undefined };
   }
   async function fetchCombination(avIds, root) {
     const args = comboArgs(avIds, root);
-    // 1º /shop, 2º /sale (compat)
     try {
-      const r = await fetch('/shop/get_combination_info', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ args: [args], kwargs: {} }),
-      });
-      if (r.ok) return (await r.json()).result;
-      throw new Error('shop 4xx');
+      return await rpc('/shop/get_combination_info', { args: [args], kwargs: {} });
     } catch {
-      try {
-        const r = await fetch('/sale/get_combination_info', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ args: [args], kwargs: {} }),
-        });
-        if (r.ok) return (await r.json()).result;
-      } catch (e) { /* ignore */ }
+      try { return await rpc('/sale/get_combination_info', { args: [args], kwargs: {} }); }
+      catch { return null; }
     }
-    return null;
   }
   async function getStock(variantId) {
     try {
-      const r = await fetch('/web/dataset/call_kw', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'product.product', method: 'read',
-          args: [[variantId], ['qty_available']], kwargs: {},
-        }),
+      const res = await rpc('/web/dataset/call_kw', {
+        model: 'product.product', method: 'read',
+        args: [[variantId], ['qty_available']], kwargs: {},
       });
-      const data = await r.json();
-      return (Array.isArray(data.result) && data.result[0] && typeof data.result[0].qty_available === 'number')
-        ? data.result[0].qty_available
-        : null;
+      return (res && res[0] && typeof res[0].qty_available === 'number') ? res[0].qty_available : null;
     } catch { return null; }
   }
   function fmtPrice(v) {
@@ -131,62 +106,45 @@
     } catch { return (Math.round(v * 100) / 100).toFixed(2); }
   }
 
-  // ---------- Pintar tabla ----------
+  // ------- pintar tabla -------
   async function buildMatrix() {
-    const jsProduct = getJsProduct();
-    if (!jsProduct) return warn('No se encontró .js_product');
+    const root = getJsProduct();
+    if (!root) return;
 
-    const anchor = placeAnchor();
-    if (!anchor) return warn('Sin ancla');
-
-    const blocks = getAttributeBlocks(jsProduct);
-    if (blocks.length < 2) return warn('No hay suficientes atributos para matriz');
+    const blocks = getAttributeBlocks(root);
+    if (blocks.length < 2) return;
 
     const { color, size } = pickColorAndSize(blocks);
-    if (!color || !size) return warn('Faltan color/talla');
+    if (!color || !size) return;
 
-    // Reset anchor
+    const anchor = placeAnchor();
     anchor.innerHTML = '';
 
-    const wrapper = document.createElement('div');
-    wrapper.className = 'sp-matrix';
-    const table = document.createElement('table');
-    table.className = 'sp-matrix__table';
+    const wrap = document.createElement('div'); wrap.className = 'sp-matrix';
+    const table = document.createElement('table'); table.className = 'sp-matrix__table';
 
-    // THEAD
     const thead = document.createElement('thead');
     const trh = document.createElement('tr');
     trh.innerHTML = `<th class="sp-sticky-left">Color</th>`;
-    size.options.forEach(s => {
-      const th = document.createElement('th');
-      th.textContent = s.name || '';
-      trh.appendChild(th);
-    });
+    size.options.forEach(s => { const th = document.createElement('th'); th.textContent = s.name; trh.appendChild(th); });
     thead.appendChild(trh);
 
-    // TBODY
     const tbody = document.createElement('tbody');
     color.options.forEach(c => {
-      const tr = document.createElement('tr');
-      tr.setAttribute('data-color-id', c.id);
+      const tr = document.createElement('tr'); tr.dataset.colorId = c.id;
       tr.innerHTML = `
         <th class="sp-sticky-left">
           <div class="sp-color">
             <img class="sp-color__img" alt="">
-            <span class="sp-color__name">${(c.name || '')}</span>
+            <span class="sp-color__name">${c.name || ''}</span>
           </div>
         </th>`;
       size.options.forEach(s => {
-        const td = document.createElement('td');
-        td.setAttribute('data-size-id', s.id);
+        const td = document.createElement('td'); td.dataset.sizeId = s.id;
         td.innerHTML = `
           <div class="sp-cell">
-            <input class="sp-qty" type="number" min="0" step="1"
-                   data-color-id="${c.id}" data-size-id="${s.id}">
-            <div class="sp-meta">
-              <span class="sp-price"></span>
-              <span class="sp-stock"></span>
-            </div>
+            <input class="sp-qty" type="number" min="0" step="1" data-color-id="${c.id}" data-size-id="${s.id}">
+            <div class="sp-meta"><span class="sp-price"></span><span class="sp-stock"></span></div>
           </div>`;
         tr.appendChild(td);
       });
@@ -194,65 +152,56 @@
     });
 
     table.append(thead, tbody);
-    wrapper.appendChild(table);
+    wrap.appendChild(table);
 
-    // Botón añadir
     const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'btn btn-primary mt-2 sp-add-to-cart';
-    btn.textContent = 'Añadir selección';
-    wrapper.appendChild(btn);
+    btn.type = 'button'; btn.className = 'btn btn-primary mt-2 sp-add-to-cart'; btn.textContent = 'Añadir selección';
+    wrap.appendChild(btn);
 
-    anchor.appendChild(wrapper);
-    ok('Matrix renderizada');
+    anchor.appendChild(wrap);
 
-    hydrateCells(wrapper, jsProduct);
-    btn.addEventListener('click', () => addAllToCart(wrapper));
+    hydrateCells(wrap, root);
+    btn.addEventListener('click', () => addAllToCart(wrap));
   }
 
-  // ---------- Hidratar celdas con variante/price/stock/img ----------
-  async function hydrateCells(root, jsProduct) {
-    const cells = Array.from(root.querySelectorAll('td'));
-    const q = cells.slice(); // cola
+  // ------- hidratar celdas -------
+  async function hydrateCells(container, root) {
+    const cells = Array.from(container.querySelectorAll('td'));
+    const queue = cells.slice();
 
     async function worker() {
-      while (q.length) {
-        const td = q.shift();
+      while (queue.length) {
+        const td = queue.shift();
         const colorId = parseInt(td.closest('tr').dataset.colorId, 10);
         const sizeId  = parseInt(td.dataset.sizeId, 10);
-        const info = await fetchCombination([colorId, sizeId], jsProduct);
 
+        const info = await fetchCombination([colorId, sizeId], root);
         if (info && info.product_id) {
           td.querySelector('.sp-qty').dataset.variantId = info.product_id;
 
-          // Precio
           const price = (typeof info.price === 'number') ? info.price
                       : (typeof info.list_price === 'number') ? info.list_price
-                      : null;
+                      : (typeof info.website_price === 'number') ? info.website_price : null;
           if (price !== null) td.querySelector('.sp-price').textContent = fmtPrice(price);
 
-          // Stock (preferir info.stock_quantity si viene)
           let stock = (info.stock_quantity !== undefined) ? info.stock_quantity : null;
           if (stock === null) stock = await getStock(info.product_id);
           if (stock !== null) td.querySelector('.sp-stock').textContent = `Stock: ${stock}`;
 
-          // Imagen por fila (si no está aún)
           const img = td.closest('tr').querySelector('.sp-color__img');
           if (img && !img.src) img.src = `/web/image/product.product/${info.product_id}/image_128`;
         } else {
           td.classList.add('sp-unavailable');
           td.querySelector('.sp-price').textContent = '—';
-          td.querySelector('.sp-stock').textContent = '';
         }
       }
     }
     await Promise.all(new Array(6).fill(0).map(worker));
-    ok('Celdas hidratadas');
   }
 
-  // ---------- Añadir al carrito en bloque ----------
-  function addAllToCart(root) {
-    const inputs = root.querySelectorAll('.sp-qty');
+  // ------- carrito en bloque -------
+  function addAllToCart(container) {
+    const inputs = container.querySelectorAll('.sp-qty');
     const ops = [];
     inputs.forEach((inp) => {
       const qty = parseFloat(inp.value || '0');
@@ -260,7 +209,8 @@
       if (qty > 0 && product_id) {
         ops.push(fetch('/shop/cart/update_json', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
           body: JSON.stringify({ product_id, add_qty: qty, display: false }),
         }));
       }
@@ -269,11 +219,9 @@
     Promise.allSettled(ops).then(() => window.location.reload());
   }
 
-  // Boot
+  // ------- boot -------
   function start() {
-    const onProd = !!document.querySelector('.o_wsale_product_page');
-    if (!onProd) return;
-    buildMatrix();
+    if (document.querySelector('.o_wsale_product_page')) buildMatrix();
   }
   (document.readyState === 'loading')
     ? document.addEventListener('DOMContentLoaded', start)
