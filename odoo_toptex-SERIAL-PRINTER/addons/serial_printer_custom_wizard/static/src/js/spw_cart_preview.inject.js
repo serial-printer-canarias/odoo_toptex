@@ -1,156 +1,119 @@
-/** spw_cart_preview.inject.js
- * Inyecta miniatura PNG + píldora de color en las líneas del carrito.
- * SIN dependencias de Odoo (nada de web.public.widget ni web.dom_ready).
- * Solo usa DOMContentLoaded + MutationObserver.
- */
-odoo.define('@serial_printer_custom_wizard/js/spw_cart_preview.inject', function (require) {
+odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', ['web.dom_ready'], function (require) {
     'use strict';
 
-    /* ---------- utilidades sin dependencias ---------- */
-    function onReady(cb) {
-        if (document.readyState !== 'loading') cb();
-        else document.addEventListener('DOMContentLoaded', cb, { once: true });
-    }
-    const $ = (root, sel) => (root || document).querySelector(sel);
-    const $all = (root, sel) => (root || document).querySelectorAll(sel);
-    const tryJSON = (s) => { try { return JSON.parse(s); } catch { return null; } };
+    const domReady = require('web.dom_ready');
 
-    /* ---------- localizar line_id de forma robusta ---------- */
-    function getLineId(lineEl) {
-        if (!lineEl) return null;
-        const ATTRS = ['data-line-id', 'data-id', 'data-orderline-id', 'data-order-line-id'];
-        for (const a of ATTRS) {
-            const v = lineEl.getAttribute(a);
-            if (v && /^\d+$/.test(v)) return v;
-        }
-        let n = lineEl.closest('[data-line-id],[data-orderline-id],[data-order-line-id],[data-id]');
-        if (n) {
-            for (const a of ATTRS) {
-                const v = n.getAttribute(a);
-                if (v && /^\d+$/.test(v)) return v;
-            }
-        }
-        const hid = lineEl.querySelector('input[name="line_id"], input[name="line-id"], input[data-line-id]');
-        if (hid) {
-            const v = hid.value || hid.getAttribute('data-line-id');
-            if (v && /^\d+$/.test(v)) return v;
-        }
-        const a = lineEl.querySelector('a[href*="line_id="], button[data-params*="line_id="]');
-        if (a) {
-            const m = (a.getAttribute('href') || a.getAttribute('data-params') || '').match(/line_id=(\d+)/);
-            if (m) return m[1];
-        }
-        n = lineEl.closest('tr');
-        if (n) {
-            for (const a2 of ATTRS) {
-                const v = n.getAttribute(a2);
-                if (v && /^\d+$/.test(v)) return v;
-            }
+    // ---- Config mínima
+    const WRAP_CLASS = 'spw-cart-preview';
+    const PREVIEW_BASE = '/spw/line_preview'; // Endpoint que ya tienes activo: /spw/line_preview/<line_id>.png
+
+    // Selectores robustos (distintas plantillas usan clases algo diferentes)
+    const INFO_SELECTORS = [
+        '.o_wsale_product_information',
+        '.media-body',
+        '.o_cart_line_details',
+        '.o_cart_item_info',
+    ];
+
+    // Utils
+    function qAll(root, sel) { return Array.from(root.querySelectorAll(sel)); }
+    function getLineRoot(el) {
+        return el.closest('[data-line-id]') || el.closest('.o_cart_product') || el.closest('tr');
+    }
+    function getLineId(el) {
+        const root = getLineRoot(el);
+        return root && (root.getAttribute('data-line-id') || root.dataset.lineId || null);
+    }
+    function getInfoContainer(lineRoot) {
+        for (let i = 0; i < INFO_SELECTORS.length; i++) {
+            const node = lineRoot.querySelector(INFO_SELECTORS[i]);
+            if (node) return node;
         }
         return null;
     }
-
-    const previewURL = (lineId) => (lineId ? `/spw/line_preview/${lineId}.png` : null);
-
-    function pickHex(lineEl, infoEl) {
-        const meta = tryJSON(lineEl.getAttribute('data-spw-meta-json')) || {};
-        const cand = lineEl.getAttribute('data-spw-svg-color') || meta.svg_color || meta.color;
-        if (cand && /^#[0-9a-fA-F]{3,8}$/.test(cand)) return cand;
-        const m = String(infoEl?.textContent || '').match(/#[0-9a-fA-F]{3,8}\b/);
-        return m ? m[0] : null;
+    function extractHexFromText(txt) {
+        if (!txt) return null;
+        const m = txt.match(/SVG\s*:\s*(#[0-9a-fA-F]{3,6})/);
+        return m ? m[1] : null;
     }
 
-    function findCartLines(root) {
-        const selectors = [
-            '.o_wsale_cart_item', '.o_cart_item', '.o_cart_product',
-            'tr.js_cart_lines', 'tr.o_wsale_cart_item',
-        ];
-        const set = new Set();
-        selectors.forEach(sel => $all(root, sel).forEach(el => set.add(el.closest(sel))));
-        return Array.from(set).filter(Boolean);
-    }
+    function buildPreview(lineRoot) {
+        const info = getInfoContainer(lineRoot);
+        if (!info) return;
 
-    function injectOnce(lineEl) {
-        if (!lineEl || lineEl.dataset.spwInjected === '1') return;
-        lineEl.dataset.spwInjected = '1';
+        // Evitar duplicados
+        const old = info.querySelector('.' + WRAP_CLASS);
+        if (old) old.remove();
 
-        const infoEl =
-            lineEl.querySelector('.o_wsale_product_information') ||
-            lineEl.querySelector('.o_wsale_cart_description') ||
-            lineEl.querySelector('.media-body') ||
-            lineEl.querySelector('.o_cart_product') ||
-            lineEl;
+        const lineId = getLineId(lineRoot);
 
         const wrap = document.createElement('div');
-        wrap.className = 'spw-cart-preview mt-2 d-flex align-items-center';
-        Object.assign(wrap.style, { gap: '8px', flexWrap: 'wrap' });
+        wrap.className = `${WRAP_CLASS} d-flex align-items-center mt-2`;
+        wrap.style.gap = '8px';
+        wrap.style.flexWrap = 'wrap';
 
         // Miniatura
-        const lid = getLineId(lineEl);
-        const url = previewURL(lid);
-        if (url) {
+        if (lineId) {
             const img = document.createElement('img');
-            img.src = url;
+            img.src = `${PREVIEW_BASE}/${lineId}.png`;
             img.alt = 'Personalización';
             img.loading = 'lazy';
-            Object.assign(img.style, {
-                maxWidth: '120px',
-                height: 'auto',
-                border: '1px solid #e5e7eb',
-                borderRadius: '6px',
-            });
+            img.style.maxWidth = '120px';
+            img.style.height = 'auto';
+            img.style.border = '1px solid #e5e7eb';
+            img.style.borderRadius = '6px';
             wrap.appendChild(img);
         }
 
-        // Píldora de color
-        const hex = pickHex(lineEl, infoEl);
+        // Píldora de color (lee del texto: "SVG: #RRGGBB")
+        const hex = extractHexFromText(info.textContent || '');
         if (hex) {
             const pill = document.createElement('span');
-            pill.title = `Color ${hex}`;
-            Object.assign(pill.style, {
-                display: 'inline-block',
-                width: '16px',
-                height: '16px',
-                borderRadius: '9999px',
-                border: '1px solid #e5e7eb',
-                background: hex,
-            });
+            pill.title = `SVG ${hex}`;
+            pill.setAttribute('aria-label', `Color ${hex}`);
+            pill.style.display = 'inline-block';
+            pill.style.width = '16px';
+            pill.style.height = '16px';
+            pill.style.borderRadius = '9999px';
+            pill.style.border = '1px solid #e5e7eb';
+            pill.style.background = hex;
             wrap.appendChild(pill);
         }
 
-        if (wrap.children.length) infoEl.appendChild(wrap);
+        if (wrap.children.length) info.appendChild(wrap);
     }
 
     function injectAll(root) {
-        const lines = findCartLines(root || document);
-        lines.forEach(injectOnce);
-        console.log(`[SPW] inyectadas ${lines.length} líneas`);
+        root = root || document;
+        const lines = qAll(root, '.o_cart_product, .o_wsale_cart_item, tr[data-line-id]');
+        if (!lines.length) return;
+        lines.forEach(buildPreview);
     }
 
     function boot() {
-        // solo en carrito
-        if (!document.querySelector('#o_cart, .o_wsale_cart, .oe_website_sale')) return;
+        // Solo en páginas de carrito
+        if (!document.querySelector('.o_cart, .o_wsale_cart')) return;
 
         injectAll(document);
 
-        // reinyectar después de cambios en DOM (qty/AJAX)
-        const target = $('#wrapwrap') || document.body;
-        const mo = new MutationObserver(muts => {
-            for (const m of muts) {
-                for (const n of m.addedNodes) {
-                    if (n.nodeType === 1 && (findCartLines(n).length ||
-                        n.querySelector?.('.o_wsale_product_information, .o_wsale_cart_description, .o_cart_product'))) {
-                        injectAll(n);
-                        return;
+        // Reinyectar en cambios de DOM (qty +/- , ajax del carrito, etc.)
+        const target = document.querySelector('#wrapwrap') || document.body;
+        let timer = null;
+        new MutationObserver((mutations) => {
+            for (const m of mutations) {
+                if (m.addedNodes && m.addedNodes.length) {
+                    const t = m.target;
+                    if (t && (t.matches?.('.o_cart, .o_wsale_cart') || t.closest?.('.o_cart, .o_wsale_cart'))) {
+                        clearTimeout(timer);
+                        timer = setTimeout(() => injectAll(document), 50);
+                        break;
                     }
                 }
             }
-        });
-        mo.observe(target, { childList: true, subtree: true });
+        }).observe(target, { childList: true, subtree: true });
 
         console.log('[SPW] cart preview injector listo');
     }
 
-    onReady(boot);
-    console.log('[SPW] injector cargado');
+    domReady(boot);
 });
