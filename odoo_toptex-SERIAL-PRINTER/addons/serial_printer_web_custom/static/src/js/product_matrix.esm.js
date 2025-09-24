@@ -2,6 +2,7 @@
 (function () {
   'use strict';
 
+  const VER = 'sp-matrix-2025-09-24a';
   const log  = (...a) => console.log('[SP]', ...a);
   const warn = (...a) => console.warn('[SP]', ...a);
   const err  = (...a) => console.error('[SP]', ...a);
@@ -42,8 +43,7 @@
         d.ptav || d.ptavId || d.productTemplateAttributeValueId ||
         d.productTemplateAttributeValue || d.ptav_id || d.ptavl || '0', 10
       ) || null;
-    const av =
-      parseInt(d.valueId || d.attributeValueId || inp.value || '0', 10) || null;
+    const av = parseInt(d.valueId || d.attributeValueId || inp.value || '0', 10) || null;
     return { ptavId: ptav, avId: av };
   }
   function getAttributeBlocks(root) {
@@ -79,7 +79,9 @@
   }
 
   // ---------- JSON-RPC ----------
-  async function jsonrpc(url, params) {
+  async function callEndpoint(url, params) {
+    // Wrapper que permite detectar 404/500 y seguir con el siguiente endpoint
+    log('→ probando', url);
     const res = await fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
@@ -89,9 +91,14 @@
       },
       body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params, id: Date.now() }),
     });
-    if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
+    if (res.status === 404) { throw new Error('HTTP 404'); }
+    if (!res.ok)           { throw new Error(`HTTP ${res.status}`); }
     const data = await res.json();
-    if (data.error) { const e = new Error(data.error.message || 'RPC error'); e.rpc = data.error; throw e; }
+    if (data.error) {
+      const m = data.error?.message || 'RPC error';
+      const c = data.error?.code || '';
+      throw new Error(`${m} (${c})`);
+    }
     return data.result;
   }
 
@@ -108,32 +115,32 @@
     return {
       product_template_id: tmplId || undefined,
       product_id: 0,
-      combination: ptavIds,      // PTAV IDs
+      combination: ptavIds,    // PTAV IDs
       add_qty: 1,
       parent_combination: [],
       pricelist_id: pricelistId || undefined,
     };
   }
 
-  // ⇨ ÚNICO CAMBIO IMPORTANTE: orden y variedad de endpoints (Website primero)
   async function fetchCombination(ptavIds, root) {
     const args = comboArgs(ptavIds, root);
 
-    const endpoints = [
+    // Website primero; Sale queda al final (tu instancia devuelve 404 aquí).
+    const ENDPOINTS = [
       '/shop/get_combination_info',
+      '/website_sale/get_combination_info',
       '/shop/product_configurator/get_combination_info',
       '/shop/product_configurator/get_combination',
-      '/shop/variant/price',            // fallback muy antiguo
-      '/sale/get_combination_info',     // último recurso (tu instancia devuelve 404)
+      '/sale/get_combination_info', // último recurso
     ];
 
-    for (const url of endpoints) {
+    for (const url of ENDPOINTS) {
       try {
-        const r = await jsonrpc(url, args);
-        log('combination por', url, '→ OK');
+        const r = await callEndpoint(url, args);
+        log('✔ combinación por', url);
         return r;
       } catch (e) {
-        warn('combination por', url, 'falló:', e?.rpc || e?.message || e);
+        warn('✖ combinación por', url, 'falló:', e.message || e);
       }
     }
     return null;
@@ -141,7 +148,7 @@
 
   async function getStock(variantId) {
     try {
-      const res = await jsonrpc('/web/dataset/call_kw', {
+      const res = await callEndpoint('/web/dataset/call_kw', {
         model: 'product.product', method: 'read',
         args: [[variantId], ['qty_available']], kwargs: {},
       });
@@ -210,7 +217,8 @@
     wrap.appendChild(table);
 
     const btn = document.createElement('button');
-    btn.type = 'button'; btn.className = 'btn btn-primary mt-2 sp-add-to-cart'; btn.textContent = 'Añadir selección';
+    btn.type = 'button'; btn.className = 'btn btn-primary mt-2 sp-add-to-cart';
+    btn.textContent = 'Añadir selección';
     wrap.appendChild(btn);
 
     anchor.appendChild(wrap);
@@ -227,12 +235,10 @@
     async function worker() {
       while (queue.length) {
         const td = queue.shift();
-        const colorPtav =
-          parseInt(td.closest('tr')?.dataset.colorPtav || '0', 10) ||
-          parseInt(td.closest('tr')?.dataset.colorId   || '0', 10);
-        const sizePtav  =
-          parseInt(td.dataset.sizePtav || '0', 10) ||
-          parseInt(td.dataset.sizeId   || '0', 10);
+        const colorPtav = parseInt(td.closest('tr')?.dataset.colorPtav || '0', 10) ||
+                          parseInt(td.closest('tr')?.dataset.colorId   || '0', 10);
+        const sizePtav  = parseInt(td.dataset.sizePtav || '0', 10) ||
+                          parseInt(td.dataset.sizeId   || '0', 10);
 
         const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
         const info = await fetchCombination(combo, root);
@@ -258,7 +264,7 @@
       }
     }
     await Promise.all(new Array(6).fill(0).map(worker));
-    log('matrix hidratada');
+    log('matrix hidratada', VER);
   }
 
   // ---------- carrito ----------
@@ -282,6 +288,13 @@
   }
 
   // ---------- boot ----------
-  function start() { if (document.querySelector('.o_wsale_product_page')) buildMatrix(); }
-  (document.readyState === 'loading') ? document.addEventListener('DOMContentLoaded', start) : start();
+  function start() {
+    if (document.querySelector('.o_wsale_product_page')) {
+      log('boot', VER);
+      buildMatrix();
+    }
+  }
+  (document.readyState === 'loading')
+    ? document.addEventListener('DOMContentLoaded', start)
+    : start();
 })();
