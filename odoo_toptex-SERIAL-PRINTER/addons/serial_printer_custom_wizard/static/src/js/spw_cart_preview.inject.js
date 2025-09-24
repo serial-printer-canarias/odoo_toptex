@@ -1,18 +1,18 @@
 /** spw_cart_preview.inject.js
- * Inyecta miniatura de personalización + píldora de color en líneas del carrito.
- * Patrón Odoo seguro: odoo.define(nombre, [deps], function(require){...})
+ * Inyecta miniatura PNG + píldora de color en las líneas del carrito.
+ * Patrón seguro Odoo: odoo.define(nombre, [deps], function(require){...})
+ * 👉 Dependemos SOLO de 'web.dom_ready' (nada de web.public.widget).
  */
-odoo.define('@serial_printer_custom_wizard/js/spw_cart_preview.inject', ['web.public.widget'], function (require) {
+odoo.define('@serial_printer_custom_wizard/js/spw_cart_preview.inject', ['web.dom_ready'], function (require) {
     'use strict';
-    const publicWidget = require('web.public.widget');
+    const domReady = require('web.dom_ready');
 
     /* ----------------- helpers ----------------- */
+    const $ = (root, sel) => (root || document).querySelector(sel);
+    const $all = (root, sel) => (root || document).querySelectorAll(sel);
+    const safeJSON = (s) => { try { return JSON.parse(s); } catch { return null; } };
 
-    function $(root, sel) { return (root || document).querySelector(sel); }
-    function $all(root, sel) { return (root || document).querySelectorAll(sel); }
-    function safeJSON(s) { try { return JSON.parse(s); } catch { return null; } }
-
-    // Busca el line_id por múltiples vías robustas
+    // Detecta line_id de forma robusta
     function getLineId(lineEl) {
         if (!lineEl) return null;
         const ATTRS = ['data-line-id', 'data-id', 'data-orderline-id', 'data-order-line-id'];
@@ -47,9 +47,7 @@ odoo.define('@serial_printer_custom_wizard/js/spw_cart_preview.inject', ['web.pu
         return null;
     }
 
-    function buildPreviewUrl(lineId) {
-        return lineId ? `/spw/line_preview/${lineId}.png` : null;
-    }
+    const buildPreviewUrl = (lineId) => (lineId ? `/spw/line_preview/${lineId}.png` : null);
 
     function pickHex(lineEl, infoEl) {
         const meta = safeJSON(lineEl.getAttribute('data-spw-meta-json')) || {};
@@ -84,7 +82,7 @@ odoo.define('@serial_printer_custom_wizard/js/spw_cart_preview.inject', ['web.pu
         wrap.className = 'spw-cart-preview mt-2 d-flex align-items-center';
         Object.assign(wrap.style, { gap: '8px', flexWrap: 'wrap' });
 
-        // Miniatura PNG (si hay line_id y el endpoint sirve 200)
+        // Miniatura PNG
         const lid = getLineId(lineEl);
         const url = buildPreviewUrl(lid);
         if (url) {
@@ -93,8 +91,10 @@ odoo.define('@serial_printer_custom_wizard/js/spw_cart_preview.inject', ['web.pu
             img.alt = 'Personalización';
             img.loading = 'lazy';
             Object.assign(img.style, {
-                maxWidth: '120px', height: 'auto',
-                border: '1px solid #e5e7eb', borderRadius: '6px',
+                maxWidth: '120px',
+                height: 'auto',
+                border: '1px solid #e5e7eb',
+                borderRadius: '6px',
             });
             wrap.appendChild(img);
         }
@@ -105,8 +105,12 @@ odoo.define('@serial_printer_custom_wizard/js/spw_cart_preview.inject', ['web.pu
             const pill = document.createElement('span');
             pill.title = `Color ${hex}`;
             Object.assign(pill.style, {
-                display: 'inline-block', width: '16px', height: '16px',
-                borderRadius: '9999px', border: '1px solid #e5e7eb', background: hex,
+                display: 'inline-block',
+                width: '16px',
+                height: '16px',
+                borderRadius: '9999px',
+                border: '1px solid #e5e7eb',
+                background: hex,
             });
             wrap.appendChild(pill);
         }
@@ -120,33 +124,32 @@ odoo.define('@serial_printer_custom_wizard/js/spw_cart_preview.inject', ['web.pu
         console.log(`[SPW] inyectadas ${lines.length} líneas`);
     }
 
-    /* -------------- Public Widget (autostart) -------------- */
-    publicWidget.registry.spwCartPreview = publicWidget.Widget.extend({
-        selector: 'body',
-        start() {
-            // Inyectar (si no estamos en carrito no hace nada)
-            injectAll(document);
+    function boot() {
+        // Solo si estamos en la página de carrito
+        if (!document.querySelector('#o_cart, .o_wsale_cart, .oe_website_sale')) return;
 
-            // Re-inyectar tras cambios dinámicos (qty/AJAX)
-            const target = $('#wrapwrap') || document.body;
-            const mo = new MutationObserver(muts => {
-                let hit = false;
-                for (const m of muts) {
-                    for (const n of m.addedNodes) {
-                        if (n instanceof HTMLElement && findCartLines(n).length) {
-                            injectAll(n);
-                            hit = true;
-                        }
+        injectAll(document);
+
+        // Reinyectar tras cambios dinámicos (qty/AJAX)
+        const target = $('#wrapwrap') || document.body;
+        const mo = new MutationObserver(muts => {
+            let hit = false;
+            for (const m of muts) {
+                for (const n of m.addedNodes) {
+                    if (n.nodeType === 1 && (findCartLines(n).length ||
+                        n.querySelector?.('.o_wsale_product_information, .o_wsale_cart_description, .o_cart_product'))) {
+                        injectAll(n);
+                        hit = true;
                     }
                 }
-                if (hit) console.log('[SPW] reinyección tras mutación');
-            });
-            mo.observe(target, { childList: true, subtree: true });
+            }
+            if (hit) console.log('[SPW] reinyección tras mutación');
+        });
+        mo.observe(target, { childList: true, subtree: true });
 
-            console.log('[SPW] cart preview injector listo');
-            return this._super(...arguments);
-        },
-    });
+        console.log('[SPW] cart preview injector listo (dom_ready)');
+    }
 
+    domReady(boot);
     console.log('[SPW] injector cargado');
 });
