@@ -3,6 +3,8 @@
   'use strict';
 
   const log = (...a) => console.log('[SP]', ...a);
+  const warn = (...a) => console.warn('[SP]', ...a);
+  const err  = (...a) => console.error('[SP]', ...a);
 
   // ---------- helpers de anclaje ----------
   function getJsProduct() {
@@ -38,9 +40,7 @@
   }
   function getAttributeBlocks(root) {
     const blocks = [];
-    const containers = root.querySelectorAll(
-      '[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]'
-    );
+    const containers = root.querySelectorAll('[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]');
     containers.forEach((el) => {
       const name = (el.getAttribute('data-attribute_name') || el.getAttribute('data-attribute-name') || '').trim();
       const options = [];
@@ -67,19 +67,15 @@
     return { color, size };
   }
 
-  // ---------- JSON-RPC ----------
-  async function rpc(url, payload) {
+  // ---------- helpers HTTP ----------
+  async function http(url, body) {
     const res = await fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params: payload, id: Date.now() }),
+      body: JSON.stringify(body),
     });
-    if (res.status === 404) { const e = new Error('HTTP 404'); e.status = 404; throw e; }
-    if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
-    const data = await res.json();
-    if (data?.error) { const e = new Error(data.error?.message || 'RPC error'); e.rpc = data.error; throw e; }
-    return data.result;
+    return res;
   }
 
   // ---------- combinación / stock ----------
@@ -92,42 +88,82 @@
     return {
       product_template_id: tmplId || undefined,
       product_id: 0,
-      combination: ptavIds,           // PTAV IDs
+      combination: ptavIds,       // PTAV IDs
       add_qty: 1,
       parent_combination: [],
       pricelist_id: pricelistId || undefined,
     };
   }
 
+  // *** ÚNICO CAMBIO IMPORTANTE: resolver get_combination_info con rutas/fallbacks ***
   async function fetchCombination(ptavIds, root) {
     const args = comboArgs(ptavIds, root);
-    const PATHS = [
-      '/shop/product_configurator/get_combination_info',
-      '/website_sale/get_combination_info',
-      '/sale/get_combination_info',
-      '/shop/get_combination_info',
+
+    // 1) Controladores típicos (body plano, NO jsonrpc)
+    const plainEndpoints = [
+      '/shop/product_configurator/get_combination_info', // Odoo 18
+      '/shop/get_combination_info',                      // Odoo 16/17
+      '/website_sale/get_combination_info',              // alternativo
     ];
-    for (const p of PATHS) {
+    for (const ep of plainEndpoints) {
       try {
-        log('probando', p);
-        const r = await rpc(p, args);
-        if (r && (r.product_id || r.product_template_id)) return r;
+        log('probando', ep);
+        const res = await http(ep, args);
+        if (res.status === 404) { warn(ep, '404'); continue; }
+        if (!res.ok) { warn(ep, res.status); continue; }
+        const data = await res.json();
+        if (data && !data.error) return data;
+        if (data && data.error) { warn('respuesta con error en', ep, data.error); continue; }
       } catch (e) {
-        if (e.status === 404) continue;
-        console.warn('[SP] combinación por', p, 'falló:', e?.message || e, e?.rpc || '');
-        return null;
+        warn('falló', ep, e);
       }
     }
+
+    // 2) Fallback por JSON-RPC al ORM (llamada directa)
+    try {
+      const res = await http('/web/dataset/call_kw', {
+        jsonrpc: '2.0',
+        method: 'call',
+        params: {
+          model: 'product.template',
+          method: '_get_combination_info',
+          args: [
+            [args.product_template_id],    // recordset del template
+            args.combination,              // PTAV IDs
+            args.add_qty,                  // add_qty
+            false,                         // pricelist False -> usa contexto web
+            args.parent_combination || [], // parent
+          ],
+          kwargs: {},
+        },
+        id: Date.now(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.result) return data.result;
+        if (data && data.error) warn('RPC_ERROR', data.error);
+      }
+    } catch (e) {
+      err('call_kw _get_combination_info falló', e);
+    }
+
     return null;
   }
 
   async function getStock(variantId) {
     try {
-      const res = await rpc('/web/dataset/call_kw', {
-        model: 'product.product', method: 'read',
-        args: [[variantId], ['qty_available']], kwargs: {},
+      const res = await http('/web/dataset/call_kw', {
+        jsonrpc: '2.0',
+        method: 'call',
+        params: {
+          model: 'product.product', method: 'read',
+          args: [[variantId], ['qty_available']], kwargs: {},
+        },
+        id: Date.now(),
       });
-      return (res && res[0] && typeof res[0].qty_available === 'number') ? res[0].qty_available : null;
+      if (!res.ok) return null;
+      const data = await res.json();
+      return (data?.result?.[0]?.qty_available ?? null);
     } catch { return null; }
   }
   function fmtPrice(v) {
@@ -217,8 +253,9 @@
         const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
         const info = await fetchCombination(combo, root);
 
-        if (info && info.product_id) {
-          td.querySelector('.sp-qty').dataset.variantId = info.product_id;
+        if (info && (info.product_id || info.productId || info.product)) {
+          const variantId = parseInt(info.product_id || info.productId || info.product || '0', 10);
+          td.querySelector('.sp-qty').dataset.variantId = variantId;
 
           const price = (typeof info.price === 'number') ? info.price
                       : (typeof info.list_price === 'number') ? info.list_price
@@ -226,18 +263,18 @@
           if (price !== null) td.querySelector('.sp-price').textContent = fmtPrice(price);
 
           let stock = (info.stock_quantity !== undefined) ? info.stock_quantity : null;
-          if (stock === null) stock = await getStock(info.product_id);
+          if (stock === null && variantId) stock = await getStock(variantId);
           if (stock !== null) td.querySelector('.sp-stock').textContent = `Stock: ${stock}`;
 
           const img = td.closest('tr').querySelector('.sp-color__img');
-          if (img && !img.src) img.src = `/web/image/product.product/${info.product_id}/image_128`;
+          if (img && !img.src && variantId) img.src = `/web/image/product.product/${variantId}/image_128`;
         } else {
           td.classList.add('sp-unavailable');
         }
       }
     }
     await Promise.all(new Array(6).fill(0).map(worker));
-    log('matrix hidratada sp-matrix-2025-09-24b');
+    log('matrix hidratada', 'sp-matrix-' + new Date().toISOString().slice(0,10).replace(/-/g,'') + 'b');
   }
 
   // ---------- carrito ----------
