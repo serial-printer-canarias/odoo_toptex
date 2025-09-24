@@ -1,44 +1,44 @@
 /** SPW – Cart preview injector (imagen + píldora HEX) */
-odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [
-    'web.dom_ready',       // <- NECESARIO, si falta rompe el loader
-], function (require) {
+odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function (require) {
     'use strict';
 
-    const domReady = require('web.dom_ready');
+    // domReady opcional: si no existe en el bundle, usamos fallback
+    let domReady;
+    try {
+        domReady = require('web.dom_ready');
+    } catch (e) {
+        domReady = (cb) => {
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', cb, { once: true });
+            } else {
+                cb();
+            }
+        };
+    }
 
     // ----------- selectores robustos ----------
     const LINE_SEL = '.o_cart_product, .js_cart_lines tr, .o_wsale_cart_item, .cart_line';
     const INFO_SEL = '.o_wsale_product_information, .o_wsale_cart_description, .o_wsale_cart_item_description, .product-name, .oe_subdescription';
 
     // ----------- helpers ----------
-    function urlLineId() {
-        const m = location.search.match(/[?&]spw_line_id=(\d+)/);
-        return m ? m[1] : null;
-    }
-
     function getLineId(lineEl) {
-        if (!lineEl) return urlLineId();
-        // Busca id en elementos típicos de Odoo
-        const candidate =
+        if (!lineEl) return null;
+        const cand =
+            lineEl.getAttribute('data-line-id') ? lineEl :
             lineEl.querySelector('[data-line-id]') ||
             lineEl.querySelector('input[name="line_id"]') ||
-            lineEl.querySelector('button[data-line-id], a[data-line-id]') ||
-            lineEl.closest('[data-line-id]');
-        if (candidate) {
-            return candidate.getAttribute('data-line-id') ||
-                   candidate.getAttribute('data-id') ||
-                   candidate.value || urlLineId();
-        }
-        return urlLineId();
+            lineEl.querySelector('button[data-line-id], a[data-line-id]');
+        return cand
+            ? (cand.getAttribute?.('data-line-id') || cand.getAttribute?.('data-id') || cand.value || null)
+            : null;
     }
 
     function buildPreviewUrl(lineId) {
-        return lineId ? `/spw/line_preview/${lineId}.png` : null; // tu endpoint existente
+        return lineId ? `/spw/line_preview/${lineId}.png` : null;
     }
 
     function extractHexFrom(text) {
         if (!text) return null;
-        // Busca “SVG: #RRGGBB” en la descripción
         const m = text.match(/SVG\s*:\s*#([0-9a-fA-F]{3,8})/);
         return m ? `#${m[1]}` : null;
     }
@@ -92,10 +92,10 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [
             for (const m of mutations) {
                 m.addedNodes && m.addedNodes.forEach((n) => {
                     if (!(n instanceof HTMLElement)) return;
-                    if (n.matches && n.matches(LINE_SEL)) {
+                    if (n.matches?.(LINE_SEL)) {
                         injectInto(n);
-                    } else if (n.querySelectorAll) {
-                        n.querySelectorAll(LINE_SEL).forEach(injectInto);
+                    } else {
+                        n.querySelectorAll?.(LINE_SEL).forEach(injectInto);
                     }
                 });
             }
