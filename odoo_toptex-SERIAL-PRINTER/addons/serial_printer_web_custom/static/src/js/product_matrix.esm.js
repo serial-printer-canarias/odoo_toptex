@@ -1,11 +1,10 @@
-// SP Matrix – Odoo 18: hidrata precio/stock/foto y añade al carrito en bloque.
+// SP Matrix – Odoo 18 (PTAV-aware): precio, stock, foto y carrito en bloque
 (function () {
   'use strict';
 
-  // ------- util log (no requiere _sp) -------
   const log = (...a) => console.log('[SP]', ...a);
 
-  // ------- localizadores / ancla -------
+  // ---------- helpers de anclaje ----------
   function getJsProduct() {
     return document.querySelector('.o_wsale_product_page .js_product')
         || document.querySelector('.js_product')
@@ -20,27 +19,34 @@
     }
     const root = getJsProduct();
     if (!root) { document.body.appendChild(anchor); return anchor; }
-
     const attrs =
       root.querySelector('.js_attributes')
       || root.querySelector('ul.o_wsale_product_attribute')
       || root.querySelector('[data-attribute_name]')?.closest('.row, ul, div');
-
-    if (attrs) attrs.after(anchor);
-    else (root.querySelector('.product_price, .o_wsale_product_price_section') || root).after(anchor);
+    (attrs || root.querySelector('.product_price, .o_wsale_product_price_section') || root).after(anchor);
     return anchor;
   }
 
-  // ------- leer atributos (color/talla) -------
+  // ---------- leer bloques de atributos, capturando PTAV ----------
+  function readIds(inp) {
+    const d = inp.dataset || {};
+    const ptav =
+      parseInt(d.ptav || d.ptavId || d.productTemplateAttributeValueId || d.productTemplateAttributeValue || d.ptav_id || d.ptavl || '0', 10) || null;
+    const av =
+      parseInt(d.valueId || d.attributeValueId || inp.value || '0', 10) || null;
+    return { ptavId: ptav, avId: av };
+  }
   function getAttributeBlocks(root) {
     const blocks = [];
     root.querySelectorAll('[data-attribute_name]').forEach((el) => {
       const name = (el.getAttribute('data-attribute_name') || '').trim();
       const options = [];
       el.querySelectorAll('input[type="radio"],input[type="checkbox"]').forEach((inp) => {
-        const id = parseInt(inp.dataset.valueId || inp.dataset.attributeValueId || inp.value, 10);
+        const { ptavId, avId } = readIds(inp);
         const label = (inp.closest('label')?.textContent || inp.title || '').trim();
-        if (id) options.push({ id, name: label });
+        if (ptavId || avId) {
+          options.push({ name: label, ptavId, avId, id: ptavId || avId });
+        }
       });
       if (options.length) blocks.push({ name, options, el });
     });
@@ -56,7 +62,7 @@
     return { color, size };
   }
 
-  // ------- JSON-RPC helper -------
+  // ---------- JSON-RPC ----------
   async function rpc(url, params) {
     const res = await fetch(url, {
       method: 'POST',
@@ -70,18 +76,25 @@
     return data.result;
   }
 
-  // ------- combo/stock -------
-  function comboArgs(avIds, root) {
+  // ---------- combinación / stock ----------
+  function comboArgs(ptavIds, root) {
     const tmplId = parseInt(
       root.querySelector('[data-product-template-id]')?.dataset.productTemplateId
       || root.querySelector('input[name="product_template_id"]')?.value
       || root.querySelector('input[name="product_id"]')?.value || 0, 10);
     const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || 0, 10);
-    return { product_template_id: tmplId || undefined, product_id: 0, combination: avIds, add_qty: 1,
-             parent_combination: [], pricelist_id: pricelistId || undefined };
+    return {
+      product_template_id: tmplId || undefined,
+      product_id: 0,
+      // En Odoo 17/18 deben ser PTAV IDs:
+      combination: ptavIds,
+      add_qty: 1,
+      parent_combination: [],
+      pricelist_id: pricelistId || undefined,
+    };
   }
-  async function fetchCombination(avIds, root) {
-    const args = comboArgs(avIds, root);
+  async function fetchCombination(ptavIds, root) {
+    const args = comboArgs(ptavIds, root);
     try {
       return await rpc('/shop/get_combination_info', { args: [args], kwargs: {} });
     } catch {
@@ -106,14 +119,13 @@
     } catch { return (Math.round(v * 100) / 100).toFixed(2); }
   }
 
-  // ------- pintar tabla -------
+  // ---------- construir tabla ----------
   async function buildMatrix() {
     const root = getJsProduct();
     if (!root) return;
 
     const blocks = getAttributeBlocks(root);
     if (blocks.length < 2) return;
-
     const { color, size } = pickColorAndSize(blocks);
     if (!color || !size) return;
 
@@ -131,7 +143,9 @@
 
     const tbody = document.createElement('tbody');
     color.options.forEach(c => {
-      const tr = document.createElement('tr'); tr.dataset.colorId = c.id;
+      const tr = document.createElement('tr');
+      tr.dataset.colorPtav = c.ptavId || '';
+      tr.dataset.colorId   = c.id || '';
       tr.innerHTML = `
         <th class="sp-sticky-left">
           <div class="sp-color">
@@ -140,11 +154,15 @@
           </div>
         </th>`;
       size.options.forEach(s => {
-        const td = document.createElement('td'); td.dataset.sizeId = s.id;
+        const td = document.createElement('td');
+        td.dataset.sizePtav = s.ptavId || '';
+        td.dataset.sizeId   = s.id || '';
         td.innerHTML = `
           <div class="sp-cell">
-            <input class="sp-qty" type="number" min="0" step="1" data-color-id="${c.id}" data-size-id="${s.id}">
-            <div class="sp-meta"><span class="sp-price"></span><span class="sp-stock"></span></div>
+            <input class="sp-qty" type="number" min="0" step="1"
+                   data-color-ptav="${c.ptavId || ''}" data-size-ptav="${s.ptavId || ''}"
+                   data-color-id="${c.id || ''}" data-size-id="${s.id || ''}">
+            <div class="sp-meta"><span class="sp-price">—</span><span class="sp-stock">—</span></div>
           </div>`;
         tr.appendChild(td);
       });
@@ -164,7 +182,7 @@
     btn.addEventListener('click', () => addAllToCart(wrap));
   }
 
-  // ------- hidratar celdas -------
+  // ---------- hidratar ----------
   async function hydrateCells(container, root) {
     const cells = Array.from(container.querySelectorAll('td'));
     const queue = cells.slice();
@@ -172,10 +190,15 @@
     async function worker() {
       while (queue.length) {
         const td = queue.shift();
-        const colorId = parseInt(td.closest('tr').dataset.colorId, 10);
-        const sizeId  = parseInt(td.dataset.sizeId, 10);
+        const cPT = parseInt(td.dataset.size ? td.closest('tr').dataset.colorPtav : td.dataset.colorPtav || td.closest('tr').dataset.colorPtav || '0', 10)
+                 || parseInt(td.dataset.colorPtav || td.closest('tr').dataset.colorPtav || '0', 10)
+                 || parseInt(td.dataset.colorId   || td.closest('tr').dataset.colorId   || '0', 10);
+        const sPT = parseInt(td.dataset.sizePtav || '0', 10)
+                 || parseInt(td.dataset.sizeId   || '0', 10);
 
-        const info = await fetchCombination([colorId, sizeId], root);
+        const combo = sPT ? [cPT, sPT] : [cPT];
+        const info = await fetchCombination(combo, root);
+
         if (info && info.product_id) {
           td.querySelector('.sp-qty').dataset.variantId = info.product_id;
 
@@ -192,14 +215,14 @@
           if (img && !img.src) img.src = `/web/image/product.product/${info.product_id}/image_128`;
         } else {
           td.classList.add('sp-unavailable');
-          td.querySelector('.sp-price').textContent = '—';
         }
       }
     }
     await Promise.all(new Array(6).fill(0).map(worker));
+    log('matrix hidratada');
   }
 
-  // ------- carrito en bloque -------
+  // ---------- carrito ----------
   function addAllToCart(container) {
     const inputs = container.querySelectorAll('.sp-qty');
     const ops = [];
@@ -219,11 +242,7 @@
     Promise.allSettled(ops).then(() => window.location.reload());
   }
 
-  // ------- boot -------
-  function start() {
-    if (document.querySelector('.o_wsale_product_page')) buildMatrix();
-  }
-  (document.readyState === 'loading')
-    ? document.addEventListener('DOMContentLoaded', start)
-    : start();
+  // ---------- boot ----------
+  function start() { if (document.querySelector('.o_wsale_product_page')) buildMatrix(); }
+  (document.readyState === 'loading') ? document.addEventListener('DOMContentLoaded', start) : start();
 })();
