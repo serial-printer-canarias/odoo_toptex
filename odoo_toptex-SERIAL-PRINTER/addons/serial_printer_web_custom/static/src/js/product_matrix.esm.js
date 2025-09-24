@@ -31,25 +31,14 @@
   function readIds(inp) {
     const d = inp.dataset || {};
     const ptav =
-      parseInt(
-        d.ptav || d.ptavId || d.ptav_id ||
-        d.productTemplateAttributeValueId ||
-        d.productTemplateAttributeValue ||
-        d.productTemplateAttributeValueId ||
-        '0', 10
-      ) || null;
+      parseInt(d.ptav || d.ptavId || d.productTemplateAttributeValueId || d.productTemplateAttributeValue || d.ptav_id || d.ptavl || '0', 10) || null;
     const av =
-      parseInt(
-        d.valueId || d.attributeValueId || d.attribute_value_id ||
-        inp.value || '0', 10
-      ) || null;
+      parseInt(d.valueId || d.attributeValueId || inp.value || '0', 10) || null;
     return { ptavId: ptav, avId: av };
   }
   function getAttributeBlocks(root) {
     const blocks = [];
-    const containers = root.querySelectorAll(
-      '[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]'
-    );
+    const containers = root.querySelectorAll('[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]');
     containers.forEach((el) => {
       const name = (el.getAttribute('data-attribute_name') || el.getAttribute('data-attribute-name') || '').trim();
       const options = [];
@@ -67,7 +56,6 @@
     const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || '');
     let color = blocks.find(b => isColor(b.name));
     let size  = blocks.find(b => isSize(b.name));
-    // Si sólo hay 1 bloque, fabricamos One Size sintético
     if (!size && blocks.length === 1) {
       size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null }], _synthetic: true };
       if (!color) color = blocks[0];
@@ -77,22 +65,31 @@
     return { color, size };
   }
 
-  // ---------- JSON-RPC ----------
-  async function rpc(url, params) {
+  // ---------- clientes HTTP ----------
+  async function postJson(url, payload) {
     const res = await fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params, id: Date.now() }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
-      throw new Error(`${url} HTTP ${res.status}`);
+      const txt = await res.text().catch(() => '');
+      throw new Error(`${url} HTTP ${res.status} ${txt?.slice(0,120)}`);
     }
-    const data = await res.json();
-    if (data.error) {
-      throw new Error(data.error?.message || 'RPC error');
-    }
-    return data.result;
+    return res.json();
+  }
+  // JSON-RPC clásico (como web.ajax.jsonRpc)
+  async function jsonRpc(url, params) {
+    const data = await postJson(url, { jsonrpc: '2.0', method: 'call', params: { args: [params], kwargs: {} }, id: Date.now() });
+    if (data?.error) throw new Error(data.error?.message || 'RPC error');
+    return data.result ?? data;
+  }
+  // Payload plano (algunos bundles lo esperan así)
+  async function plainRpc(url, params) {
+    const data = await postJson(url, params);
+    if (data?.error) throw new Error(data.error?.message || 'RPC error');
+    return data.result ?? data;
   }
 
   // ---------- combinación / stock ----------
@@ -105,36 +102,39 @@
     return {
       product_template_id: tmplId || undefined,
       product_id: 0,
-      // Odoo 17/18: IDs de PTAV
-      combination: ptavIds,
+      combination: ptavIds,          // PTAV IDs
       add_qty: 1,
       parent_combination: [],
       pricelist_id: pricelistId || undefined,
     };
   }
 
-  // *** IMPORTANTE: sólo usamos /shop/get_combination_info (adiós /sale/* y adiós 404) ***
   async function fetchCombination(ptavIds, root) {
-    const args = comboArgs(ptavIds, root);
-    try {
-      return await rpc('/shop/get_combination_info', args);
-    } catch (e) {
-      console.warn('[SP] get_combination_info falló', e, 'args:', args);
-      return null;
+    const params = comboArgs(ptavIds, root);
+    // Orden de intentos: /shop JSON-RPC -> /shop plano -> /sale JSON-RPC -> /sale plano
+    const attempts = [
+      () => jsonRpc('/shop/get_combination_info', params),
+      () => plainRpc('/shop/get_combination_info', params),
+      () => jsonRpc('/sale/get_combination_info', params),
+      () => plainRpc('/sale/get_combination_info', params),
+    ];
+    for (const fn of attempts) {
+      try { return await fn(); }
+      catch (e) { /* sigue al siguiente */ }
     }
+    return null;
   }
 
   async function getStock(variantId) {
     try {
-      const res = await rpc('/web/dataset/call_kw', {
+      const data = await jsonRpc('/web/dataset/call_kw', {
         model: 'product.product', method: 'read',
         args: [[variantId], ['qty_available']], kwargs: {},
       });
-      return (res && res[0] && typeof res[0].qty_available === 'number') ? res[0].qty_available : null;
-    } catch {
-      return null;
-    }
+      return (data && data[0] && typeof data[0].qty_available === 'number') ? data[0].qty_available : null;
+    } catch { return null; }
   }
+
   function fmtPrice(v) {
     try {
       const lang = document.documentElement.lang || 'es-ES';
@@ -220,7 +220,9 @@
                           parseInt(td.dataset.sizeId   || '0', 10);
 
         const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
-        const info = await fetchCombination(combo, root);
+        let info = null;
+        try { info = await fetchCombination(combo, root); }
+        catch (e) { info = null; }
 
         if (info && info.product_id) {
           td.querySelector('.sp-qty').dataset.variantId = info.product_id;
