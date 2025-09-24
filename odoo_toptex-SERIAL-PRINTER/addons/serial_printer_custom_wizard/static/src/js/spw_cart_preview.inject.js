@@ -1,116 +1,107 @@
-odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function (require) {
+/** SPW – Cart preview injector (imagen + píldora HEX) */
+odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', ['web.dom_ready'], function (domReady) {
     'use strict';
 
-    /* ========= helpers ========= */
-    const $$ = (root, sel) => Array.from(root.querySelectorAll(sel));
-    const onceFlag = 'data-spw-cart-preview-done';
-
-    function domReady(cb) {
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', cb, { once: true });
-        } else cb();
+    // ---- helpers -----------------------------------------------------------
+    function getLineEl(from) {
+        return (from.closest && (
+            from.closest('[data-line-id]') ||
+            from.closest('.o_cart_product') ||
+            from.closest('.js_cart_lines tr'))) || null;
     }
 
-    // Line root: funciona en plantillas clásicas y nuevas
-    function getLineRoot(node) {
-        return node.closest?.('[data-line-id], .o_cart_product, .o_wsale_cart_item, li.js_cart_line, tr[name="cart_line"]');
-    }
-    function getLineId(lineRoot) {
-        if (!lineRoot) return null;
-        return (
-            lineRoot.getAttribute('data-line-id') ||
-            lineRoot.dataset?.lineId ||
-            lineRoot.querySelector('input[name="line_id"]')?.value ||
-            null
-        );
-    }
-
-    // Contenedor de información donde pegamos el preview (varios fallbacks)
-    function getInfoContainer(lineRoot) {
-        if (!lineRoot) return null;
-        const sel = [
-            '.o_wsale_product_information',
-            '.o_cart_line_details',
-            '.o_cart_item_info',
-            '.media-body',
-            '.product_name, .o_wsale_product_name',
-        ].join(',');
-        return lineRoot.querySelector(sel) || lineRoot; // último recurso
-    }
-
-    // Busca color tipo “SVG: #112233” en el texto de la línea
-    function pickHex(lineRoot) {
-        const txt = (lineRoot.textContent || '').replace(/\s+/g, ' ');
-        const m = txt.match(/SVG\s*:\s*(#[0-9a-fA-F]{3,6})/);
+    function urlLineId() {
+        const m = location.search.match(/[?&]spw_line_id=(\d+)/);
         return m ? m[1] : null;
     }
 
-    // Construye y añade miniatura + píldora (evita duplicados)
-    function injectFor(lineRoot) {
-        if (!lineRoot || lineRoot.hasAttribute(onceFlag)) return;
-        const lineId = getLineId(lineRoot);
-        const infoEl = getInfoContainer(lineRoot);
-        if (!infoEl) return;
+    function getLineId(from) {
+        const el = getLineEl(from || document.body);
+        if (!el) return urlLineId() || null;
+        return el.getAttribute('data-line-id') || el.getAttribute('data-id') || urlLineId() || null;
+    }
+
+    function buildPreviewUrl(lineId) {
+        return lineId ? `/spw/line_preview/${lineId}.png` : null;
+    }
+
+    function extractHexFrom(text) {
+        if (!text) return null;
+        const m = text.match(/SVG\s*:\s*#([0-9a-fA-F]{3,8})/);
+        return m ? ('#' + m[1]) : null;
+    }
+
+    function injected(root) {
+        return !!root.querySelector('.spw-cart-preview');
+    }
+
+    // ---- inyección ---------------------------------------------------------
+    function injectInto(lineRoot) {
+        const info = lineRoot.querySelector(
+            '.o_wsale_product_information, .o_wsale_cart_description, .o_wsale_cart_item_description, .product-name'
+        ) || lineRoot;
+        if (!info || injected(info)) return;
+
+        const lineId = getLineId(info);
+        const url = buildPreviewUrl(lineId);
+        const hex = extractHexFrom(info.textContent || '');
 
         const wrap = document.createElement('div');
-        wrap.className = 'spw-cart-preview d-flex align-items-center mt-2';
-        wrap.style.gap = '8px';
-        wrap.style.flexWrap = 'wrap';
+        wrap.className = 'spw-cart-preview';
+        wrap.style.cssText = 'margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap';
 
-        // Miniatura PNG si tenemos lineId
-        if (lineId) {
-            const img = document.createElement('img');
-            img.src = `/spw/line_preview/${lineId}.png`;
+        if (url) {
+            const img = new Image();
+            img.src = url;
             img.alt = 'Personalización';
             img.loading = 'lazy';
-            img.style.maxWidth = '120px';
-            img.style.height = 'auto';
-            img.style.border = '1px solid #e5e7eb';
-            img.style.borderRadius = '6px';
+            img.style.cssText = 'max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px';
             wrap.appendChild(img);
         }
-
-        // Píldora de color (si existe HEX)
-        const hex = pickHex(lineRoot);
         if (hex) {
             const pill = document.createElement('span');
-            pill.title = `Color ${hex}`;
-            pill.style.display = 'inline-block';
-            pill.style.width = '16px';
-            pill.style.height = '16px';
-            pill.style.borderRadius = '9999px';
-            pill.style.border = '1px solid #e5e7eb';
+            pill.title = hex;
+            pill.style.cssText = 'display:inline-block;width:16px;height:16px;border-radius:9999px;border:1px solid #e5e7eb';
             pill.style.background = hex;
             wrap.appendChild(pill);
         }
 
-        if (wrap.children.length) {
-            infoEl.appendChild(wrap);
-            lineRoot.setAttribute(onceFlag, '1');
-        }
+        if (wrap.children.length) info.appendChild(wrap);
     }
 
-    // Recorre todas las líneas del carrito y aplica
-    function injectAll(root) {
-        root = root || document;
-        const lines = $$(
-            root,
-            '.o_cart_product, .o_wsale_cart_item, [data-line-id], li.js_cart_line, tr[name="cart_line"]'
-        );
-        lines.forEach(injectFor);
+    function initialInject() {
+        document.querySelectorAll('.o_cart_product, .js_cart_lines tr').forEach(injectInto);
+    }
+
+    function observeMutations() {
+        const target = document.querySelector('#o_cart, .o_wsale_products_main, .o_wsale_cart_summary') || document.body;
+        const mo = new MutationObserver((mutations) => {
+            for (const m of mutations) {
+                (m.addedNodes || []).forEach((n) => {
+                    if (!(n instanceof HTMLElement)) return;
+                    if (n.matches('.o_cart_product, .js_cart_lines tr')) {
+                        injectInto(n);
+                    } else {
+                        n.querySelectorAll && n.querySelectorAll('.o_cart_product, .js_cart_lines tr').forEach(injectInto);
+                    }
+                });
+            }
+        });
+        mo.observe(target, { childList: true, subtree: true });
     }
 
     function boot() {
-        // Ejecuta siempre (aunque el tema no marque el body), pero solo si hay líneas
-        injectAll(document);
-
-        // Reinyecta cuando Odoo toque el DOM (qty, ajax, etc.)
-        const target = document.querySelector('#wrapwrap') || document.body;
-        const mo = new MutationObserver(() => injectAll(document));
-        mo.observe(target, { childList: true, subtree: true });
-
-        console.log('[SPW] cart preview listo');
+        // Solo en carrito
+        if (!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines')) return;
+        initialInject();
+        observeMutations();
+        console.log('[SPW] cart preview injector listo');
     }
 
-    domReady(boot);
+    // domReady de Odoo + fallback por si acaso
+    if (typeof domReady === 'function') domReady(boot);
+    else if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+    else boot();
+
+    return {}; // módulo AMD bien formado
 });
