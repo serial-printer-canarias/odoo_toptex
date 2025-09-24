@@ -103,7 +103,7 @@
   }
   async function fetchCombination(ptavIds, root) {
     const args = comboArgs(ptavIds, root);
-    // >>> CLAVE: /shop/* espera campos planos (no args/kwargs)
+    // /shop/* espera campos planos (no args/kwargs)
     try {
       return await rpc('/shop/get_combination_info', args);
     } catch {
@@ -191,44 +191,88 @@
     btn.addEventListener('click', () => addAllToCart(wrap));
   }
 
-  // ---------- hidratar ----------
+  // ---------- hidratar (lee PTAV reales de los radios en la página) ----------
   async function hydrateCells(container, root) {
-    const cells = Array.from(container.querySelectorAll('td'));
-    const queue = cells.slice();
+    // helpers locales para mapear nombre → PTAV desde los radios de Odoo
+    const norm = (s) => (s || '').toString().trim().replace(/\s+/g, ' ').toUpperCase();
+    function findAttrContainer(re) {
+      const _root = getJsProduct() || document;
+      const nodes = _root.querySelectorAll('[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]');
+      for (const el of nodes) {
+        const n = (el.getAttribute('data-attribute_name') || el.getAttribute('data-attribute-name') || '').trim();
+        if (re.test(n)) return el;
+      }
+      return null;
+    }
+    function buildPTAVMap(containerEl) {
+      const map = new Map();
+      if (!containerEl) return map;
+      containerEl.querySelectorAll('input[type="radio"],input[type="checkbox"]').forEach((inp) => {
+        const lbl = norm(inp.closest('label')?.textContent || inp.title || '');
+        const d = inp.dataset || {};
+        const ptav = parseInt(
+          d.ptav || d.ptavId || d.productTemplateAttributeValueId ||
+          d.productTemplateAttributeValue || d.ptav_id || d.ptavl || inp.value || '0', 10
+        );
+        if (ptav) map.set(lbl, ptav);
+      });
+      return map;
+    }
 
-    async function worker() {
-      while (queue.length) {
-        const td = queue.shift();
-        const colorPtav = parseInt(td.closest('tr')?.dataset.colorPtav || '0', 10) ||
-                          parseInt(td.closest('tr')?.dataset.colorId   || '0', 10);
-        const sizePtav  = parseInt(td.dataset.sizePtav || '0', 10) ||
-                          parseInt(td.dataset.sizeId   || '0', 10);
+    // Mapear nombres de cabeceras/filas a PTAV reales
+    const colorCont = findAttrContainer(/color|couleur|farbe|colou?r|colore|kleur/i) || findAttrContainer(/./);
+    const sizeCont  = findAttrContainer(/size|talla|taille|größe|grosse|taglia|maat/i); // puede no existir
+    const colorMap  = buildPTAVMap(colorCont);
+    const sizeMap   = buildPTAVMap(sizeCont);
 
-        // 1D: sólo color
-        const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
-        const info = await fetchCombination(combo, root);
+    const table = container.querySelector('.sp-matrix__table');
+    if (!table) return;
 
-        if (info && info.product_id) {
-          td.querySelector('.sp-qty').dataset.variantId = info.product_id;
+    const sizeNames = [...table.querySelectorAll('thead th')].slice(1).map(th => th.textContent.trim());
+    const rows = [...table.querySelectorAll('tbody tr')];
+    const jobs = [];
 
+    for (const row of rows) {
+      const colorName = norm(row.querySelector('.sp-color__name')?.textContent);
+      const colorPTAV = colorMap.get(colorName) || parseInt(row.dataset.colorPtav || row.dataset.colorId || '0', 10) || 0;
+
+      const tds = [...row.querySelectorAll('td')];
+      tds.forEach((td, idx) => {
+        jobs.push((async () => {
+          const sizeLabel = sizeNames[idx] ? norm(sizeNames[idx]) : null;
+          const sizePTAV  = sizeLabel ? (sizeMap.get(sizeLabel) || 0) : 0;
+
+          const combo = sizePTAV ? [colorPTAV, sizePTAV] : [colorPTAV];
+          if (!combo[0]) { td.classList.add('sp-unavailable'); return; }
+
+          const info = await fetchCombination(combo, root);
+          if (!info || !info.product_id) { td.classList.add('sp-unavailable'); return; }
+
+          // Variant para carrito
+          td.querySelector('.sp-qty')?.setAttribute('data-variant-id', String(info.product_id));
+
+          // Precio
           const price = (typeof info.price === 'number') ? info.price
                       : (typeof info.list_price === 'number') ? info.list_price
                       : (typeof info.website_price === 'number') ? info.website_price : null;
           if (price !== null) td.querySelector('.sp-price').textContent = fmtPrice(price);
 
+          // Stock
           let stock = (info.stock_quantity !== undefined) ? info.stock_quantity : null;
           if (stock === null) stock = await getStock(info.product_id);
           if (stock !== null) td.querySelector('.sp-stock').textContent = `Stock: ${stock}`;
 
-          const img = td.closest('tr').querySelector('.sp-color__img');
-          if (img && !img.src) img.src = `/web/image/product.product/${info.product_id}/image_128`;
-        } else {
-          td.classList.add('sp-unavailable');
-        }
-      }
+          // Foto por color (una vez por fila)
+          const img = row.querySelector('.sp-color__img');
+          if (img && !img.getAttribute('src')) {
+            img.setAttribute('src', `/web/image/product.product/${info.product_id}/image_128`);
+          }
+        })());
+      });
     }
-    await Promise.all(new Array(6).fill(0).map(worker));
-    log('matrix hidratada');
+
+    await Promise.allSettled(jobs);
+    log('matrix hidratada ✔');
   }
 
   // ---------- carrito ----------
