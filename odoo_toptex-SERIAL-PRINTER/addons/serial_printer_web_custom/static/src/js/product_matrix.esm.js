@@ -1,4 +1,3 @@
-<script>
 // SP Matrix – Odoo 18 (PTAV-aware): precio, stock, foto y carrito en bloque
 (function () {
   'use strict';
@@ -39,7 +38,6 @@
   }
   function getAttributeBlocks(root) {
     const blocks = [];
-    // Odoo 17/18: ambos marcados
     const containers = root.querySelectorAll(
       '[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]'
     );
@@ -60,8 +58,6 @@
     const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || '');
     let color = blocks.find(b => isColor(b.name));
     let size  = blocks.find(b => isSize(b.name));
-
-    // Si sólo hay 1 bloque (p.ej. One Size oculto), fabricamos tamaño sintético
     if (!size && blocks.length === 1) {
       size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null }], _synthetic: true };
       if (!color) color = blocks[0];
@@ -79,18 +75,10 @@
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
       body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params: payload, id: Date.now() }),
     });
-    if (res.status === 404) {
-      const err = new Error('HTTP 404');
-      err.status = 404;
-      throw err;
-    }
+    if (res.status === 404) { const e = new Error('HTTP 404'); e.status = 404; throw e; }
     if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
     const data = await res.json();
-    if (data?.error) {
-      const e = new Error(data.error?.message || 'RPC error');
-      e.rpc = data.error;
-      throw e;
-    }
+    if (data?.error) { const e = new Error(data.error?.message || 'RPC error'); e.rpc = data.error; throw e; }
     return data.result;
   }
 
@@ -104,22 +92,20 @@
     return {
       product_template_id: tmplId || undefined,
       product_id: 0,
-      // En Odoo 17/18 deben ser PTAV IDs:
-      combination: ptavIds,
+      combination: ptavIds,           // PTAV IDs
       add_qty: 1,
       parent_combination: [],
       pricelist_id: pricelistId || undefined,
     };
   }
 
-  // >>> ÚNICO CAMBIO IMPORTANTE: probar rutas modernas primero y hacer fallback si 404
   async function fetchCombination(ptavIds, root) {
     const args = comboArgs(ptavIds, root);
     const PATHS = [
-      '/shop/product_configurator/get_combination_info', // Odoo 16/17/18 (Website)
-      '/website_sale/get_combination_info',              // Algunas instalaciones
-      '/sale/get_combination_info',                      // Fallback backend
-      '/shop/get_combination_info',                      // Legacy
+      '/shop/product_configurator/get_combination_info',
+      '/website_sale/get_combination_info',
+      '/sale/get_combination_info',
+      '/shop/get_combination_info',
     ];
     for (const p of PATHS) {
       try {
@@ -127,10 +113,9 @@
         const r = await rpc(p, args);
         if (r && (r.product_id || r.product_template_id)) return r;
       } catch (e) {
-        if (e.status === 404) { continue; } // probar siguiente ruta
+        if (e.status === 404) continue;
         console.warn('[SP] combinación por', p, 'falló:', e?.message || e, e?.rpc || '');
-        // si no es 404, paramos y devolvemos null para no bloquear
-        if (e && e.status !== 404) return null;
+        return null;
       }
     }
     return null;
@@ -229,7 +214,6 @@
         const sizePtav  = parseInt(td.dataset.sizePtav || '0', 10) ||
                           parseInt(td.dataset.sizeId   || '0', 10);
 
-        // 1D: sólo color
         const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
         const info = await fetchCombination(combo, root);
 
@@ -253,7 +237,7 @@
       }
     }
     await Promise.all(new Array(6).fill(0).map(worker));
-    log('matrix hidratada sp-matrix-2025-09-24a');
+    log('matrix hidratada sp-matrix-2025-09-24b');
   }
 
   // ---------- carrito ----------
@@ -280,4 +264,3 @@
   function start() { if (document.querySelector('.o_wsale_product_page')) buildMatrix(); }
   (document.readyState === 'loading') ? document.addEventListener('DOMContentLoaded', start) : start();
 })();
-</script>
