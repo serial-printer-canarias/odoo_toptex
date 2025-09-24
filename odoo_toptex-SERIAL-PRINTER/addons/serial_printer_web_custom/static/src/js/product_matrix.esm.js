@@ -1,5 +1,5 @@
 // SP Matrix – Odoo 18 (PTAV-aware): precio, stock, foto y carrito en bloque
-(() => {
+(function () {
   'use strict';
 
   const log = (...a) => console.log('[SP]', ...a);
@@ -27,19 +27,29 @@
     return anchor;
   }
 
-  // ---------- leer bloques de atributos (PTAV + AV) ----------
+  // ---------- leer bloques de atributos, capturando PTAV ----------
   function readIds(inp) {
     const d = inp.dataset || {};
     const ptav =
-      parseInt(d.ptav || d.ptavId || d.productTemplateAttributeValueId ||
-               d.productTemplateAttributeValue || d.ptav_id || d.ptavl || '0', 10) || null;
+      parseInt(
+        d.ptav || d.ptavId || d.ptav_id ||
+        d.productTemplateAttributeValueId ||
+        d.productTemplateAttributeValue ||
+        d.productTemplateAttributeValueId ||
+        '0', 10
+      ) || null;
     const av =
-      parseInt(d.valueId || d.attributeValueId || inp.value || '0', 10) || null;
+      parseInt(
+        d.valueId || d.attributeValueId || d.attribute_value_id ||
+        inp.value || '0', 10
+      ) || null;
     return { ptavId: ptav, avId: av };
   }
   function getAttributeBlocks(root) {
     const blocks = [];
-    const containers = root.querySelectorAll('[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]');
+    const containers = root.querySelectorAll(
+      '[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]'
+    );
     containers.forEach((el) => {
       const name = (el.getAttribute('data-attribute_name') || el.getAttribute('data-attribute-name') || '').trim();
       const options = [];
@@ -57,8 +67,9 @@
     const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || '');
     let color = blocks.find(b => isColor(b.name));
     let size  = blocks.find(b => isSize(b.name));
+    // Si sólo hay 1 bloque, fabricamos One Size sintético
     if (!size && blocks.length === 1) {
-      size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null, avId: null }], _synthetic: true };
+      size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null }], _synthetic: true };
       if (!color) color = blocks[0];
     }
     if (!color && blocks.length) color = blocks[0];
@@ -66,105 +77,63 @@
     return { color, size };
   }
 
-  // ---------- HTTP helpers ----------
-  async function httpPlain(url, payload) {
+  // ---------- JSON-RPC ----------
+  async function rpc(url, params) {
     const res = await fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params, id: Date.now() }),
     });
-    if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
+    if (!res.ok) {
+      throw new Error(`${url} HTTP ${res.status}`);
+    }
     const data = await res.json();
-    return data?.result ?? data;
-  }
-  async function httpRpc(url, payload) {
-    return httpPlain(url, { jsonrpc: '2.0', method: 'call', params: payload, id: Date.now() });
+    if (data.error) {
+      throw new Error(data.error?.message || 'RPC error');
+    }
+    return data.result;
   }
 
-  // ---------- datos de producto ----------
-  function currentTemplateId(root) {
-    return parseInt(
+  // ---------- combinación / stock ----------
+  function comboArgs(ptavIds, root) {
+    const tmplId = parseInt(
       root.querySelector('[data-product-template-id]')?.dataset.productTemplateId
       || root.querySelector('input[name="product_template_id"]')?.value
       || root.querySelector('input[name="product_id"]')?.value || 0, 10);
-  }
-  function comboArgs(ids, root) {
-    const tmplId = currentTemplateId(root);
     const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || 0, 10);
     return {
       product_template_id: tmplId || undefined,
       product_id: 0,
-      combination: ids, // PTAV preferido
+      // Odoo 17/18: IDs de PTAV
+      combination: ptavIds,
       add_qty: 1,
       parent_combination: [],
       pricelist_id: pricelistId || undefined,
     };
   }
-  async function fetchCombinationWith(ids, root) {
-    const args = comboArgs(ids, root);
-    const tries = [
-      () => httpPlain('/shop/get_combination_info', args),
-      () => httpRpc('/shop/get_combination_info', args),
-      () => httpPlain('/sale/get_combination_info', args),
-      () => httpRpc('/sale/get_combination_info', args),
-    ];
-    for (const t of tries) {
-      try {
-        const res = await t();
-        if (res && (res.product_id || res.product_template_id)) return res;
-      } catch { /* siguiente */ }
-    }
-    return null;
-  }
-  // Fallback fuerte: encontrar variante por PTAV/AV con search_read
-  async function searchVariantFallback(root, { cPTAV, sPTAV, cAV, sAV }) {
-    const tmplId = currentTemplateId(root);
-    const domain = [['product_tmpl_id', '=', tmplId]];
-    if (cPTAV) domain.push(['product_template_attribute_value_ids', 'in', [cPTAV]]);
-    if (sPTAV) domain.push(['product_template_attribute_value_ids', 'in', [sPTAV]]);
-    // si no hay PTAV, probamos por AV (campo many2many en producto 17/18: product_variant_value_ids o attribute_value_ids según versión)
-    const altFields = ['product_variant_value_ids', 'attribute_value_ids'];
-    const fields = ['id', 'list_price', 'qty_available', 'image_128'];
-    // primer intento por PTAV
+
+  // *** IMPORTANTE: sólo usamos /shop/get_combination_info (adiós /sale/* y adiós 404) ***
+  async function fetchCombination(ptavIds, root) {
+    const args = comboArgs(ptavIds, root);
     try {
-      const res = await httpRpc('/web/dataset/call_kw', {
-        model: 'product.product', method: 'search_read',
-        args: [domain], kwargs: { fields, limit: 1 },
-      });
-      if (Array.isArray(res) && res.length) return {
-        product_id: res[0].id,
-        price: res[0].list_price,
-        stock_quantity: res[0].qty_available,
-      };
-    } catch { /* siguiente */ }
-    // segundo intento por AV
-    for (const f of altFields) {
-      const d2 = [['product_tmpl_id', '=', tmplId]];
-      if (cAV) d2.push([f, 'in', [cAV]]);
-      if (sAV) d2.push([f, 'in', [sAV]]);
-      try {
-        const res2 = await httpRpc('/web/dataset/call_kw', {
-          model: 'product.product', method: 'search_read',
-          args: [d2], kwargs: { fields, limit: 1 },
-        });
-        if (Array.isArray(res2) && res2.length) return {
-          product_id: res2[0].id,
-          price: res2[0].list_price,
-          stock_quantity: res2[0].qty_available,
-        };
-      } catch { /* seguir */ }
+      return await rpc('/shop/get_combination_info', args);
+    } catch (e) {
+      console.warn('[SP] get_combination_info falló', e, 'args:', args);
+      return null;
     }
-    return null;
   }
+
   async function getStock(variantId) {
     try {
-      const res = await httpRpc('/web/dataset/call_kw', {
+      const res = await rpc('/web/dataset/call_kw', {
         model: 'product.product', method: 'read',
         args: [[variantId], ['qty_available']], kwargs: {},
       });
       return (res && res[0] && typeof res[0].qty_available === 'number') ? res[0].qty_available : null;
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   }
   function fmtPrice(v) {
     try {
@@ -200,8 +169,7 @@
     color.options.forEach(c => {
       const tr = document.createElement('tr');
       tr.dataset.colorPtav = c.ptavId || '';
-      tr.dataset.colorAv   = c.avId   || '';
-      tr.dataset.colorId   = c.id     || '';
+      tr.dataset.colorId   = c.id || '';
       tr.innerHTML = `
         <th class="sp-sticky-left">
           <div class="sp-color">
@@ -212,8 +180,7 @@
       size.options.forEach(s => {
         const td = document.createElement('td');
         td.dataset.sizePtav = s.ptavId || '';
-        td.dataset.sizeAv   = s.avId   || '';
-        td.dataset.sizeId   = s.id     || '';
+        td.dataset.sizeId   = s.id || '';
         td.innerHTML = `
           <div class="sp-cell">
             <input class="sp-qty" type="number" min="0" step="1"
@@ -247,25 +214,13 @@
     async function worker() {
       while (queue.length) {
         const td = queue.shift();
+        const colorPtav = parseInt(td.closest('tr')?.dataset.colorPtav || '0', 10) ||
+                          parseInt(td.closest('tr')?.dataset.colorId   || '0', 10);
+        const sizePtav  = parseInt(td.dataset.sizePtav || '0', 10) ||
+                          parseInt(td.dataset.sizeId   || '0', 10);
 
-        const cPTAV = parseInt(td.closest('tr')?.dataset.colorPtav || '0', 10)
-                   || parseInt(td.closest('tr')?.dataset.colorId   || '0', 10);
-        const sPTAV = parseInt(td.dataset.sizePtav || '0', 10)
-                   || parseInt(td.dataset.sizeId   || '0', 10);
-        const cAV   = parseInt(td.closest('tr')?.dataset.colorAv || '0', 10) || 0;
-        const sAV   = parseInt(td.dataset.sizeAv || '0', 10) || 0;
-
-        // 1) combo por PTAV / AV
-        let combo = sPTAV > 0 ? [cPTAV, sPTAV] : [cPTAV];
-        let info = await fetchCombinationWith(combo, root);
-        if ((!info || !info.product_id) && (cAV || sAV)) {
-          combo = sAV > 0 ? [cAV, sAV] : [cAV];
-          info = await fetchCombinationWith(combo, root);
-        }
-        // 2) fallback por search_read
-        if (!info || !info.product_id) {
-          info = await searchVariantFallback(root, { cPTAV, sPTAV, cAV, sAV });
-        }
+        const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
+        const info = await fetchCombination(combo, root);
 
         if (info && info.product_id) {
           td.querySelector('.sp-qty').dataset.variantId = info.product_id;
@@ -286,7 +241,6 @@
         }
       }
     }
-
     await Promise.all(new Array(6).fill(0).map(worker));
     log('matrix hidratada');
   }
@@ -310,23 +264,6 @@
     if (!ops.length) return;
     Promise.allSettled(ops).then(() => window.location.reload());
   }
-
-  // ---------- debug util ----------
-  window._sp = {
-    debug: {
-      blocks: () => getAttributeBlocks(getJsProduct()),
-      test: async () => {
-        const root = getJsProduct();
-        const { color, size } = pickColorAndSize(getAttributeBlocks(root));
-        const c = color?.options?.[0]; const s = size?.options?.[0];
-        if (!c) return console.warn('[SP] sin opciones');
-        const ids = [c.ptavId || c.id].concat(s ? [s.ptavId || s.id] : []);
-        const r = await fetchCombinationWith(ids, root);
-        console.log('[SP] test combo ->', ids, r);
-        return r;
-      },
-    },
-  };
 
   // ---------- boot ----------
   function start() { if (document.querySelector('.o_wsale_product_page')) buildMatrix(); }
