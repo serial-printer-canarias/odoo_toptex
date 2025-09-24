@@ -15,22 +15,64 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     const INFO_SEL =
         '.o_wsale_product_information, .o_wsale_cart_description, .o_wsale_cart_item_description, .product-name, .oe_subdescription';
 
-    // Si el backend no expone contador, probamos hasta N archivos.
-    const MAX_GUESS = 8;
+    const MAX_GUESS = 8; // si el backend no nos dice cuántas previews hay
 
     // -------- helpers -----------------------
+    function urlLineIdFallback() {
+        const m = location.search && location.search.match(/[?&]spw_line_id=(\d+)/);
+        return m ? m[1] : null;
+    }
+
+    // Intenta sacar un número “razonable” de un string
+    function parseId(v) {
+        if (!v) return null;
+        const m = String(v).match(/\d+/);
+        const n = m ? parseInt(m[0], 10) : NaN;
+        return Number.isFinite(n) && n > 0 ? String(n) : null;
+    }
+
+    // Cazador de line_id ultra tolerante para desktop/móvil
     function getLineId(lineEl) {
-        if (!lineEl) return null;
-        const cand =
-            lineEl.getAttribute('data-line-id') ? lineEl :
-            lineEl.querySelector('[data-line-id]') ||
-            lineEl.querySelector('input[name="line_id"]') ||
-            lineEl.querySelector('button[data-line-id], a[data-line-id]');
-        return cand
-            ? (cand.getAttribute?.('data-line-id') ||
-               cand.getAttribute?.('data-id') ||
-               cand.value || null)
-            : null;
+        if (!lineEl) return urlLineIdFallback();
+
+        // 1) Atributos directos
+        const direct = parseId(lineEl.getAttribute('data-line-id')) ||
+                       parseId(lineEl.getAttribute('data-id'));
+        if (direct) return direct;
+
+        // 2) Inputs/button/anchor dentro de la línea
+        const cand = lineEl.querySelector([
+            '[data-line-id]',
+            '[data-id]',
+            'input[name="line_id"]',
+            'button[data-line-id]',
+            'a[data-line-id]',
+            // Odoo a veces guarda el id en data-oe-id o en name/value
+            '[data-oe-id]',
+            'input[name="line_id"][value]',
+        ].join(','));
+
+        const viaChild = cand &&
+            (parseId(cand.getAttribute('data-line-id')) ||
+             parseId(cand.getAttribute('data-id')) ||
+             parseId(cand.getAttribute('data-oe-id')) ||
+             parseId(cand.value));
+
+        if (viaChild) return viaChild;
+
+        // 3) Algunos +/- llevan atributos en botones distintos
+        const qtyGroup = lineEl.querySelector('.css_quantity, .o_wsale_cart_quantity, .input-group');
+        if (qtyGroup) {
+            const btnId = qtyGroup.querySelector('button[data-line-id], a[data-line-id]');
+            const viaBtn = btnId && parseId(btnId.getAttribute('data-line-id'));
+            if (viaBtn) return viaBtn;
+            const hidden = qtyGroup.querySelector('input[name="line_id"][value]');
+            const viaHidden = hidden && parseId(hidden.value);
+            if (viaHidden) return viaHidden;
+        }
+
+        // 4) Como último recurso, parámetro en URL (cuando se llega con ?spw_line_id=…)
+        return urlLineIdFallback();
     }
 
     function uniq(arr) { const s = new Set(); return arr.filter(v => !s.has(v) && s.add(v)); }
@@ -38,7 +80,7 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     function candidateUrls(lineId, infoEl) {
         if (!lineId) return [];
         const base = `/spw/line_preview/${lineId}`;
-        const urls = [`${base}.png`]; // compatibilidad: “la última”
+        const urls = [`${base}.png`]; // compatibilidad con “la última”
         const countAttr = parseInt(infoEl.getAttribute('data-spw-previews') || '0', 10) || 0;
         const max = countAttr > 0 ? countAttr : MAX_GUESS;
         for (let i = 1; i <= max; i++) urls.push(`${base}-${i}.png`);
@@ -79,7 +121,7 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
             }
         };
 
-        // 1) Píldoras primero (así aunque no haya imágenes, se ve algo)
+        // Píldoras primero
         hexes.forEach((hex) => {
             const pill = document.createElement('span');
             pill.title = hex;
@@ -90,7 +132,7 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
             ensureAppend();
         });
 
-        // 2) Imágenes (sólo se añaden si EXISTEN)
+        // Imágenes (sólo si existen)
         urls.forEach((u) => {
             const img = new Image();
             img.alt = 'Personalización';
@@ -101,6 +143,8 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
             img.onerror = () => {}; // ignorar 404
             img.src = u;
         });
+
+        // Si no hay nada, no insertamos (mantener DOM limpio)
     }
 
     function initialInject() {
@@ -127,10 +171,11 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     }
 
     function boot() {
+        // Sólo actuamos en carrito
         if (!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines')) return;
         initialInject();
         observeMutations();
-        console.log('[SPW] cart preview injector listo (fix append inmediato)');
+        console.log('[SPW] cart preview injector listo (line_id robusto)');
     }
 
     onReady(boot);
