@@ -38,6 +38,7 @@
   }
   function getAttributeBlocks(root) {
     const blocks = [];
+    // Odoo 17/18: ambos marcados
     const containers = root.querySelectorAll(
       '[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]'
     );
@@ -58,6 +59,8 @@
     const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || '');
     let color = blocks.find(b => isColor(b.name));
     let size  = blocks.find(b => isSize(b.name));
+
+    // Si sólo hay 1 bloque (p.ej. One Size oculto), fabricamos tamaño sintético
     if (!size && blocks.length === 1) {
       size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null }], _synthetic: true };
       if (!color) color = blocks[0];
@@ -67,33 +70,18 @@
     return { color, size };
   }
 
-  // ---------- helpers RPC ----------
-  async function jsonRpc(url, params) {
+  // ---------- JSON-RPC ----------
+  async function rpc(url, payload) {
     const res = await fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params, id: Date.now() }),
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params: payload, id: Date.now() }),
     });
     if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
     const data = await res.json();
     if (data.error) throw new Error(data.error?.message || 'RPC error');
     return data.result;
-  }
-  function jsonRpcArgs(url, args) {
-    return jsonRpc(url, { args: [args], kwargs: {} });
-  }
-
-  // ---------- contexto web ----------
-  function getPageCtx() {
-    const html = document.documentElement;
-    const body = document.body;
-    const lang = html.getAttribute('lang') || 'es_ES';
-    const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || '0', 10) || false;
-    const websiteId =
-      parseInt(html.dataset.websiteId || body.dataset.websiteId || '0', 10) || false;
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
-    return { lang, pricelist: pricelistId || undefined, website_id: websiteId || undefined, tz };
   }
 
   // ---------- combinación / stock ----------
@@ -106,6 +94,7 @@
     return {
       product_template_id: tmplId || undefined,
       product_id: 0,
+      // En Odoo 17/18 deben ser PTAV IDs:
       combination: ptavIds,
       add_qty: 1,
       parent_combination: [],
@@ -113,52 +102,45 @@
     };
   }
 
-  // >>> Ruta robusta sin depender de endpoints web (404)
+  // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  // ÚNICO CAMBIO: usar /web/dataset/call_kw con args = [[tmpl_id]]
   async function fetchCombination(ptavIds, root) {
     const P = comboArgs(ptavIds, root);
-    const ctx = getPageCtx();
+    const KW = {
+      product_id: P.product_id || 0,
+      combination: P.combination || [],
+      add_qty: P.add_qty || 1,
+      parent_combination: P.parent_combination || [],
+      pricelist_id: P.pricelist_id || undefined,
+    };
 
-    // 1) probar método público
     try {
-      return await jsonRpc('/web/dataset/call_kw', {
+      return await rpc('/web/dataset/call_kw', {
         model: 'product.template',
         method: 'get_combination_info',
-        args: [P.product_template_id],
-        kwargs: {
-          product_id: P.product_id || 0,
-          combination: P.combination || [],
-          add_qty: P.add_qty || 1,
-          parent_combination: P.parent_combination || [],
-          pricelist_id: P.pricelist_id || undefined,
-        },
-        context: ctx,
+        args: [[P.product_template_id]],   // ¡Importante!: lista de ids
+        kwargs: KW,
       });
-    } catch (e) {
-      // 2) fallback a método interno (algunas instancias sólo exponen este)
+    } catch (e1) {
+      console.warn('[SP] combination por get_combination_info falló:', e1.message);
       try {
-        return await jsonRpc('/web/dataset/call_kw', {
+        return await rpc('/web/dataset/call_kw', {
           model: 'product.template',
           method: '_get_combination_info',
-          args: [P.product_template_id],
-          kwargs: {
-            product_id: P.product_id || 0,
-            combination: P.combination || [],
-            add_qty: P.add_qty || 1,
-            parent_combination: P.parent_combination || [],
-            pricelist_id: P.pricelist_id || undefined,
-          },
-          context: ctx,
+          args: [[P.product_template_id]],
+          kwargs: KW,
         });
       } catch (e2) {
-        console.warn('[SP] combination por call_kw falló:', e2.message);
+        console.warn('[SP] combination por _get_combination_info falló:', e2.message);
         return null;
       }
     }
   }
+  // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
   async function getStock(variantId) {
     try {
-      const res = await jsonRpc('/web/dataset/call_kw', {
+      const res = await rpc('/web/dataset/call_kw', {
         model: 'product.product', method: 'read',
         args: [[variantId], ['qty_available']], kwargs: {},
       });
@@ -249,15 +231,16 @@
         const sizePtav  = parseInt(td.dataset.sizePtav || '0', 10) ||
                           parseInt(td.dataset.sizeId   || '0', 10);
 
+        // 1D: sólo color
         const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
         const info = await fetchCombination(combo, root);
 
         if (info && info.product_id) {
           td.querySelector('.sp-qty').dataset.variantId = info.product_id;
 
-          const price = (typeof info.website_price === 'number') ? info.website_price
-                      : (typeof info.price === 'number') ? info.price
-                      : (typeof info.list_price === 'number') ? info.list_price : null;
+          const price = (typeof info.price === 'number') ? info.price
+                      : (typeof info.list_price === 'number') ? info.list_price
+                      : (typeof info.website_price === 'number') ? info.website_price : null;
           if (price !== null) td.querySelector('.sp-price').textContent = fmtPrice(price);
 
           let stock = (info.stock_quantity !== undefined) ? info.stock_quantity : null;
