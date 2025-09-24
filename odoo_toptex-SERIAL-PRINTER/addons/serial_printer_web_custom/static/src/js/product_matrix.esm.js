@@ -80,11 +80,10 @@
     if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
     const data = await res.json();
     if (data.error) {
-      // Mostrar todo lo posible del error para depurar rápido
       err('RPC ERROR', {
         message: data.error.message,
         code: data.error.code,
-        dataMessage: data.error.data && (data.error.data.message || data.error.data.name),
+        datamessage: data.error.data && (data.error.data.message || data.error.data.name),
         debug: data.error.data && data.error.data.debug,
       });
       throw new Error(data.error.message || (data.error.data && data.error.data.message) || 'RPC error');
@@ -109,49 +108,36 @@
     };
   }
 
-  // ÚNICO punto sensible: invocar call_kw con kwargs completas y context
+  // *** AQUÍ el cambio: usar call_kw a get_combination_info con kwargs correctas (pricelist) y sin fallback privado ***
   async function fetchCombination(ptavIds, root) {
     const P = comboArgs(ptavIds, root);
 
-    // kwargs “completas” que esperan los métodos de Odoo 17/18
+    const ctx =
+      (window.odoo && (odoo.session_info?.user_context || odoo.__session_info__?.user_context))
+      || {};
+
     const KW = {
       combination: P.combination || [],
-      product_id:  P.product_id || 0,
+      product_id:  P.product_id || false,
       add_qty:     P.add_qty || 1,
       parent_combination: P.parent_combination || [],
-      pricelist_id: P.pricelist_id || undefined,
+      pricelist: P.pricelist_id || ctx.pricelist || ctx.pricelist_id || false, // <- clave correcta
       only_template: true,
       no_variant_attribute_values: [],
       variant_values: [],
     };
 
-    // contexto de sesión si existe (idioma, website, lista de precios…)
-    const ctx =
-      (window.odoo && (odoo.session_info?.user_context || odoo.__session_info__?.user_context))
-      || {};
-
     try {
       return await rpc('/web/dataset/call_kw', {
         model: 'product.template',
         method: 'get_combination_info',
-        args: [[P.product_template_id]],  // importante: lista de ids
+        args: [[P.product_template_id]],
         kwargs: KW,
         context: ctx,
       });
-    } catch (e1) {
-      warn('combination por get_combination_info falló:', e1.message);
-      try {
-        return await rpc('/web/dataset/call_kw', {
-          model: 'product.template',
-          method: '_get_combination_info',
-          args: [[P.product_template_id]],
-          kwargs: KW,
-          context: ctx,
-        });
-      } catch (e2) {
-        warn('combination por _get_combination_info falló:', e2.message);
-        return null;
-      }
+    } catch (e) {
+      warn('combination por get_combination_info falló:', e.message);
+      return null; // nada de _get_combination_info (privado)
     }
   }
 
