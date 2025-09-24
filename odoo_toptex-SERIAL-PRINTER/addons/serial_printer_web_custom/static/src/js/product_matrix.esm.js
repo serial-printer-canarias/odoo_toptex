@@ -2,7 +2,9 @@
 (function () {
   'use strict';
 
+  const DEBUG = true;
   const log = (...a) => console.log('[SP]', ...a);
+  const warn = (...a) => console.warn('[SP]', ...a);
 
   // ---------- helpers de anclaje ----------
   function getJsProduct() {
@@ -79,14 +81,22 @@
     }
     return res.json();
   }
-  // JSON-RPC clásico (como web.ajax.jsonRpc)
   async function jsonRpc(url, params) {
-    const data = await postJson(url, { jsonrpc: '2.0', method: 'call', params: { args: [params], kwargs: {} }, id: Date.now() });
+    const payload = { jsonrpc: '2.0', method: 'call', params, id: Date.now() };
+    if (DEBUG) log('RPC JSON', url, params);
+    const data = await postJson(url, payload);
     if (data?.error) throw new Error(data.error?.message || 'RPC error');
     return data.result ?? data;
   }
-  // Payload plano (algunos bundles lo esperan así)
+  async function jsonRpcArgs(url, params) {
+    const payload = { jsonrpc: '2.0', method: 'call', params: { args: [params], kwargs: {} }, id: Date.now() };
+    if (DEBUG) log('RPC JSON(args)', url, params);
+    const data = await postJson(url, payload);
+    if (data?.error) throw new Error(data.error?.message || 'RPC error');
+    return data.result ?? data;
+  }
   async function plainRpc(url, params) {
+    if (DEBUG) log('RPC plain', url, params);
     const data = await postJson(url, params);
     if (data?.error) throw new Error(data.error?.message || 'RPC error');
     return data.result ?? data;
@@ -102,7 +112,7 @@
     return {
       product_template_id: tmplId || undefined,
       product_id: 0,
-      combination: ptavIds,          // PTAV IDs
+      combination: ptavIds,
       add_qty: 1,
       parent_combination: [],
       pricelist_id: pricelistId || undefined,
@@ -110,17 +120,31 @@
   }
 
   async function fetchCombination(ptavIds, root) {
-    const params = comboArgs(ptavIds, root);
-    // Orden de intentos: /shop JSON-RPC -> /shop plano -> /sale JSON-RPC -> /sale plano
+    const P = comboArgs(ptavIds, root);
+
+    // Intentos (ordenado del más común al menos común)
     const attempts = [
-      () => jsonRpc('/shop/get_combination_info', params),
-      () => plainRpc('/shop/get_combination_info', params),
-      () => jsonRpc('/sale/get_combination_info', params),
-      () => plainRpc('/sale/get_combination_info', params),
+      () => jsonRpc('/shop/get_combination_info', P),
+      () => plainRpc('/shop/get_combination_info', P),
+      () => jsonRpcArgs('/shop/get_combination_info', P),
+
+      () => jsonRpc('/sale/get_combination_info', P),
+      () => plainRpc('/sale/get_combination_info', P),
+      () => jsonRpcArgs('/sale/get_combination_info', P),
+
+      () => jsonRpc('/website_sale/get_combination_info', P),
+      () => plainRpc('/website_sale/get_combination_info', P),
+      () => jsonRpcArgs('/website_sale/get_combination_info', P),
     ];
+
     for (const fn of attempts) {
-      try { return await fn(); }
-      catch (e) { /* sigue al siguiente */ }
+      try {
+        const r = await fn();
+        if (DEBUG) log('✓ get_combination_info OK', r);
+        return r;
+      } catch (e) {
+        if (DEBUG) warn('✗ get_combination_info falló:', e.message);
+      }
     }
     return null;
   }
@@ -240,6 +264,7 @@
           if (img && !img.src) img.src = `/web/image/product.product/${info.product_id}/image_128`;
         } else {
           td.classList.add('sp-unavailable');
+          if (DEBUG) warn('Sin combinación válida para', combo);
         }
       }
     }
