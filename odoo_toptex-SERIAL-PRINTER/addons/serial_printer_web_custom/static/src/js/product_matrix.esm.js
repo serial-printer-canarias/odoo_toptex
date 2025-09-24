@@ -3,6 +3,8 @@
   'use strict';
 
   const log = (...a) => console.log('[SP]', ...a);
+  const warn = (...a) => console.warn('[SP]', ...a);
+  const err  = (...a) => console.error('[SP]', ...a);
 
   // ---------- helpers de anclaje ----------
   function getJsProduct() {
@@ -38,7 +40,6 @@
   }
   function getAttributeBlocks(root) {
     const blocks = [];
-    // Odoo 17/18: ambos marcados
     const containers = root.querySelectorAll(
       '[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]'
     );
@@ -59,8 +60,6 @@
     const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || '');
     let color = blocks.find(b => isColor(b.name));
     let size  = blocks.find(b => isSize(b.name));
-
-    // Si sólo hay 1 bloque (p.ej. One Size oculto), fabricamos tamaño sintético
     if (!size && blocks.length === 1) {
       size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null }], _synthetic: true };
       if (!color) color = blocks[0];
@@ -80,7 +79,16 @@
     });
     if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
     const data = await res.json();
-    if (data.error) throw new Error(data.error?.message || 'RPC error');
+    if (data.error) {
+      // Mostrar todo lo posible del error para depurar rápido
+      err('RPC ERROR', {
+        message: data.error.message,
+        code: data.error.code,
+        dataMessage: data.error.data && (data.error.data.message || data.error.data.name),
+        debug: data.error.data && data.error.data.debug,
+      });
+      throw new Error(data.error.message || (data.error.data && data.error.data.message) || 'RPC error');
+    }
     return data.result;
   }
 
@@ -94,7 +102,6 @@
     return {
       product_template_id: tmplId || undefined,
       product_id: 0,
-      // En Odoo 17/18 deben ser PTAV IDs:
       combination: ptavIds,
       add_qty: 1,
       parent_combination: [],
@@ -102,41 +109,51 @@
     };
   }
 
-  // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-  // ÚNICO CAMBIO: usar /web/dataset/call_kw con args = [[tmpl_id]]
+  // ÚNICO punto sensible: invocar call_kw con kwargs completas y context
   async function fetchCombination(ptavIds, root) {
     const P = comboArgs(ptavIds, root);
+
+    // kwargs “completas” que esperan los métodos de Odoo 17/18
     const KW = {
-      product_id: P.product_id || 0,
       combination: P.combination || [],
-      add_qty: P.add_qty || 1,
+      product_id:  P.product_id || 0,
+      add_qty:     P.add_qty || 1,
       parent_combination: P.parent_combination || [],
       pricelist_id: P.pricelist_id || undefined,
+      only_template: true,
+      no_variant_attribute_values: [],
+      variant_values: [],
     };
+
+    // contexto de sesión si existe (idioma, website, lista de precios…)
+    const ctx =
+      (window.odoo && (odoo.session_info?.user_context || odoo.__session_info__?.user_context))
+      || {};
 
     try {
       return await rpc('/web/dataset/call_kw', {
         model: 'product.template',
         method: 'get_combination_info',
-        args: [[P.product_template_id]],   // ¡Importante!: lista de ids
+        args: [[P.product_template_id]],  // importante: lista de ids
         kwargs: KW,
+        context: ctx,
       });
     } catch (e1) {
-      console.warn('[SP] combination por get_combination_info falló:', e1.message);
+      warn('combination por get_combination_info falló:', e1.message);
       try {
         return await rpc('/web/dataset/call_kw', {
           model: 'product.template',
           method: '_get_combination_info',
           args: [[P.product_template_id]],
           kwargs: KW,
+          context: ctx,
         });
       } catch (e2) {
-        console.warn('[SP] combination por _get_combination_info falló:', e2.message);
+        warn('combination por _get_combination_info falló:', e2.message);
         return null;
       }
     }
   }
-  // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
   async function getStock(variantId) {
     try {
@@ -231,7 +248,6 @@
         const sizePtav  = parseInt(td.dataset.sizePtav || '0', 10) ||
                           parseInt(td.dataset.sizeId   || '0', 10);
 
-        // 1D: sólo color
         const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
         const info = await fetchCombination(combo, root);
 
