@@ -1,10 +1,8 @@
 // SP Matrix – Odoo 18 (PTAV-aware): precio, stock, foto y carrito en bloque
-(function () {
+(() => {
   'use strict';
 
-  const SP_DEBUG = true;
-  const log = (...a) => SP_DEBUG && console.log('[SP]', ...a);
-  const warn = (...a) => console.warn('[SP]', ...a);
+  const log = (...a) => console.log('[SP]', ...a);
 
   // ---------- helpers de anclaje ----------
   function getJsProduct() {
@@ -29,33 +27,19 @@
     return anchor;
   }
 
-  // ---------- leer bloques de atributos, capturando PTAV ----------
+  // ---------- leer bloques de atributos (PTAV + AV) ----------
   function readIds(inp) {
     const d = inp.dataset || {};
     const ptav =
-      parseInt(
-        d.ptav
-        || d.ptavId
-        || d.productTemplateAttributeValueId
-        || d.productTemplateAttributeValue
-        || d.ptav_id
-        || d.ptavl
-        || d.productTemplateAttributeValue // a veces sin “Id”
-        || '0', 10
-      ) || null;
-
-    const av = parseInt(
-      d.valueId || d.attributeValueId || d.attribute_value_id || inp.value || '0', 10
-    ) || null;
-
+      parseInt(d.ptav || d.ptavId || d.productTemplateAttributeValueId ||
+               d.productTemplateAttributeValue || d.ptav_id || d.ptavl || '0', 10) || null;
+    const av =
+      parseInt(d.valueId || d.attributeValueId || inp.value || '0', 10) || null;
     return { ptavId: ptav, avId: av };
   }
-
   function getAttributeBlocks(root) {
     const blocks = [];
-    const containers = root.querySelectorAll(
-      '[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]'
-    );
+    const containers = root.querySelectorAll('[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]');
     containers.forEach((el) => {
       const name = (el.getAttribute('data-attribute_name') || el.getAttribute('data-attribute-name') || '').trim();
       const options = [];
@@ -68,134 +52,120 @@
     });
     return blocks;
   }
-
   function pickColorAndSize(blocks) {
     const isColor = n => /color|couleur|farbe|colou?r|colore|kleur/i.test(n || '');
     const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || '');
-
     let color = blocks.find(b => isColor(b.name));
     let size  = blocks.find(b => isSize(b.name));
-
-    // Si sólo hay color, fabricamos "One Size"
     if (!size && blocks.length === 1) {
-      size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null }], _synthetic: true };
+      size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null, avId: null }], _synthetic: true };
       if (!color) color = blocks[0];
     }
     if (!color && blocks.length) color = blocks[0];
     if (!size  && blocks.length > 1) size  = blocks[1];
-
     return { color, size };
   }
 
-  // ---------- CSRF + JSON-RPC ----------
-  function getCsrf() {
-    const m = document.cookie.match(/(?:^|;\s*)(csrf_token|csrftoken)=([^;]+)/i);
-    return m ? decodeURIComponent(m[2]) : null;
+  // ---------- HTTP helpers ----------
+  async function httpPlain(url, payload) {
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
+    const data = await res.json();
+    return data?.result ?? data;
+  }
+  async function httpRpc(url, payload) {
+    return httpPlain(url, { jsonrpc: '2.0', method: 'call', params: payload, id: Date.now() });
   }
 
-  async function rpc(url, payload) {
-    const headers = {
-      'Content-Type': 'application/json',
-      'X-Requested-With': 'XMLHttpRequest',
-    };
-    const csrf = getCsrf();
-    if (csrf) headers['X-CSRFToken'] = csrf;
-
-    const body = JSON.stringify({ jsonrpc: '2.0', method: 'call', params: payload, id: Date.now() });
-    const res  = await fetch(url, { method: 'POST', credentials: 'same-origin', headers, body });
-
-    if (!res.ok) {
-      const txt = await res.text().catch(()=>'');
-      warn(`RPC ${url} HTTP ${res.status}`, txt.slice(0, 200));
-      throw new Error(`${url} HTTP ${res.status}`);
-    }
-    const data = await res.json().catch(() => ({}));
-    if (!data || data.error) {
-      warn(`RPC ${url} error`, data && data.error);
-      throw new Error(data?.error?.message || 'RPC error');
-    }
-    return data.result;
-  }
-
-  // ---------- combinación / stock ----------
-  function getTemplateId(root) {
+  // ---------- datos de producto ----------
+  function currentTemplateId(root) {
     return parseInt(
       root.querySelector('[data-product-template-id]')?.dataset.productTemplateId
       || root.querySelector('input[name="product_template_id"]')?.value
-      || root.querySelector('input[name="product_id"]')?.value
-      || 0, 10);
+      || root.querySelector('input[name="product_id"]')?.value || 0, 10);
   }
-
-  function getPricelistId() {
-    const c =
-      document.querySelector('[data-pricelist-id]')?.dataset.pricelistId
-      || document.querySelector('[data-website-pricelist-id]')?.dataset.websitePricelistId
-      || document.querySelector('#pricelist_id')?.value
-      || 0;
-    return parseInt(c, 10) || 0;
-  }
-
-  function comboArgs(ptavIds, root) {
-    const tmplId = getTemplateId(root);
-    const pricelistId = getPricelistId();
+  function comboArgs(ids, root) {
+    const tmplId = currentTemplateId(root);
+    const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || 0, 10);
     return {
       product_template_id: tmplId || undefined,
       product_id: 0,
-      combination: ptavIds,          // PTAVs
+      combination: ids, // PTAV preferido
       add_qty: 1,
       parent_combination: [],
       pricelist_id: pricelistId || undefined,
     };
   }
-
-  async function fetchCombination(ptavIds, root) {
-    const args = comboArgs(ptavIds, root);
-
-    // 1) Ruta website (precio seg. pricelist + variant_id)
-    try {
-      const r = await rpc('/shop/get_combination_info', args);
-      if (r && r.product_id) return r;
-    } catch (e) {
-      log('get_combination_info falló, probando fallback…', e.message);
+  async function fetchCombinationWith(ids, root) {
+    const args = comboArgs(ids, root);
+    const tries = [
+      () => httpPlain('/shop/get_combination_info', args),
+      () => httpRpc('/shop/get_combination_info', args),
+      () => httpPlain('/sale/get_combination_info', args),
+      () => httpRpc('/sale/get_combination_info', args),
+    ];
+    for (const t of tries) {
+      try {
+        const res = await t();
+        if (res && (res.product_id || res.product_template_id)) return res;
+      } catch { /* siguiente */ }
     }
-
-    // 2) Fallback: localizar variante por PTAV y leer precio/stock básicos
-    try {
-      const tmplId = getTemplateId(root);
-      const domain = [['product_tmpl_id', '=', tmplId]];
-      for (const id of ptavIds) domain.push(['product_template_attribute_value_ids', 'in', [id]]);
-
-      const recs = await rpc('/web/dataset/call_kw', {
-        model: 'product.product',
-        method: 'search_read',
-        args: [domain, ['id', 'list_price', 'qty_available']],
-        kwargs: { limit: 1 },
-      });
-      if (recs && recs.length) {
-        const v = recs[0];
-        return {
-          product_id: v.id,
-          price: typeof v.list_price === 'number' ? v.list_price : null,
-          stock_quantity: typeof v.qty_available === 'number' ? v.qty_available : null,
-        };
-      }
-    } catch (e2) {
-      warn('fallback search_read error', e2.message);
-    }
-
     return null;
   }
-
+  // Fallback fuerte: encontrar variante por PTAV/AV con search_read
+  async function searchVariantFallback(root, { cPTAV, sPTAV, cAV, sAV }) {
+    const tmplId = currentTemplateId(root);
+    const domain = [['product_tmpl_id', '=', tmplId]];
+    if (cPTAV) domain.push(['product_template_attribute_value_ids', 'in', [cPTAV]]);
+    if (sPTAV) domain.push(['product_template_attribute_value_ids', 'in', [sPTAV]]);
+    // si no hay PTAV, probamos por AV (campo many2many en producto 17/18: product_variant_value_ids o attribute_value_ids según versión)
+    const altFields = ['product_variant_value_ids', 'attribute_value_ids'];
+    const fields = ['id', 'list_price', 'qty_available', 'image_128'];
+    // primer intento por PTAV
+    try {
+      const res = await httpRpc('/web/dataset/call_kw', {
+        model: 'product.product', method: 'search_read',
+        args: [domain], kwargs: { fields, limit: 1 },
+      });
+      if (Array.isArray(res) && res.length) return {
+        product_id: res[0].id,
+        price: res[0].list_price,
+        stock_quantity: res[0].qty_available,
+      };
+    } catch { /* siguiente */ }
+    // segundo intento por AV
+    for (const f of altFields) {
+      const d2 = [['product_tmpl_id', '=', tmplId]];
+      if (cAV) d2.push([f, 'in', [cAV]]);
+      if (sAV) d2.push([f, 'in', [sAV]]);
+      try {
+        const res2 = await httpRpc('/web/dataset/call_kw', {
+          model: 'product.product', method: 'search_read',
+          args: [d2], kwargs: { fields, limit: 1 },
+        });
+        if (Array.isArray(res2) && res2.length) return {
+          product_id: res2[0].id,
+          price: res2[0].list_price,
+          stock_quantity: res2[0].qty_available,
+        };
+      } catch { /* seguir */ }
+    }
+    return null;
+  }
   async function getStock(variantId) {
     try {
-      const res = await rpc('/web/dataset/call_kw', {
+      const res = await httpRpc('/web/dataset/call_kw', {
         model: 'product.product', method: 'read',
         args: [[variantId], ['qty_available']], kwargs: {},
       });
       return (res && res[0] && typeof res[0].qty_available === 'number') ? res[0].qty_available : null;
     } catch { return null; }
   }
-
   function fmtPrice(v) {
     try {
       const lang = document.documentElement.lang || 'es-ES';
@@ -211,7 +181,6 @@
 
     const blocks = getAttributeBlocks(root);
     if (!blocks.length) return;
-
     const { color, size } = pickColorAndSize(blocks);
     if (!color || !size) return;
 
@@ -231,7 +200,8 @@
     color.options.forEach(c => {
       const tr = document.createElement('tr');
       tr.dataset.colorPtav = c.ptavId || '';
-      tr.dataset.colorId   = c.id || '';
+      tr.dataset.colorAv   = c.avId   || '';
+      tr.dataset.colorId   = c.id     || '';
       tr.innerHTML = `
         <th class="sp-sticky-left">
           <div class="sp-color">
@@ -242,7 +212,8 @@
       size.options.forEach(s => {
         const td = document.createElement('td');
         td.dataset.sizePtav = s.ptavId || '';
-        td.dataset.sizeId   = s.id || '';
+        td.dataset.sizeAv   = s.avId   || '';
+        td.dataset.sizeId   = s.id     || '';
         td.innerHTML = `
           <div class="sp-cell">
             <input class="sp-qty" type="number" min="0" step="1"
@@ -277,27 +248,31 @@
       while (queue.length) {
         const td = queue.shift();
 
-        const colorPtav = parseInt(td.closest('tr')?.dataset.colorPtav || '0', 10)
-                       || parseInt(td.closest('tr')?.dataset.colorId   || '0', 10);
-        const sizePtav  = parseInt(td.dataset.sizePtav || '0', 10)
-                       || parseInt(td.dataset.sizeId   || '0', 10);
+        const cPTAV = parseInt(td.closest('tr')?.dataset.colorPtav || '0', 10)
+                   || parseInt(td.closest('tr')?.dataset.colorId   || '0', 10);
+        const sPTAV = parseInt(td.dataset.sizePtav || '0', 10)
+                   || parseInt(td.dataset.sizeId   || '0', 10);
+        const cAV   = parseInt(td.closest('tr')?.dataset.colorAv || '0', 10) || 0;
+        const sAV   = parseInt(td.dataset.sizeAv || '0', 10) || 0;
 
-        const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
-        let info = null;
-        try {
-          info = await fetchCombination(combo, root);
-        } catch (e) {
-          warn('fetchCombination error', e.message);
+        // 1) combo por PTAV / AV
+        let combo = sPTAV > 0 ? [cPTAV, sPTAV] : [cPTAV];
+        let info = await fetchCombinationWith(combo, root);
+        if ((!info || !info.product_id) && (cAV || sAV)) {
+          combo = sAV > 0 ? [cAV, sAV] : [cAV];
+          info = await fetchCombinationWith(combo, root);
         }
-        log('combo ->', combo, 'info ->', info);
+        // 2) fallback por search_read
+        if (!info || !info.product_id) {
+          info = await searchVariantFallback(root, { cPTAV, sPTAV, cAV, sAV });
+        }
 
         if (info && info.product_id) {
           td.querySelector('.sp-qty').dataset.variantId = info.product_id;
 
           const price = (typeof info.price === 'number') ? info.price
                       : (typeof info.list_price === 'number') ? info.list_price
-                      : (typeof info.website_price === 'number') ? info.website_price
-                      : null;
+                      : (typeof info.website_price === 'number') ? info.website_price : null;
           if (price !== null) td.querySelector('.sp-price').textContent = fmtPrice(price);
 
           let stock = (info.stock_quantity !== undefined) ? info.stock_quantity : null;
@@ -311,19 +286,13 @@
         }
       }
     }
+
     await Promise.all(new Array(6).fill(0).map(worker));
-    log('matrix hidratada ✔️');
+    log('matrix hidratada');
   }
 
   // ---------- carrito ----------
   function addAllToCart(container) {
-    const csrf = getCsrf();
-    const headers = {
-      'Content-Type': 'application/json',
-      'X-Requested-With': 'XMLHttpRequest',
-    };
-    if (csrf) headers['X-CSRFToken'] = csrf;
-
     const inputs = container.querySelectorAll('.sp-qty');
     const ops = [];
     inputs.forEach((inp) => {
@@ -333,7 +302,7 @@
         ops.push(fetch('/shop/cart/update_json', {
           method: 'POST',
           credentials: 'same-origin',
-          headers,
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
           body: JSON.stringify({ product_id, add_qty: qty, display: false }),
         }));
       }
@@ -342,12 +311,24 @@
     Promise.allSettled(ops).then(() => window.location.reload());
   }
 
+  // ---------- debug util ----------
+  window._sp = {
+    debug: {
+      blocks: () => getAttributeBlocks(getJsProduct()),
+      test: async () => {
+        const root = getJsProduct();
+        const { color, size } = pickColorAndSize(getAttributeBlocks(root));
+        const c = color?.options?.[0]; const s = size?.options?.[0];
+        if (!c) return console.warn('[SP] sin opciones');
+        const ids = [c.ptavId || c.id].concat(s ? [s.ptavId || s.id] : []);
+        const r = await fetchCombinationWith(ids, root);
+        console.log('[SP] test combo ->', ids, r);
+        return r;
+      },
+    },
+  };
+
   // ---------- boot ----------
-  function start() {
-    if (document.querySelector('.o_wsale_product_page')) {
-      log('product_matrix activo (1D/2D)');
-      buildMatrix();
-    }
-  }
+  function start() { if (document.querySelector('.o_wsale_product_page')) buildMatrix(); }
   (document.readyState === 'loading') ? document.addEventListener('DOMContentLoaded', start) : start();
 })();
