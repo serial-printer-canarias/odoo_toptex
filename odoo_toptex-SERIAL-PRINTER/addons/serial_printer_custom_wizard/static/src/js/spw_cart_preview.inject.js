@@ -1,8 +1,8 @@
-/** SPW – Cart preview injector (fotos + píldoras HEX, varias por línea) */
+/** SPW – Cart preview injector (fotos múltiples + píldoras HEX en vertical) */
 odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function () {
     'use strict';
 
-    /* ----------------------- utilidades de “ready” ----------------------- */
+    /* ----------------------- ready sin dependencias ---------------------- */
     function onReady(cb) {
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', cb, { once: true });
@@ -17,7 +17,7 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     const INFO_SEL =
         '.o_wsale_product_information, .o_wsale_cart_description, .o_wsale_cart_item_description, .product-name, .oe_subdescription';
 
-    /* ----------------------- helpers ------------------------------------ */
+    /* ----------------------------- helpers ------------------------------- */
     function getLineId(lineEl) {
         if (!lineEl) return null;
         const cand =
@@ -28,21 +28,18 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         const id = cand
             ? (cand.getAttribute?.('data-line-id') ||
                cand.getAttribute?.('data-id') ||
-               cand.value ||
-               '')
+               cand.value || '')
             : '';
         return id || null;
     }
 
+    // Devuelve los HEX en el orden que aparecen en el texto
     function extractHexesInOrder(text) {
-        // Captura en orden las apariciones tipo: "SVG: #RRGGBB" (3–8 dígitos)
         if (!text) return [];
         const re = /SVG\s*:\s*(#[0-9a-fA-F]{3,8})/g;
         const out = [];
         let m;
-        while ((m = re.exec(text))) {
-            out.push(m[1]);
-        }
+        while ((m = re.exec(text))) out.push(m[1]);
         return out;
     }
 
@@ -51,65 +48,54 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     }
 
     function buildUrl(lineId, idx, ext) {
-        // idx = 0  -> /spw/line_preview/ID.ext
-        // idx > 0  -> /spw/line_preview/ID-idx.ext
-        const suffix = idx > 0 ? `-${idx}` : '';
-        const v = Date.now(); // evitar caché
-        return `/spw/line_preview/${lineId}${suffix}.${ext}?v=${v}`;
+        // idx=0 => /spw/line_preview/ID.ext
+        // idx>0 => /spw/line_preview/ID-idx.ext
+        const sfx = idx > 0 ? `-${idx}` : '';
+        return `/spw/line_preview/${lineId}${sfx}.${ext}?v=${Date.now()}`;
     }
 
-    /* ---------- carga secuencial: varias imágenes por línea ------------- */
-    function loadAllPreviews(lineId, imgWrap, max = 8, stopAfterMisses = 2) {
-        let idx = 0;               // 0 = base, luego -1, -2, ...
-        let misses = 0;            // cortes seguidos (para parar)
-        let foundAny = 0;
+    // Carga secuencial: base y luego -1, -2, ...; prueba webp y png
+    function loadAllPreviews(lineId, imgCol, max = 12, stopAfterMisses = 2) {
+        let idx = 0;          // 0 = base
+        let misses = 0;
+        let found = 0;
 
-        function tryOne() {
-            if (idx > max) return;                     // límite sano
-            // probar .webp y luego .png para este índice
-            const attempts = [buildUrl(lineId, idx, 'webp'), buildUrl(lineId, idx, 'png')];
-            let pos = 0;
+        function tryIndex() {
+            if (idx > max) return;
+            const urls = [buildUrl(lineId, idx, 'webp'), buildUrl(lineId, idx, 'png')];
+            let p = 0;
 
-            function tryExt() {
-                if (pos >= attempts.length) {
-                    // este índice no existe en ningún formato
+            function tryNextUrl() {
+                if (p >= urls.length) {
                     misses += 1;
-                    if (idx === 0 || (misses >= stopAfterMisses && foundAny > 0)) return;
+                    if (idx === 0 || (found > 0 && misses >= stopAfterMisses)) return;
                     idx += 1;
-                    tryOne();
+                    tryIndex();
                     return;
                 }
-                const url = attempts[pos++];
+                const url = urls[p++];
                 const img = new Image();
                 img.decoding = 'async';
                 img.loading = 'lazy';
                 img.alt = 'Personalización';
                 img.style.cssText =
                     'max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff';
-
                 img.onload = () => {
+                    found += 1;
                     misses = 0;
-                    foundAny += 1;
-                    imgWrap.appendChild(img);
-                    // buscar siguiente posible índice (otra personalización)
+                    imgCol.appendChild(img);
                     idx += 1;
-                    tryOne();
+                    tryIndex();
                 };
-                img.onerror = () => {
-                    // probar el otro formato para este índice
-                    tryExt();
-                };
-
-                img.src = url;
+                img.onerror = tryNextUrl;
+                img.src = url;             // <- ESTO DISPARA LA PETICIÓN
             }
-
-            tryExt();
+            tryNextUrl();
         }
-
-        tryOne();
+        tryIndex();
     }
 
-    /* ----------------------- inyección por línea ------------------------ */
+    /* ------------------------- inyección por línea ----------------------- */
     function injectInto(lineEl) {
         const info = lineEl.querySelector(INFO_SEL) || lineEl;
         if (!info || alreadyInjected(lineEl)) return;
@@ -123,7 +109,7 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         wrap.style.cssText =
             'margin-top:10px;display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap';
 
-        // columna de imágenes (puede haber varias)
+        // columna de imágenes (multiples personalizaciones)
         const imgCol = document.createElement('div');
         imgCol.style.cssText = 'display:flex;flex-direction:column;gap:10px';
 
@@ -131,10 +117,9 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
             loadAllPreviews(lineId, imgCol, 12, 2);
         }
 
-        // columna de píldoras en vertical, en el mismo orden del texto
+        // columna de píldoras (vertical, mismo orden que el texto)
         const pillsCol = document.createElement('div');
         pillsCol.style.cssText = 'display:flex;flex-direction:column;gap:6px;min-width:18px';
-
         hexes.forEach((hex) => {
             const pill = document.createElement('span');
             pill.title = hex;
@@ -144,7 +129,6 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
             pillsCol.appendChild(pill);
         });
 
-        // añadimos sólo si hay algo que mostrar
         if (imgCol.childElementCount || pillsCol.childElementCount) {
             wrap.appendChild(imgCol);
             wrap.appendChild(pillsCol);
@@ -160,28 +144,23 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         const target =
             document.querySelector('#o_cart, .o_wsale_products_main, .o_wsale_cart_summary, .js_cart_lines') ||
             document.body;
-
-        const mo = new MutationObserver((mutations) => {
-            for (const m of mutations) {
+        const mo = new MutationObserver((muts) => {
+            muts.forEach((m) => {
                 m.addedNodes && m.addedNodes.forEach((n) => {
                     if (!(n instanceof HTMLElement)) return;
-                    if (n.matches?.(LINE_SEL)) {
-                        injectInto(n);
-                    } else {
-                        n.querySelectorAll?.(LINE_SEL).forEach(injectInto);
-                    }
+                    if (n.matches?.(LINE_SEL)) injectInto(n);
+                    else n.querySelectorAll?.(LINE_SEL).forEach(injectInto);
                 });
-            }
+            });
         });
         mo.observe(target, { childList: true, subtree: true });
     }
 
     function boot() {
-        // Solo actuamos en el carrito
         if (!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines')) return;
         initialInject();
         observeMutations();
-        console.log('[SPW] injector listo (fotos + píldoras)');
+        console.log('[SPW] injector listo (fotos múltiples + píldoras)');
     }
 
     onReady(boot);
