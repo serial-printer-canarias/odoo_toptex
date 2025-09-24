@@ -1,13 +1,18 @@
-odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', ['web.dom_ready'], function (require) {
+odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function (require) {
     'use strict';
 
-    const domReady = require('web.dom_ready');
+    // ---- utilidades sin dependencias externas ----
+    function onReady(cb) {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', cb, { once: true });
+        } else {
+            cb();
+        }
+    }
 
-    // ---- Config mínima
     const WRAP_CLASS = 'spw-cart-preview';
-    const PREVIEW_BASE = '/spw/line_preview'; // Endpoint que ya tienes activo: /spw/line_preview/<line_id>.png
+    const PREVIEW_BASE = '/spw/line_preview'; // /spw/line_preview/<line_id>.png
 
-    // Selectores robustos (distintas plantillas usan clases algo diferentes)
     const INFO_SELECTORS = [
         '.o_wsale_product_information',
         '.media-body',
@@ -15,33 +20,31 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', ['web.dom_re
         '.o_cart_item_info',
     ];
 
-    // Utils
-    function qAll(root, sel) { return Array.from(root.querySelectorAll(sel)); }
-    function getLineRoot(el) {
-        return el.closest('[data-line-id]') || el.closest('.o_cart_product') || el.closest('tr');
-    }
-    function getLineId(el) {
-        const root = getLineRoot(el);
-        return root && (root.getAttribute('data-line-id') || root.dataset.lineId || null);
-    }
-    function getInfoContainer(lineRoot) {
-        for (let i = 0; i < INFO_SELECTORS.length; i++) {
-            const node = lineRoot.querySelector(INFO_SELECTORS[i]);
-            if (node) return node;
+    const $$ = (root, sel) => Array.from(root.querySelectorAll(sel));
+    const getLineRoot = (el) =>
+        el.closest('[data-line-id]') || el.closest('.o_cart_product') || el.closest('tr');
+    const getLineId = (el) => {
+        const r = getLineRoot(el);
+        return (r && (r.getAttribute('data-line-id') || r.dataset.lineId)) || null;
+    };
+    const getInfoContainer = (lineRoot) => {
+        for (const s of INFO_SELECTORS) {
+            const n = lineRoot.querySelector(s);
+            if (n) return n;
         }
         return null;
-    }
-    function extractHexFromText(txt) {
+    };
+    const extractHexFromText = (txt) => {
         if (!txt) return null;
         const m = txt.match(/SVG\s*:\s*(#[0-9a-fA-F]{3,6})/);
         return m ? m[1] : null;
-    }
+    };
 
     function buildPreview(lineRoot) {
         const info = getInfoContainer(lineRoot);
         if (!info) return;
 
-        // Evitar duplicados
+        // evita duplicados
         const old = info.querySelector('.' + WRAP_CLASS);
         if (old) old.remove();
 
@@ -52,7 +55,7 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', ['web.dom_re
         wrap.style.gap = '8px';
         wrap.style.flexWrap = 'wrap';
 
-        // Miniatura
+        // miniatura PNG
         if (lineId) {
             const img = document.createElement('img');
             img.src = `${PREVIEW_BASE}/${lineId}.png`;
@@ -65,7 +68,7 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', ['web.dom_re
             wrap.appendChild(img);
         }
 
-        // Píldora de color (lee del texto: "SVG: #RRGGBB")
+        // píldora color (lee “SVG: #RRGGBB” del texto)
         const hex = extractHexFromText(info.textContent || '');
         if (hex) {
             const pill = document.createElement('span');
@@ -85,18 +88,18 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', ['web.dom_re
 
     function injectAll(root) {
         root = root || document;
-        const lines = qAll(root, '.o_cart_product, .o_wsale_cart_item, tr[data-line-id]');
+        const lines = $$(root, '.o_cart_product, .o_wsale_cart_item, tr[data-line-id]');
         if (!lines.length) return;
         lines.forEach(buildPreview);
     }
 
     function boot() {
-        // Solo en páginas de carrito
+        // solo en carrito
         if (!document.querySelector('.o_cart, .o_wsale_cart')) return;
 
         injectAll(document);
 
-        // Reinyectar en cambios de DOM (qty +/- , ajax del carrito, etc.)
+        // reinyectar en cambios del DOM
         const target = document.querySelector('#wrapwrap') || document.body;
         let timer = null;
         new MutationObserver((mutations) => {
@@ -105,7 +108,7 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', ['web.dom_re
                     const t = m.target;
                     if (t && (t.matches?.('.o_cart, .o_wsale_cart') || t.closest?.('.o_cart, .o_wsale_cart'))) {
                         clearTimeout(timer);
-                        timer = setTimeout(() => injectAll(document), 50);
+                        timer = setTimeout(() => injectAll(document), 60);
                         break;
                     }
                 }
@@ -115,5 +118,5 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', ['web.dom_re
         console.log('[SPW] cart preview injector listo');
     }
 
-    domReady(boot);
+    onReady(boot);
 });
