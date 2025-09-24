@@ -1,89 +1,78 @@
 /** spw_cart_preview.inject.js
- * Inyecta miniatura de personalización + píldora de color en las líneas del carrito.
- * Seguro en Odoo (AMD): nombre + array de deps vacío.
+ * Inyecta miniatura de personalización + píldora de color en líneas del carrito.
+ * Patrón Odoo seguro: odoo.define(nombre, [deps], function(require){...})
  */
-odoo.define('@serial_printer_custom_wizard/js/spw_cart_preview.inject', [], function (require) {
+odoo.define('@serial_printer_custom_wizard/js/spw_cart_preview.inject', ['web.public.widget'], function (require) {
     'use strict';
-
-    console.log('[SPW] injector cargado');
+    const publicWidget = require('web.public.widget');
 
     /* ----------------- helpers ----------------- */
 
-    function domReady(cb) {
-        if (document.readyState !== 'loading') cb();
-        else document.addEventListener('DOMContentLoaded', cb, { once: true });
-    }
+    function $(root, sel) { return (root || document).querySelector(sel); }
+    function $all(root, sel) { return (root || document).querySelectorAll(sel); }
+    function safeJSON(s) { try { return JSON.parse(s); } catch { return null; } }
 
-    function $(root, sel) {
-        return (root || document).querySelector(sel);
-    }
-    function $all(root, sel) {
-        return (root || document).querySelectorAll(sel);
-    }
-
-    // Intenta encontrar el ID de la línea de carrito en múltiples formas
+    // Busca el line_id por múltiples vías robustas
     function getLineId(lineEl) {
         if (!lineEl) return null;
-
-        // 1) Atributos data-* más comunes
-        const attrs = ['data-line-id', 'data-id', 'data-orderline-id', 'data-order-line-id'];
-        for (const a of attrs) {
+        const ATTRS = ['data-line-id', 'data-id', 'data-orderline-id', 'data-order-line-id'];
+        for (const a of ATTRS) {
             const v = lineEl.getAttribute(a);
             if (v && /^\d+$/.test(v)) return v;
         }
-
-        // 2) Buscar en ancestros/hermanos cercanos
-        let el = lineEl.closest('[data-line-id],[data-orderline-id],[data-order-line-id],[data-id]');
-        if (el) {
-            for (const a of attrs) {
-                const v = el.getAttribute(a);
+        let n = lineEl.closest('[data-line-id],[data-orderline-id],[data-order-line-id],[data-id]');
+        if (n) {
+            for (const a of ATTRS) {
+                const v = n.getAttribute(a);
                 if (v && /^\d+$/.test(v)) return v;
             }
         }
-
-        // 3) Inputs ocultos típicos
-        const hidden = lineEl.querySelector('input[name="line_id"], input[name="line-id"], input[data-line-id]');
-        if (hidden) {
-            const v = hidden.value || hidden.getAttribute('data-line-id');
+        const hid = lineEl.querySelector('input[name="line_id"], input[name="line-id"], input[data-line-id]');
+        if (hid) {
+            const v = hid.value || hid.getAttribute('data-line-id');
             if (v && /^\d+$/.test(v)) return v;
         }
-
-        // 4) Filas de tabla
-        el = lineEl.closest('tr');
-        if (el) {
-            for (const a of attrs) {
-                const v = el.getAttribute(a);
+        const a = lineEl.querySelector('a[href*="line_id="], button[data-params*="line_id="]');
+        if (a) {
+            const m = (a.getAttribute('href') || a.getAttribute('data-params') || '').match(/line_id=(\d+)/);
+            if (m) return m[1];
+        }
+        n = lineEl.closest('tr');
+        if (n) {
+            for (const a2 of ATTRS) {
+                const v = n.getAttribute(a2);
                 if (v && /^\d+$/.test(v)) return v;
             }
         }
-
         return null;
     }
 
     function buildPreviewUrl(lineId) {
-        // Ajusta si tu endpoint es otro
         return lineId ? `/spw/line_preview/${lineId}.png` : null;
     }
 
-    function safeJSON(s) { try { return JSON.parse(s); } catch { return null; } }
-
     function pickHex(lineEl, infoEl) {
-        // Prioriza data-attrs / JSON; si no, intenta extraer del texto ("SVG: #RRGGBB")
         const meta = safeJSON(lineEl.getAttribute('data-spw-meta-json')) || {};
         const cand = lineEl.getAttribute('data-spw-svg-color') || meta.svg_color || meta.color;
         if (cand && /^#[0-9a-fA-F]{3,8}$/.test(cand)) return cand;
-
         const m = String(infoEl?.textContent || '').match(/#[0-9a-fA-F]{3,8}\b/);
         return m ? m[0] : null;
     }
 
-    /* --------- inyección por línea --------- */
+    function findCartLines(root) {
+        const selectors = [
+            '.o_wsale_cart_item', '.o_cart_item', '.o_cart_product',
+            'tr.js_cart_lines', 'tr.o_wsale_cart_item',
+        ];
+        const set = new Set();
+        selectors.forEach(sel => $all(root, sel).forEach(el => set.add(el.closest(sel))));
+        return Array.from(set).filter(Boolean);
+    }
 
     function injectOnce(lineEl) {
-        if (!lineEl || lineEl.dataset.spwInjected === '1') return;
+        if (lineEl.dataset.spwInjected === '1') return;
         lineEl.dataset.spwInjected = '1';
 
-        // Contenedor de info donde pegaremos el bloque
         const infoEl =
             lineEl.querySelector('.o_wsale_product_information') ||
             lineEl.querySelector('.o_wsale_cart_description') ||
@@ -93,56 +82,36 @@ odoo.define('@serial_printer_custom_wizard/js/spw_cart_preview.inject', [], func
 
         const wrap = document.createElement('div');
         wrap.className = 'spw-cart-preview mt-2 d-flex align-items-center';
-        wrap.style.gap = '8px';
-        wrap.style.flexWrap = 'wrap';
+        Object.assign(wrap.style, { gap: '8px', flexWrap: 'wrap' });
 
-        // --- Miniatura (si tenemos line_id) ---
-        const lineId = getLineId(lineEl);
-        const url = buildPreviewUrl(lineId);
+        // Miniatura PNG (si hay line_id y el endpoint sirve 200)
+        const lid = getLineId(lineEl);
+        const url = buildPreviewUrl(lid);
         if (url) {
             const img = document.createElement('img');
             img.src = url;
             img.alt = 'Personalización';
             img.loading = 'lazy';
-            img.style.maxWidth = '120px';
-            img.style.height = 'auto';
-            img.style.border = '1px solid #e5e7eb';
-            img.style.borderRadius = '6px';
+            Object.assign(img.style, {
+                maxWidth: '120px', height: 'auto',
+                border: '1px solid #e5e7eb', borderRadius: '6px',
+            });
             wrap.appendChild(img);
         }
 
-        // --- Píldora de color ---
+        // Píldora de color
         const hex = pickHex(lineEl, infoEl);
         if (hex) {
             const pill = document.createElement('span');
             pill.title = `Color ${hex}`;
-            pill.style.display = 'inline-block';
-            pill.style.width = '16px';
-            pill.style.height = '16px';
-            pill.style.borderRadius = '9999px';
-            pill.style.border = '1px solid #e5e7eb';
-            pill.style.background = hex;
+            Object.assign(pill.style, {
+                display: 'inline-block', width: '16px', height: '16px',
+                borderRadius: '9999px', border: '1px solid #e5e7eb', background: hex,
+            });
             wrap.appendChild(pill);
         }
 
         if (wrap.children.length) infoEl.appendChild(wrap);
-    }
-
-    function findCartLines(root) {
-        const selectors = [
-            // tarjetas
-            '.o_wsale_cart_item',
-            '.o_cart_item',
-            '.o_cart_product',
-            // tabla
-            'tr.js_cart_lines',
-            'tr.o_wsale_cart_item',
-        ];
-        const set = new Set();
-        for (const sel of selectors) {
-            $all(root, sel).forEach((el) => set.add(el.closest(sel)));
-        }
-        return Array.from(set).filter(Boolean);
     }
 
     function injectAll(root) {
@@ -151,29 +120,33 @@ odoo.define('@serial_printer_custom_wizard/js/spw_cart_preview.inject', [], func
         console.log(`[SPW] inyectadas ${lines.length} líneas`);
     }
 
-    /* ----------------- boot ----------------- */
+    /* -------------- Public Widget (autostart) -------------- */
+    publicWidget.registry.spwCartPreview = publicWidget.Widget.extend({
+        selector: 'body',
+        start() {
+            // Inyectar (si no estamos en carrito no hace nada)
+            injectAll(document);
 
-    domReady(function () {
-        // Inyectar siempre; si no estamos en carrito simplemente no encontrará líneas y no hará nada.
-        injectAll(document);
-
-        // Re-inyectar con cambios de DOM (qty/AJAX)
-        const target = $('#wrapwrap') || document.body;
-        const mo = new MutationObserver((mutations) => {
-            let touched = false;
-            for (const m of mutations) {
-                for (const node of m.addedNodes) {
-                    if (!(node instanceof HTMLElement)) continue;
-                    if (findCartLines(node).length) {
-                        injectAll(node);
-                        touched = true;
+            // Re-inyectar tras cambios dinámicos (qty/AJAX)
+            const target = $('#wrapwrap') || document.body;
+            const mo = new MutationObserver(muts => {
+                let hit = false;
+                for (const m of muts) {
+                    for (const n of m.addedNodes) {
+                        if (n instanceof HTMLElement && findCartLines(n).length) {
+                            injectAll(n);
+                            hit = true;
+                        }
                     }
                 }
-            }
-            if (touched) console.log('[SPW] reinyección tras mutación');
-        });
-        mo.observe(target, { childList: true, subtree: true });
+                if (hit) console.log('[SPW] reinyección tras mutación');
+            });
+            mo.observe(target, { childList: true, subtree: true });
 
-        console.log('[SPW] cart preview injector listo');
+            console.log('[SPW] cart preview injector listo');
+            return this._super(...arguments);
+        },
     });
+
+    console.log('[SPW] injector cargado');
 });
