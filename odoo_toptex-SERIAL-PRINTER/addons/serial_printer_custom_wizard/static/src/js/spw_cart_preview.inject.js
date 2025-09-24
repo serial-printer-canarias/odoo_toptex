@@ -1,42 +1,40 @@
-/** SPW – Cart preview injector (foto por línea + píldoras estilo original) */
+/** SPW – Cart preview injector (fotos + píldoras) */
 odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function () {
     'use strict';
 
-    // ---------------- ready ----------------
+    // ---------- ready ----------
     function onReady(cb) {
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', cb, { once: true });
         } else cb();
     }
 
-    // ---------------- selectores ----------------
+    // ---------- selectores ----------
     const LINE_SEL =
         '.o_cart_product, .js_cart_lines tr, .o_wsale_cart_item, .cart_line';
     const INFO_SEL =
         '.o_wsale_product_information, .o_wsale_cart_description, .o_wsale_cart_item_description, .product-name, .oe_subdescription';
 
-    // Intentaremos hasta este nº de índices si el backend guarda varias previews por línea
-    const MAX_GUESS = 6;
+    const MAX_GUESS = 6; // intentos si hubiese varias previews por línea
 
-    // ---------------- helpers ----------------
+    // ---------- helpers ----------
     const cacheBust = () => `v=${Date.now()}`;
 
     function urlLineIdFallback() {
         const m = location.search.match(/[?&]spw_line_id=(\d+)/);
         return m ? m[1] : null;
     }
-    function num(v) {
+    function onlyNum(v) {
         const m = String(v || '').match(/\d+/);
         const n = m ? parseInt(m[0], 10) : NaN;
         return Number.isFinite(n) && n > 0 ? String(n) : null;
     }
 
-    // Caza el line_id en el nodo, hijos típicos y ancestros (móvil/desktop/tema)
     function getLineId(lineEl) {
         if (!lineEl) return urlLineIdFallback();
 
-        let id = num(lineEl.getAttribute('data-line-id')) ||
-                 num(lineEl.getAttribute('data-id'));
+        let id = onlyNum(lineEl.getAttribute('data-line-id')) ||
+                 onlyNum(lineEl.getAttribute('data-id'));
         if (id) return id;
 
         const cand = lineEl.querySelector([
@@ -45,28 +43,28 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
             '[data-line-id]','[data-id]',
             'button[data-line-id]','a[data-line-id]'
         ].join(','));
-        id = cand && (num(cand.value) ||
-                      num(cand.getAttribute('data-line-id')) ||
-                      num(cand.getAttribute('data-id')));
+        id = cand && (onlyNum(cand.value) ||
+                      onlyNum(cand.getAttribute('data-line-id')) ||
+                      onlyNum(cand.getAttribute('data-id')));
         if (id) return id;
 
         const qty = lineEl.querySelector('.o_wsale_cart_quantity, .css_quantity, .input-group');
         if (qty) {
             const b = qty.querySelector('button[data-line-id], a[data-line-id]');
-            id = b && num(b.getAttribute('data-line-id'));
+            id = b && onlyNum(b.getAttribute('data-line-id'));
             if (id) return id;
             const h = qty.querySelector('input[name="line_id"][value], input[name="move_id"][value]');
-            id = h && num(h.value);
+            id = h && onlyNum(h.value);
             if (id) return id;
         }
 
         let p = lineEl.parentElement;
         for (let i = 0; i < 4 && p; i++, p = p.parentElement) {
-            id = num(p.getAttribute?.('data-line-id')) || num(p.getAttribute?.('data-id'));
+            id = onlyNum(p.getAttribute?.('data-line-id')) || onlyNum(p.getAttribute?.('data-id'));
             if (id) return id;
             const any = p.querySelector?.('input[name="line_id"][value], [data-line-id], [data-id]');
             if (any) {
-                id = num(any.value) || num(any.getAttribute?.('data-line-id')) || num(any.getAttribute?.('data-id'));
+                id = onlyNum(any.value) || onlyNum(any.getAttribute?.('data-line-id')) || onlyNum(any.getAttribute?.('data-id'));
                 if (id) return id;
             }
         }
@@ -81,34 +79,71 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         return out;
     }
 
-    // Genera una lista de posibles rutas donde podría estar la(s) preview(s)
-    function candidateUrls(lineId, infoEl) {
-        if (!lineId) return [];
-        const base = `/spw/line_preview/${lineId}`;
-        const c = parseInt(infoEl.getAttribute('data-spw-previews') || '0', 10) || 0;
-        const max = c > 0 ? c : MAX_GUESS;
-        const qs = cacheBust();
+    // Lee URLs si el backend las deja en atributos/inputs/script JSON
+    function readMetaUrls(infoEl) {
+        const urls = [];
 
-        const urls = [
-            `${base}.png?${qs}`,         // /spw/line_preview/123.png
-            `${base}.webp?${qs}`,        // por si el backend sirve webp
-        ];
-        for (let i = 1; i <= max; i++) {
-            urls.push(
-                `${base}-${i}.png?${qs}`,  // /spw/line_preview/123-1.png
-                `${base}_${i}.png?${qs}`,  // /spw/line_preview/123_1.png
-                `${base}/${i}.png?${qs}`,  // /spw/line_preview/123/1.png
-                `${base}.png?n=${i}&${qs}` // /spw/line_preview/123.png?n=1
-            );
+        // 1) atributo directo
+        const a1 = infoEl.getAttribute('data-spw-preview-url');
+        if (a1) urls.push(a1);
+        const a2 = infoEl.getAttribute('data-spw-preview-urls');
+        if (a2) {
+            try { JSON.parse(a2).forEach(u => urls.push(u)); } catch (_) {}
         }
-        return urls;
+
+        // 2) inputs ocultos
+        infoEl.querySelectorAll('input[name="spw_preview_url"][value], input[name="spw_preview_urls"][value]').forEach(i => {
+            try {
+                if (i.name.endsWith('_urls')) JSON.parse(i.value).forEach(u => urls.push(u));
+                else urls.push(i.value);
+            } catch (_) {}
+        });
+
+        // 3) script/json
+        const metaEl = infoEl.querySelector('#spw_meta_json, script[data-spw-meta-json]') ||
+                        document.querySelector('#spw_meta_json, script[data-spw-meta-json]');
+        if (metaEl) {
+            try {
+                const raw = metaEl.getAttribute('data-spw-meta-json') || metaEl.textContent || '{}';
+                const meta = JSON.parse(raw);
+                if (Array.isArray(meta.preview_urls)) urls.push(...meta.preview_urls);
+                if (meta.preview_url) urls.push(meta.preview_url);
+            } catch (_) {}
+        }
+
+        // añade cache-buster
+        return urls.map(u => u.includes('?') ? `${u}&${cacheBust()}` : `${u}?${cacheBust()}`);
+    }
+
+    // Genera candidatos conocidos a partir del line_id
+    function candidateUrls(lineId, infoEl) {
+        const urls = readMetaUrls(infoEl);
+        if (lineId) {
+            const base = `/spw/line_preview/${lineId}`;
+            const max = parseInt(infoEl.getAttribute('data-spw-previews') || '0', 10) || MAX_GUESS;
+            const qs = cacheBust();
+            urls.push(
+                `${base}.png?${qs}`,
+                `${base}.webp?${qs}`
+            );
+            for (let i = 1; i <= max; i++) {
+                urls.push(
+                    `${base}-${i}.png?${qs}`,
+                    `${base}_${i}.png?${qs}`,
+                    `${base}/${i}.png?${qs}`,
+                    `${base}.png?n=${i}&${qs}`
+                );
+            }
+        }
+        // de-dup
+        return [...new Set(urls)];
     }
 
     function alreadyInjected(root) {
         return !!root.querySelector('.spw-cart-preview');
     }
 
-    // ---------------- inyección ----------------
+    // ---------- inyección ----------
     function injectInto(lineEl) {
         const info = lineEl.querySelector(INFO_SEL) || lineEl;
         if (!info || alreadyInjected(info)) return;
@@ -117,21 +152,21 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         const urls   = candidateUrls(lineId, info);
         const hexes  = extractAllHex(info.textContent || '');
 
+        console.log('[SPW] cart line', { lineId, urlsTried: urls });
+
         const wrap = document.createElement('div');
         wrap.className = 'spw-cart-preview';
         wrap.style.cssText =
             'margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap';
 
-        // Fotos: añadimos TODAS las que realmente existan (onload). Las que no, se ignoran.
-        let anyImg = false;
+        // Fotos: añadimos las que realmente carguen
         urls.forEach((u) => {
             const img = new Image();
             img.alt = 'Personalización';
             img.loading = 'lazy';
-            img.crossOrigin = 'anonymous';
             img.style.cssText =
                 'max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff';
-            img.onload  = () => { anyImg = true; wrap.insertBefore(img, wrap.firstChild); };
+            img.onload  = () => wrap.insertBefore(img, wrap.firstChild);
             img.onerror = () => {};
             img.src = u;
         });
@@ -152,7 +187,6 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     function initialInject() {
         document.querySelectorAll(LINE_SEL).forEach(injectInto);
     }
-
     function observeMutations() {
         const target =
             document.querySelector('#o_cart, .o_wsale_products_main, .o_wsale_cart_summary, .js_cart_lines')
@@ -173,7 +207,7 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         if (!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines')) return;
         initialInject();
         observeMutations();
-        console.log('[SPW] injector listo (foto + píldoras)');
+        console.log('[SPW] injector listo (fotos + píldoras)');
     }
 
     onReady(boot);
