@@ -1,43 +1,40 @@
 /** @odoo-module **/
 
 /**
- * Inyector de vista previa y píldora de color en el carrito.
- * - Wrapper correcto con odoo.define('@module/path', function (require) { ... })
- * - Sin dependencias raras: solo 'web.dom_ready'
- * - Idempotente: no duplica el bloque si ya existe
- * - Resistente a actualizaciones AJAX: usa MutationObserver
+ * Inyector de miniatura y píldora de color en el carrito.
+ * - Wrapper AMD correcto: odoo.define('NOMBRE', function (require) { ... })
+ * - SIN dependencias (no usamos web.dom_ready)
+ * - Idempotente: no duplica
+ * - Reacciona a cambios del DOM (MutationObserver)
  */
 
 odoo.define('@serial_printer_custom_wizard/js/spw_cart_preview.inject', function (require) {
     'use strict';
 
-    const domReady = require('web.dom_ready');
-
-    // ---- Utilidades ---------------------------------------------------------
+    // -------- helpers --------
+    function domReady(cb) {
+        if (document.readyState !== 'loading') cb();
+        else document.addEventListener('DOMContentLoaded', cb, { once: true });
+    }
 
     function getLineId(container) {
-        // Busca data-line-id en la línea del carrito (Odoo 16/17/18)
         const el =
-            container.closest('[data-line-id]') ||
+            container.closest?.('[data-line-id]') ||
             container.querySelector?.('[data-line-id]') ||
-            container.closest('.o_wsale_cart_item') ||
-            container.closest('tr') ||
+            container.closest?.('.o_wsale_cart_item') ||
+            container.closest?.('tr') ||
             null;
         return el && el.getAttribute('data-line-id');
     }
 
     function buildPreviewUrl(lineId) {
-        // Ajusta si tu route es distinta
-        // Ej: '/spw/line_preview/<id>.png'
-        return lineId ? `/spw/line_preview/${lineId}.png` : null;
+        return lineId ? `/spw/line_preview/${lineId}.png` : null; // adapta si tu ruta es otra
     }
 
     function extractHexFromText(text) {
-        // Busca "Color SVG: #RRGGBB" o "#RGB"
         const m = (text || '').match(/Color\s*SVG[:\s]*#?([0-9a-fA-F]{3,8})/);
         if (!m) return null;
-        const hex = m[1];
-        return hex ? `#${hex.replace(/^#/, '')}` : null;
+        return `#${m[1].replace(/^#/, '')}`;
     }
 
     function injectOnce(infoEl) {
@@ -77,9 +74,7 @@ odoo.define('@serial_printer_custom_wizard/js/spw_cart_preview.inject', function
             wrap.appendChild(pill);
         }
 
-        if (wrap.children.length) {
-            infoEl.appendChild(wrap);
-        }
+        if (wrap.children.length) infoEl.appendChild(wrap);
     }
 
     function injectAll(root) {
@@ -88,16 +83,13 @@ odoo.define('@serial_printer_custom_wizard/js/spw_cart_preview.inject', function
             .forEach(injectOnce);
     }
 
-    // ---- Inicio -------------------------------------------------------------
-
     function boot() {
-        // Solo en páginas del website (carrito)
+        // Solo si estamos en carrito
         if (!document.querySelector('.o_cart, .o_wsale_cart')) return;
 
-        // Inyección inicial
         injectAll(document);
 
-        // Reinyectar si Odoo actualiza el DOM (cambios de cantidad, etc.)
+        // Reinyectar cuando Odoo actualiza el DOM (qty, AJAX, etc.)
         const target = document.querySelector('#wrapwrap') || document.body;
         const mo = new MutationObserver((mutations) => {
             for (const m of mutations) {
