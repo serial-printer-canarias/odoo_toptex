@@ -2,9 +2,7 @@
 (function () {
   'use strict';
 
-  const DEBUG = true;
   const log = (...a) => console.log('[SP]', ...a);
-  const warn = (...a) => console.warn('[SP]', ...a);
 
   // ---------- helpers de anclaje ----------
   function getJsProduct() {
@@ -40,7 +38,10 @@
   }
   function getAttributeBlocks(root) {
     const blocks = [];
-    const containers = root.querySelectorAll('[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]');
+    // Odoo 17/18: ambos marcados
+    const containers = root.querySelectorAll(
+      '[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]'
+    );
     containers.forEach((el) => {
       const name = (el.getAttribute('data-attribute_name') || el.getAttribute('data-attribute-name') || '').trim();
       const options = [];
@@ -58,6 +59,8 @@
     const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || '');
     let color = blocks.find(b => isColor(b.name));
     let size  = blocks.find(b => isSize(b.name));
+
+    // Si sólo hay 1 bloque (p.ej. One Size oculto), fabricamos tamaño sintético
     if (!size && blocks.length === 1) {
       size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null }], _synthetic: true };
       if (!color) color = blocks[0];
@@ -67,39 +70,35 @@
     return { color, size };
   }
 
-  // ---------- clientes HTTP ----------
-  async function postJson(url, payload) {
+  // ---------- helpers RPC ----------
+  async function jsonRpc(url, params) {
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params, id: Date.now() }),
+    });
+    if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error?.message || 'RPC error');
+    return data.result;
+  }
+  // Variante que envía {args:[...] , kwargs:{}}
+  function jsonRpcArgs(url, args) {
+    return jsonRpc(url, { args: [args], kwargs: {} });
+  }
+  // Variante “plana” (algunas rutas web la aceptan)
+  async function plainRpc(url, payload) {
     const res = await fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      throw new Error(`${url} HTTP ${res.status} ${txt?.slice(0,120)}`);
-    }
-    return res.json();
-  }
-  async function jsonRpc(url, params) {
-    const payload = { jsonrpc: '2.0', method: 'call', params, id: Date.now() };
-    if (DEBUG) log('RPC JSON', url, params);
-    const data = await postJson(url, payload);
-    if (data?.error) throw new Error(data.error?.message || 'RPC error');
-    return data.result ?? data;
-  }
-  async function jsonRpcArgs(url, params) {
-    const payload = { jsonrpc: '2.0', method: 'call', params: { args: [params], kwargs: {} }, id: Date.now() };
-    if (DEBUG) log('RPC JSON(args)', url, params);
-    const data = await postJson(url, payload);
-    if (data?.error) throw new Error(data.error?.message || 'RPC error');
-    return data.result ?? data;
-  }
-  async function plainRpc(url, params) {
-    if (DEBUG) log('RPC plain', url, params);
-    const data = await postJson(url, params);
-    if (data?.error) throw new Error(data.error?.message || 'RPC error');
-    return data.result ?? data;
+    if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error?.message || 'RPC error');
+    return data.result ?? data; // por si devuelve directamente
   }
 
   // ---------- combinación / stock ----------
@@ -112,6 +111,7 @@
     return {
       product_template_id: tmplId || undefined,
       product_id: 0,
+      // En Odoo 17/18 deben ser PTAV IDs:
       combination: ptavIds,
       add_qty: 1,
       parent_combination: [],
@@ -119,11 +119,12 @@
     };
   }
 
+  // >>> ÚNICO CAMBIO IMPORTANTE: intentar varias rutas y fallback a call_kw
   async function fetchCombination(ptavIds, root) {
     const P = comboArgs(ptavIds, root);
 
-    // Intentos (ordenado del más común al menos común)
     const attempts = [
+      // Website sale (distintas firmas según despliegue)
       () => jsonRpc('/shop/get_combination_info', P),
       () => plainRpc('/shop/get_combination_info', P),
       () => jsonRpcArgs('/shop/get_combination_info', P),
@@ -137,28 +138,46 @@
       () => jsonRpcArgs('/website_sale/get_combination_info', P),
     ];
 
-    for (const fn of attempts) {
+    for (const tryIt of attempts) {
       try {
-        const r = await fn();
-        if (DEBUG) log('✓ get_combination_info OK', r);
-        return r;
+        const r = await tryIt();
+        if (r) return r;
       } catch (e) {
-        if (DEBUG) warn('✗ get_combination_info falló:', e.message);
+        if (String(e.message || '').includes('HTTP 404')) continue; // ruta inexistente
       }
     }
-    return null;
+
+    // Fallback robusto: llamada directa al método de modelo
+    try {
+      const result = await jsonRpc('/web/dataset/call_kw', {
+        model: 'product.template',
+        method: 'get_combination_info',
+        args: [P.product_template_id],
+        kwargs: {
+          product_id: P.product_id || 0,
+          combination: P.combination || [],
+          add_qty: P.add_qty || 1,
+          parent_combination: P.parent_combination || [],
+          pricelist_id: P.pricelist_id || undefined,
+        },
+        context: {},
+      });
+      return result || null;
+    } catch (e) {
+      console.warn('[SP] fallback call_kw get_combination_info falló:', e.message);
+      return null;
+    }
   }
 
   async function getStock(variantId) {
     try {
-      const data = await jsonRpc('/web/dataset/call_kw', {
+      const res = await jsonRpc('/web/dataset/call_kw', {
         model: 'product.product', method: 'read',
         args: [[variantId], ['qty_available']], kwargs: {},
       });
-      return (data && data[0] && typeof data[0].qty_available === 'number') ? data[0].qty_available : null;
+      return (res && res[0] && typeof res[0].qty_available === 'number') ? res[0].qty_available : null;
     } catch { return null; }
   }
-
   function fmtPrice(v) {
     try {
       const lang = document.documentElement.lang || 'es-ES';
@@ -243,10 +262,8 @@
         const sizePtav  = parseInt(td.dataset.sizePtav || '0', 10) ||
                           parseInt(td.dataset.sizeId   || '0', 10);
 
-        const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
-        let info = null;
-        try { info = await fetchCombination(combo, root); }
-        catch (e) { info = null; }
+        const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav]; // 1D/2D
+        const info = await fetchCombination(combo, root);
 
         if (info && info.product_id) {
           td.querySelector('.sp-qty').dataset.variantId = info.product_id;
@@ -264,7 +281,6 @@
           if (img && !img.src) img.src = `/web/image/product.product/${info.product_id}/image_128`;
         } else {
           td.classList.add('sp-unavailable');
-          if (DEBUG) warn('Sin combinación válida para', combo);
         }
       }
     }
