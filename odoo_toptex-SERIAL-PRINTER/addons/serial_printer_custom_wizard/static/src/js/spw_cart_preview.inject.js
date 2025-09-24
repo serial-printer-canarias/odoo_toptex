@@ -1,21 +1,21 @@
-/** SPW – Cart preview injector (multi-foto + píldoras) */
+/** SPW – Cart preview injector (multi-foto + píldoras en columna) */
 odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function () {
     'use strict';
 
-    /* -------- ready sin dependencias -------- */
+    /* ---------- ready sin dependencias ---------- */
     function onReady(cb) {
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', cb, { once: true });
         } else { cb(); }
     }
 
-    /* -------- selectores robustos -------- */
+    /* ---------- selectores robustos ---------- */
     const LINE_SEL =
         '.o_cart_product, .js_cart_lines tr, .o_wsale_cart_item, .cart_line';
     const INFO_SEL =
         '.o_wsale_product_information, .o_wsale_cart_description, .o_wsale_cart_item_description, .product-name, .oe_subdescription';
 
-    /* -------- helpers -------- */
+    /* ---------- helpers ---------- */
     function getLineId(lineEl) {
         if (!lineEl) return null;
         const cand = lineEl.getAttribute('data-line-id') ? lineEl :
@@ -27,24 +27,6 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
                cand.getAttribute?.('data-id') ||
                cand.value || null)
             : null;
-    }
-
-    function basePreviewUrl(lineId) {
-        return lineId ? `/spw/line_preview/${lineId}.png` : null;
-    }
-
-    function parsePreviewsFromAttr(el) {
-        const raw = el.getAttribute('data-spw-previews') ||
-                    el.closest(LINE_SEL)?.getAttribute('data-spw-previews') ||
-                    '';
-        if (!raw) return [];
-        try {
-            const arr = JSON.parse(raw);
-            return Array.isArray(arr) ? arr.filter(Boolean) : [];
-        } catch {
-            // también aceptamos CSV simple
-            return raw.split(',').map(s => s.trim()).filter(Boolean);
-        }
     }
 
     function parseColors(text) {
@@ -59,51 +41,96 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         return out;
     }
 
+    function parsePreviewsFromAttr(el) {
+        // opcional: si desde QWeb añades data-spw-previews="[...]"
+        const raw = el.getAttribute('data-spw-previews') ||
+                    el.closest(LINE_SEL)?.getAttribute('data-spw-previews') ||
+                    '';
+        if (!raw) return [];
+        try {
+            const arr = JSON.parse(raw);
+            return Array.isArray(arr) ? arr.filter(Boolean) : [];
+        } catch {
+            return raw.split(',').map(s => s.trim()).filter(Boolean);
+        }
+    }
+
     function alreadyInjected(root) {
         return !!root.querySelector('.spw-cart-preview');
     }
 
-    /* -------- inyección -------- */
+    // Candidatas de rutas que PROBAMOS sin tocar backend.
+    function candidateUrls(lineId) {
+        if (!lineId) return [];
+        const b = `/spw/line_preview/${lineId}`;
+        const exts = ['png', 'webp'];
+        const parts = ['','-1','-2','-3','-4','-5','-6','_1','_2','_3','_4','_5','_6','.1','.2','.3','.4','.5','.6'];
+        const urls = [];
+        // La “segura” (última guardada)
+        exts.forEach(ext => urls.push(`${b}.${ext}`));
+        // Variantes numeradas que ya probaste en consola
+        parts.forEach(p => exts.forEach(ext => urls.push(`${b}${p}.${ext}`)));
+        return urls;
+    }
+
+    function addImageWhenExists(url, holder, seen) {
+        if (!url || seen.has(url)) return;
+        const img = new Image();
+        img.loading = 'lazy';
+        img.alt = 'Personalización';
+        img.style.cssText = 'max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px';
+        img.onload = () => { seen.add(url); holder.appendChild(img); };
+        img.onerror = () => {}; // si 404, no añadimos
+        // cache-buster suave
+        const sep = url.includes('?') ? '&' : '?';
+        img.src = `${url}${sep}v=${Date.now()}`;
+    }
+
+    /* ---------- inyección ---------- */
     function injectInto(lineEl) {
         const info = lineEl.querySelector(INFO_SEL) || lineEl;
         if (!info || alreadyInjected(info)) return;
 
         const lineId = getLineId(lineEl);
-        // 1) si el backend nos dejó una lista, úsala
-        let urls = parsePreviewsFromAttr(info);
-        // 2) si no hay lista, usa la única segura (última guardada)
-        if (!urls.length && lineId) urls = [basePreviewUrl(lineId)];
-
         const colors = parseColors(info.textContent || '');
 
+        // contenedor principal: fotos + columna de píldoras
         const wrap = document.createElement('div');
         wrap.className = 'spw-cart-preview';
-        wrap.style.cssText = 'margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap';
+        wrap.style.cssText = 'margin-top:8px;display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap';
 
-        // imágenes
-        urls.forEach((u) => {
-            if (!u) return;
-            const img = new Image();
-            img.loading = 'lazy';
-            img.alt = 'Personalización';
-            img.style.cssText = 'max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px';
-            // cache-buster suave
-            const sep = u.includes('?') ? '&' : '?';
-            img.src = `${u}${sep}v=${Date.now()}`;
-            img.onerror = () => img.remove();
-            wrap.appendChild(img);
-        });
+        // bloque fotos (horizontal, varias)
+        const photos = document.createElement('div');
+        photos.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;align-items:center';
+
+        // bloque colores (columna vertical)
+        const pills = document.createElement('div');
+        pills.style.cssText = 'display:flex;flex-direction:column;gap:6px;align-items:flex-start';
+
+        // 1) intentar lista desde atributo (si la hubiese)
+        let urls = parsePreviewsFromAttr(info);
+
+        // 2) si no hay lista, probamos todas las variantes conocidas
+        if (!urls.length) urls = candidateUrls(lineId);
+
+        // añadir imágenes que realmente existan
+        const seen = new Set();
+        urls.forEach(u => addImageWhenExists(u, photos, seen));
 
         // píldoras (todas las que encuentre)
-        colors.forEach((hex) => {
+        colors.forEach(hex => {
             const pill = document.createElement('span');
             pill.title = hex;
-            pill.style.cssText = 'display:inline-block;width:16px;height:16px;border-radius:9999px;border:1px solid #e5e7eb;margin-left:2px';
+            pill.style.cssText = 'display:inline-block;width:16px;height:16px;border-radius:9999px;border:1px solid #e5e7eb';
             pill.style.background = hex;
-            wrap.appendChild(pill);
+            pills.appendChild(pill);
         });
 
-        if (wrap.children.length) info.appendChild(wrap);
+        if (photos.children.length || pills.children.length) {
+            wrap.appendChild(photos);
+            wrap.appendChild(pills);
+            info.appendChild(wrap);
+        }
     }
 
     function initialInject() {
@@ -131,7 +158,7 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         if (!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines')) return;
         initialInject();
         observeMutations();
-        console.log('[SPW] injector listo (fotos + píldoras)');
+        console.log('[SPW] injector listo (multi-foto + píldoras en columna)');
     }
 
     onReady(boot);
