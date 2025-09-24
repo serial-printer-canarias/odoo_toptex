@@ -1,4 +1,4 @@
-/** SPW – Cart preview injector (multiimagen + múltiples píldoras HEX) */
+/** SPW – Cart preview injector (multiimagen + sin duplicados) */
 odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function () {
     'use strict';
 
@@ -33,17 +33,21 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
             : null;
     }
 
-    // Devuelve candidatos de URL para una misma posición i (1..N)
+    // Candidatos de URL para una posición i (1..N) — SIEMPRE distintas
     function candidatesFor(lineId, i) {
-        const suf = i === 1 ? '' : `-${i}`;
         const urls = [];
-        // patrón base
-        urls.push(`/spw/line_preview/${lineId}${i === 1 ? '' : suf}.png`);
-        // alternativas frecuentes
-        if (i > 1) {
+        if (i === 1) {
+            // priorizamos nombres explícitos de la 1ª posición
+            urls.push(`/spw/line_preview/${lineId}-1.png`);
+            urls.push(`/spw/line_preview/${lineId}_1.png`);
+            urls.push(`/spw/line_preview/${lineId}.png?i=1`);
+            // por compatibilidad, como último recurso la base
+            urls.push(`/spw/line_preview/${lineId}.png`);
+        } else {
+            // para i>1 NUNCA usamos la base <id>.png para evitar repetir
+            urls.push(`/spw/line_preview/${lineId}-${i}.png`);
             urls.push(`/spw/line_preview/${lineId}_${i}.png`);
             urls.push(`/spw/line_preview/${lineId}.png?i=${i}`);
-            urls.push(`/spw/line_preview/${lineId}-${i}.png?i=${i}`);
         }
         return urls;
     }
@@ -57,8 +61,8 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         return out;
     }
 
-    // Crea un <img> que prueba candidatos en cascada
-    function makeSmartImg(urlCandidates) {
+    // Crea un <img> que prueba candidatos y evita repetir misma ruta base
+    function makeSmartImg(urlCandidates, usedPaths) {
         const img = new Image();
         img.alt = 'Personalización';
         img.loading = 'lazy';
@@ -66,16 +70,26 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
             'max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px';
 
         let idx = 0;
+
+        function normalize(u) {
+            return (u || '').split('?')[0]; // comparamos sin query
+        }
+
         function tryNext() {
-            if (idx >= urlCandidates.length) {
-                // ninguno funcionó → quita el <img>
-                img.remove();
+            while (idx < urlCandidates.length) {
+                const u = urlCandidates[idx++];
+                const key = normalize(u);
+                if (usedPaths.has(key)) continue; // evita duplicados
+                usedPaths.add(key);
+                img.src = u;
                 return;
             }
-            img.src = urlCandidates[idx++];
+            // no hay candidato válido distinto → elimina el <img>
+            img.remove();
         }
-        img.onerror = tryNext;
-        tryNext(); // primer intento
+
+        img.onerror = tryNext; // si falla, probamos el siguiente
+        tryNext();             // primer intento
         return img;
     }
 
@@ -84,28 +98,28 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         const info = lineEl.querySelector?.(INFO_SEL) || lineEl;
         if (!info) return;
 
-        // Idempotente por línea: limpia inyecciones previas
+        // Idempotente por línea
         info.querySelectorAll?.('.spw-cart-preview').forEach((n) => n.remove());
 
         const lineId = getLineId(lineEl);
-        const hexes = extractHexList(info.textContent || []);
-        const count = Math.max(1, hexes.length); // al menos 1 imagen
+        const hexes = extractHexList(info.textContent || '');
+        const count = Math.max(1, hexes.length); // nº de posiciones visibles
 
         const wrap = document.createElement('div');
         wrap.className = 'spw-cart-preview';
         wrap.style.cssText =
             'margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap';
 
-        // Imágenes: una por posición (1..count), con fallback de nombres
+        // Imágenes: una por posición (1..count), evitando repetir fichero
         if (lineId) {
+            const usedPaths = new Set();
             for (let i = 1; i <= count; i++) {
-                const img = makeSmartImg(candidatesFor(lineId, i));
-                // si todas fallan, onerror lo elimina
-                wrap.appendChild(img);
+                const img = makeSmartImg(candidatesFor(lineId, i), usedPaths);
+                wrap.appendChild(img); // si no carga, el propio img se auto-elimina
             }
         }
 
-        // Píldoras de color (una por HEX)
+        // Píldoras HEX (una por color detectado)
         hexes.forEach((hex) => {
             const pill = document.createElement('span');
             pill.title = hex;
@@ -143,11 +157,10 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     }
 
     function boot() {
-        // Solo actuamos en el carrito
         if (!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines')) return;
         initialInject();
         observeMutations();
-        console.log('[SPW] cart preview injector MULTI listo');
+        console.log('[SPW] cart preview injector MULTI sin duplicados listo');
     }
 
     onReady(boot);
