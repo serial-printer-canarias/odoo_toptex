@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const log  = (...a) => console.log('[SP]', ...a);
+  const log = (...a) => console.log('[SP]', ...a);
   const warn = (...a) => console.warn('[SP]', ...a);
 
   // ---------- helpers de anclaje ----------
@@ -28,7 +28,7 @@
     return anchor;
   }
 
-  // ---------- leer bloques de atributos (PTAV/AV ids) ----------
+  // ---------- leer bloques de atributos, capturando PTAV ----------
   function readIds(inp) {
     const d = inp.dataset || {};
     const ptav =
@@ -39,6 +39,7 @@
   }
   function getAttributeBlocks(root) {
     const blocks = [];
+    // Soporta 17/18
     const containers = root.querySelectorAll(
       '[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]'
     );
@@ -60,7 +61,7 @@
     let color = blocks.find(b => isColor(b.name));
     let size  = blocks.find(b => isSize(b.name));
 
-    // Si sólo hay 1 bloque (One Size oculto), fabricamos tamaño sintético
+    // Si sólo hay 1 bloque (p.ej. One Size oculto), fabricamos tamaño sintético
     if (!size && blocks.length === 1) {
       size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null }], _synthetic: true };
       if (!color) color = blocks[0];
@@ -70,97 +71,91 @@
     return { color, size };
   }
 
-  // ---------- RPC genérico ----------
-  async function rpc(url, payload) {
+  // ---------- helpers de red ----------
+  // JSON plano (NO JSON-RPC) para endpoints website_sale (/website_sale/get_combination_info)
+  async function websitePost(url, payload) {
     const res = await fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params: payload, id: Date.now() }),
+      body: JSON.stringify(payload),
     });
-    const txt = await res.text();
     if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
+    return await res.json();
+  }
+  // JSON-RPC (SÓLO para /web/dataset/call_kw cuando haga falta)
+  async function jsonRpc(url, params) {
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params, id: Date.now() }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw (data.error || new Error(`${url} HTTP ${res.status}`));
+    return data.result;
+  }
+
+  // ---------- combinación / stock ----------
+  function comboArgs(ptavIds, root) {
+    const tmplId = parseInt(
+      root.querySelector('[data-product-template-id]')?.dataset.productTemplateId
+      || root.querySelector('input[name="product_template_id"]')?.value
+      || root.querySelector('input[name="product_id"]')?.value || 0, 10);
+    const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || 0, 10);
+    return {
+      product_template_id: tmplId || undefined,
+      product_id: 0,
+      combination: ptavIds,          // PTAV IDs
+      add_qty: 1,
+      parent_combination: [],
+      pricelist_id: pricelistId || undefined,
+    };
+  }
+
+  async function fetchCombination(ptavIds, root) {
+    const args = comboArgs(ptavIds, root);
+
+    // 1) oficial de website_sale
     try {
-      const data = JSON.parse(txt);
-      if (data.error) throw data.error;
-      return data.result;
-    } catch (e) {
-      throw new Error(`RPC parse fail @ ${url}: ${txt?.slice(0, 180)}`);
+      log('probando /website_sale/get_combination_info');
+      return await websitePost('/website_sale/get_combination_info', args);
+    } catch (e1) {
+      warn('combination por /website_sale/get_combination_info falló:', e1?.message || e1);
+      // 2) fallback legacy
+      try {
+        log('probando /shop/get_combination_info');
+        return await websitePost('/shop/get_combination_info', args);
+      } catch (e2) {
+        warn('combination por /shop/get_combination_info falló:', e2?.message || e2);
+        return null;
+      }
     }
   }
 
-  // ---------- utilidades ----------
+  async function getStockViaRPC(variantId) {
+    try {
+      const res = await jsonRpc('/web/dataset/call_kw', {
+        model: 'product.product',
+        method: 'read',
+        args: [[variantId], ['qty_available']],
+        kwargs: {},
+      });
+      const qty = Array.isArray(res) && res[0] && typeof res[0].qty_available === 'number'
+        ? res[0].qty_available : null;
+      return qty;
+    } catch (e) {
+      warn('search_read qty_available falló', e);
+      return null;
+    }
+  }
+
   function fmtPrice(v) {
     try {
       const lang = document.documentElement.lang || 'es-ES';
       const curr = document.querySelector('[data-website-currency-code]')?.dataset.websiteCurrencyCode || 'EUR';
       return new Intl.NumberFormat(lang, { style: 'currency', currency: curr }).format(v);
-    } catch {
-      return (Math.round(v * 100) / 100).toFixed(2);
-    }
-  }
-  function keyFromPtavs(arr) {
-    return (arr || []).filter(Boolean).map(n => parseInt(n, 10)).sort((a,b)=>a-b).join('-');
-  }
-  function getTemplateId(root) {
-    return parseInt(
-      root.querySelector('[data-product-template-id]')?.dataset.productTemplateId
-      || root.querySelector('input[name="product_template_id"]')?.value
-      || root.querySelector('input[name="product_id"]')?.value
-      || '0', 10);
-  }
-
-  // ---------- CARGA MASIVA DE VARIANTES (sin /shop/get_combination_info) ----------
-  async function fetchAllVariants(root) {
-    const tmplId = getTemplateId(root);
-    if (!tmplId) { warn('sin template_id'); return { byKey: {}, list: [] }; }
-
-    // Pedimos todas las variantes del template publicadas en web
-    const payload = {
-      model: 'product.product',
-      method: 'search_read',
-      args: [],
-      kwargs: {
-        domain: [['product_tmpl_id', '=', tmplId]],
-        // Si quieres filtrar a publicadas: descomenta
-        // domain: [['product_tmpl_id', '=', tmplId], ['website_published', '=', true]],
-        fields: [
-          'id',
-          'product_template_attribute_value_ids', // PTAVs
-          'lst_price', 'website_price', 'price',   // precio disponible
-          'qty_available', 'virtual_available',    // stock
-        ],
-        limit: 2000,
-      },
-    };
-
-    let rows = [];
-    try {
-      rows = await rpc('/web/dataset/call_kw', payload);
-    } catch (e) {
-      warn('error search_read variantes', e);
-      return { byKey: {}, list: [] };
-    }
-
-    // Indexamos por conjunto de PTAVs
-    const byKey = {};
-    rows.forEach((r) => {
-      const ptavs = Array.isArray(r.product_template_attribute_value_ids)
-        ? r.product_template_attribute_value_ids : [];
-      const k = keyFromPtavs(ptavs);
-      byKey[k] = {
-        id: r.id,
-        price: (typeof r.website_price === 'number') ? r.website_price
-              : (typeof r.price === 'number') ? r.price
-              : (typeof r.lst_price === 'number') ? r.lst_price : null,
-        stock: (typeof r.qty_available === 'number') ? r.qty_available
-              : (typeof r.virtual_available === 'number') ? r.virtual_available : null,
-        ptavs,
-      };
-    });
-
-    log('variantes cargadas', rows.length);
-    return { byKey, list: rows };
+    } catch { return (Math.round(v * 100) / 100).toFixed(2); }
   }
 
   // ---------- construir tabla ----------
@@ -177,7 +172,7 @@
     anchor.innerHTML = '';
 
     const wrap = document.createElement('div'); wrap.className = 'sp-matrix';
-    const table = document.createElement('table'); table.className = 'sp-matrix__table sp-matrix--ready';
+    const table = document.createElement('table'); table.className = 'sp-matrix__table';
 
     const thead = document.createElement('thead');
     const trh = document.createElement('tr');
@@ -222,42 +217,50 @@
 
     anchor.appendChild(wrap);
 
-    // Hidratar con variantes (precio/stock/foto) SIN tocar nada más
     hydrateCells(wrap, root);
     btn.addEventListener('click', () => addAllToCart(wrap));
   }
 
-  // ---------- hidratar desde cache de variantes ----------
+  // ---------- hidratar ----------
   async function hydrateCells(container, root) {
-    const { byKey } = await fetchAllVariants(root);
     const cells = Array.from(container.querySelectorAll('td'));
+    const queue = cells.slice();
 
-    for (const td of cells) {
-      const colorPtav = parseInt(td.closest('tr')?.dataset.colorPtav || td.closest('tr')?.dataset.colorId || '0', 10) || null;
-      const sizePtav  = parseInt(td.dataset.sizePtav || td.dataset.sizeId || '0', 10) || null;
+    async function worker() {
+      while (queue.length) {
+        const td = queue.shift();
+        const colorPtav = parseInt(td.closest('tr')?.dataset.colorPtav || '0', 10) ||
+                          parseInt(td.closest('tr')?.dataset.colorId   || '0', 10);
+        const sizePtav  = parseInt(td.dataset.sizePtav || '0', 10) ||
+                          parseInt(td.dataset.sizeId   || '0', 10);
 
-      const comboPTAVs = [colorPtav, sizePtav].filter(Boolean);
-      const key = keyFromPtavs(comboPTAVs);
-      const v = byKey[key];
+        const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
+        const info = await fetchCombination(combo, root);
 
-      if (v && v.id) {
-        // ID variante para el carrito
-        td.querySelector('.sp-qty').dataset.variantId = v.id;
+        if (info && info.product_id) {
+          td.querySelector('.sp-qty').dataset.variantId = info.product_id;
 
-        // Precio
-        if (typeof v.price === 'number') td.querySelector('.sp-price').textContent = fmtPrice(v.price);
+          // Precio
+          const price = (typeof info.price === 'number') ? info.price
+                      : (typeof info.list_price === 'number') ? info.list_price
+                      : (typeof info.website_price === 'number') ? info.website_price : null;
+          if (price !== null) td.querySelector('.sp-price').textContent = fmtPrice(price);
 
-        // Stock
-        if (typeof v.stock === 'number') td.querySelector('.sp-stock').textContent = `Stock: ${v.stock}`;
+          // Stock (si viene del endpoint; si no, intentar RPC)
+          let stock = (info.stock_quantity !== undefined) ? info.stock_quantity : null;
+          if (stock === null) stock = await getStockViaRPC(info.product_id);
+          if (stock !== null) td.querySelector('.sp-stock').textContent = `Stock: ${stock}`;
 
-        // Foto por variante (lazy: sólo primera de la fila)
-        const img = td.closest('tr').querySelector('.sp-color__img');
-        if (img && !img.src) img.src = `/web/image/product.product/${v.id}/image_128`;
-      } else {
-        td.classList.add('sp-unavailable');
+          // Foto por variante (una vez por fila/color)
+          const img = td.closest('tr').querySelector('.sp-color__img');
+          if (img && !img.src) img.src = `/web/image/product.product/${info.product_id}/image_128`;
+        } else {
+          td.classList.add('sp-unavailable');
+        }
       }
     }
-    log('matrix hidratada');
+    await Promise.all(new Array(6).fill(0).map(worker));
+    log('matrix hidratada sp-matrix');
   }
 
   // ---------- carrito ----------
@@ -281,13 +284,6 @@
   }
 
   // ---------- boot ----------
-  function start() {
-    if (document.querySelector('.o_wsale_product_page')) {
-      log('boot sp-matrix');
-      buildMatrix();
-    }
-  }
-  (document.readyState === 'loading')
-    ? document.addEventListener('DOMContentLoaded', start)
-    : start();
+  function start() { if (document.querySelector('.o_wsale_product_page')) buildMatrix(); }
+  (document.readyState === 'loading') ? document.addEventListener('DOMContentLoaded', start) : start();
 })();
