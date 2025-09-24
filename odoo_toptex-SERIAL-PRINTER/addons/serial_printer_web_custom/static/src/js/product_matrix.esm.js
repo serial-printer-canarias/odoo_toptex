@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const log = (...a) => console.log('[SP]', ...a);
+  const log  = (...a) => console.log('[SP]', ...a);
   const warn = (...a) => console.warn('[SP]', ...a);
   const err  = (...a) => console.error('[SP]', ...a);
 
@@ -60,6 +60,7 @@
     const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || '');
     let color = blocks.find(b => isColor(b.name));
     let size  = blocks.find(b => isSize(b.name));
+
     if (!size && blocks.length === 1) {
       size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null }], _synthetic: true };
       if (!color) color = blocks[0];
@@ -91,6 +92,21 @@
     return data.result;
   }
 
+  // ---------- contexto/pricelist ----------
+  function getCtx() {
+    const odooCtx =
+      (window.odoo && (odoo.session_info?.user_context || odoo.__session_info__?.user_context))
+      || {};
+    const body = document.body || {};
+    const domPricelist = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || '0', 10) || null;
+    const websiteId = parseInt(body.dataset?.websiteId || '0', 10) || null;
+    return {
+      ...odooCtx,
+      pricelist: odooCtx.pricelist || odooCtx.pricelist_id || domPricelist || false,
+      website_id: odooCtx.website_id || websiteId || false,
+    };
+  }
+
   // ---------- combinación / stock ----------
   function comboArgs(ptavIds, root) {
     const tmplId = parseInt(
@@ -99,45 +115,68 @@
       || root.querySelector('input[name="product_id"]')?.value || 0, 10);
     const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || 0, 10);
     return {
-      product_template_id: tmplId || undefined,
+      product_template_id: tmplId || 0,
       product_id: 0,
       combination: ptavIds,
       add_qty: 1,
       parent_combination: [],
-      pricelist_id: pricelistId || undefined,
+      pricelist_id: pricelistId || 0,
     };
   }
 
-  // *** AQUÍ el cambio: usar call_kw a get_combination_info con kwargs correctas (pricelist) y sin fallback privado ***
+  // ——— id de plantilla robusto (si falla DOM, lo saco del product_id)
+  async function ensureTemplateId(P) {
+    if (P.product_template_id) return P.product_template_id;
+    const variantId = parseInt(document.querySelector('input[name="product_id"]')?.value || '0', 10);
+    if (!variantId) return 0;
+    try {
+      const r = await rpc('/web/dataset/call_kw', {
+        model: 'product.product', method: 'read',
+        args: [[variantId], ['product_tmpl_id']], kwargs: {},
+      });
+      const tmpl = r && r[0] && (Array.isArray(r[0].product_tmpl_id) ? r[0].product_tmpl_id[0] : r[0].product_tmpl_id);
+      return parseInt(tmpl || '0', 10) || 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  // *** get_combination_info por call_kw con kwargs correctas y contexto de website/pricelist ***
   async function fetchCombination(ptavIds, root) {
     const P = comboArgs(ptavIds, root);
+    P.product_template_id = await ensureTemplateId(P);
+    const ctx = getCtx();
 
-    const ctx =
-      (window.odoo && (odoo.session_info?.user_context || odoo.__session_info__?.user_context))
-      || {};
+    if (!P.product_template_id) {
+      warn('Sin product_template_id — no puedo calcular combinación');
+      return null;
+    }
 
     const KW = {
       combination: P.combination || [],
       product_id:  P.product_id || false,
       add_qty:     P.add_qty || 1,
       parent_combination: P.parent_combination || [],
-      pricelist: P.pricelist_id || ctx.pricelist || ctx.pricelist_id || false, // <- clave correcta
+      pricelist: ctx.pricelist || false,                // CLAVE correcta
       only_template: true,
       no_variant_attribute_values: [],
+      // compatibilidad con versiones: enviar también esta clave
+      product_template_attribute_values: P.combination || [],
       variant_values: [],
     };
 
     try {
-      return await rpc('/web/dataset/call_kw', {
+      const res = await rpc('/web/dataset/call_kw', {
         model: 'product.template',
         method: 'get_combination_info',
         args: [[P.product_template_id]],
         kwargs: KW,
         context: ctx,
       });
+      return res;
     } catch (e) {
       warn('combination por get_combination_info falló:', e.message);
-      return null; // nada de _get_combination_info (privado)
+      return null;
     }
   }
 
