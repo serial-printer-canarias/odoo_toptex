@@ -1,15 +1,18 @@
-// SP Matrix – Odoo 18 (PTAV-aware): precio, stock, foto y carrito en bloque
+<!-- product_matrix.esm.js -->
+<script>
+/* SP Matrix – Odoo 18: precio, stock, foto y carrito */
 (function () {
   'use strict';
 
-  const log  = (...a) => console.log('[SP]', ...a);
+  const log = (...a) => console.log('[SP]', ...a);
   const warn = (...a) => console.warn('[SP]', ...a);
 
-  // ---------- helpers de anclaje ----------
+  /* ---------- helpers de anclaje ---------- */
   function getJsProduct() {
     return document.querySelector('.o_wsale_product_page .js_product')
         || document.querySelector('.js_product')
-        || document.querySelector('.o_wsale_product_page');
+        || document.querySelector('.o_wsale_product_page')
+        || document.querySelector('[data-main-object="product.template"]');
   }
   function placeAnchor() {
     let anchor = document.getElementById('sp-matrix-anchor');
@@ -24,11 +27,12 @@
       root.querySelector('.js_attributes')
       || root.querySelector('ul.o_wsale_product_attribute')
       || root.querySelector('[data-attribute_name]')?.closest('.row, ul, div');
-    (attrs || root.querySelector('.product_price, .o_wsale_product_price_section') || root).after(anchor);
+    (attrs || root.querySelector('.product_price, .o_wsale_product_price_section') || root)
+      .after(anchor);
     return anchor;
   }
 
-  // ---------- leer bloques de atributos (PTAV) ----------
+  /* ---------- leer bloques de atributos (PTAV) ---------- */
   function readIds(inp) {
     const d = inp.dataset || {};
     const ptav =
@@ -39,7 +43,9 @@
   }
   function getAttributeBlocks(root) {
     const blocks = [];
-    const containers = root.querySelectorAll('[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]');
+    const containers = root.querySelectorAll(
+      '[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]'
+    );
     containers.forEach((el) => {
       const name = (el.getAttribute('data-attribute_name') || el.getAttribute('data-attribute-name') || '').trim();
       const options = [];
@@ -57,7 +63,6 @@
     const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || '');
     let color = blocks.find(b => isColor(b.name));
     let size  = blocks.find(b => isSize(b.name));
-
     if (!size && blocks.length === 1) {
       size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null }], _synthetic: true };
       if (!color) color = blocks[0];
@@ -67,97 +72,100 @@
     return { color, size };
   }
 
-  // ---------- util precio ----------
-  function fmtPrice(v) {
-    const num = typeof v === 'string' ? parseFloat(v) : v;
-    if (isNaN(num)) return '—';
-    try {
-      const lang = document.documentElement.lang || 'es-ES';
-      const curr = document.querySelector('[data-website-currency-code]')?.dataset.websiteCurrencyCode || 'EUR';
-      return new Intl.NumberFormat(lang, { style: 'currency', currency: curr }).format(num);
-    } catch { return (Math.round(num * 100) / 100).toFixed(2); }
-  }
-
-  // ---------- args combinación ----------
-  function readTemplateId(root) {
-    const fromMain  = document.querySelector('main[data-main-object*="product.template"][data-oe-id]')?.getAttribute('data-oe-id');
-    const fromData  = root.querySelector('[data-product-template-id]')?.dataset.productTemplateId;
-    const fromInput = root.querySelector('input[name="product_template_id"]')?.value
-                   || root.querySelector('input[name="product_id"]')?.value;
-    return parseInt(fromMain || fromData || fromInput || '0', 10) || 0;
-  }
-  function comboArgs(ptavIds, root) {
-    const tmplId = readTemplateId(root);
-    const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || '0', 10) || undefined;
-    return {
-      product_template_id: tmplId,
-      product_id: 0,
-      combination: ptavIds,
-      add_qty: 1,
-      parent_combination: [],
-      pricelist_id: pricelistId,
-      only_template: false,
-      is_main_product: true,
-      strict: true,
-      product_template_attribute_value_ids: [],
-      no_variant_attribute_values: [],
-      display_default_code: true,
-    };
-  }
-
-  // ---------- POST website (NO JSON-RPC) ----------
-  async function websitePost(url, payload) {
+  /* ---------- JSON-RPC util ---------- */
+  async function rpc(url, params) {
     const res = await fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify(payload),
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params, id: Date.now() }),
     });
-    if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
-    let data = null;
-    try { data = await res.json(); } catch { data = null; }
-    return (data && typeof data === 'object' && 'result' in data) ? data.result : (data || {});
+    if (!res.ok) {
+      // Devolvemos texto por si es 404 para poder decidir fallback
+      const txt = await res.text().catch(() => '');
+      throw Object.assign(new Error(`HTTP ${res.status}`), { httpStatus: res.status, body: txt });
+    }
+    const data = await res.json();
+    if (data && data.error) {
+      const e = data.error;
+      const msg = (e.data && e.data.message) || e.message || 'RPC error';
+      const dbg = (e.data && e.data.debug) || '';
+      const err = Object.assign(new Error(msg), { debug: dbg, odoo: e });
+      throw err;
+    }
+    return data.result;
+  }
+
+  /* ---------- combinación / stock ---------- */
+  function readContext(root) {
+    const tmplId = parseInt(
+      root.querySelector('[data-product-template-id]')?.dataset.productTemplateId
+      || root.querySelector('input[name="product_template_id"]')?.value
+      || root.getAttribute('data-oe-id') /* cuando main tiene data-main-object="product.template" */
+      || 0, 10);
+    const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || 0, 10);
+    return { tmplId, pricelistId };
+  }
+
+  function buildPayload(ptavIds, ctx) {
+    return {
+      // 4 obligatorios:
+      product_template_id: ctx.tmplId,
+      product_id: 0,
+      combination: ptavIds,   // <<< PTAV IDs
+      add_qty: 1,
+
+      // contexto estándar de Odoo web:
+      parent_combination: [],
+      pricelist_id: ctx.pricelistId || undefined,
+      only_template: false,
+      no_variant_attribute_values: [],
+      product_template_attribute_value_ids: [],
+      is_main_product: true,
+      display_default_code: true,
+      strict: true,
+    };
   }
 
   async function fetchCombination(ptavIds, root) {
-    const payload = comboArgs(ptavIds, root);
+    const ctx = readContext(root);
+    const payload = buildPayload(ptavIds, ctx);
+
+    // Orden correcto: 18/17 usan /website_sale; antiguo /shop existe en algún 14/15.
     const endpoints = [
-      '/website_sale/get_combination_info', // el bueno en Odoo 17/18
-      '/shop/get_combination_info',         // fallback
-      '/shop/product_configurator/get_combination_info', // fallback
+      '/website_sale/get_combination_info',
+      '/shop/get_combination_info',
     ];
-    for (const ep of endpoints) {
+
+    for (const url of endpoints) {
       try {
-        log('probando', ep, payload);
-        const info = await websitePost(ep, payload);
-        if (info && !info.error) return info;
-      } catch (e) { warn(ep, '→', e.message || e); }
+        log('probando', url, '▸', payload);
+        const r = await rpc(url, payload);
+        if (r) return r;
+      } catch (e) {
+        // si es 404 probamos el siguiente; si son args mal formados, ya vamos con kwargs correctos
+        if (e && e.httpStatus === 404) { warn(url, '404 → fallback'); continue; }
+        // algunos Odoo devuelven 200 con error dentro de "error.data" (ya lo captura rpc)
+        warn('combinación por', url, 'falló:', e.message);
+        // si no es 404, no tiene sentido seguir probando el mismo patrón
+        continue;
+      }
     }
     return null;
   }
 
-  // ---------- stock opcional (si permisos) ----------
-  async function getStock(variantId) {
+  function fmtPrice(v) {
     try {
-      const res = await fetch('/web/dataset/call_kw', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          method: 'call',
-          params: { model: 'product.product', method: 'read', args: [[variantId], ['qty_available']], kwargs: {} },
-          id: Date.now(),
-        }),
-      });
-      const data = await res.json();
-      if (data?.error) throw new Error('rpc access error');
-      const r = data?.result?.[0];
-      return typeof r?.qty_available === 'number' ? r.qty_available : null;
-    } catch { return null; }
+      const lang = document.documentElement.lang || 'es-ES';
+      const curr = document.querySelector('[data-website-currency-code]')?.dataset.websiteCurrencyCode || 'EUR';
+      return new Intl.NumberFormat(lang, { style: 'currency', currency: curr }).format(v);
+    } catch { return (Math.round(v * 100) / 100).toFixed(2); }
   }
 
-  // ---------- construir tabla ----------
+  /* ---------- construir tabla ---------- */
   async function buildMatrix() {
     const root = getJsProduct();
     if (!root) return;
@@ -187,8 +195,8 @@
       tr.innerHTML = `
         <th class="sp-sticky-left">
           <div class="sp-color">
-            <img class="sp-color__img" alt="" style="width:28px;height:28px;object-fit:cover;border-radius:4px;background:#f3f3f3">
-            <span class="sp-color__name" style="margin-left:8px">${c.name || ''}</span>
+            <img class="sp-color__img" alt="">
+            <span class="sp-color__name">${c.name || ''}</span>
           </div>
         </th>`;
       size.options.forEach(s => {
@@ -196,17 +204,18 @@
         td.dataset.sizePtav = s.ptavId || '';
         td.dataset.sizeId   = s.id || '';
         td.innerHTML = `
-          <div class="sp-cell" style="display:flex;flex-direction:column;gap:4px">
+          <div class="sp-cell">
             <input class="sp-qty" type="number" min="0" step="1"
                    data-color-ptav="${c.ptavId || ''}" data-size-ptav="${s.ptavId || ''}"
-                   data-color-id="${c.id || ''}" data-size-id="${s.id || ''}"
-                   style="max-width:92px">
-            <div class="sp-meta" style="font-size:.85rem;opacity:.85;display:flex;gap:8px">
-              <span class="sp-price">—</span><span class="sp-stock">—</span>
+                   data-color-id="${c.id || ''}" data-size-id="${s.id || ''}">
+            <div class="sp-meta">
+              <span class="sp-price">—</span>
+              <span class="sp-stock">—</span>
             </div>
           </div>`;
-        tbody.appendChild(tr).appendChild(td);
+        tr.appendChild(td);
       });
+      tbody.appendChild(tr);
     });
 
     table.append(thead, tbody);
@@ -218,11 +227,11 @@
 
     anchor.appendChild(wrap);
 
-    hydrateCells(wrap, root).then(() => log('matrix hidratada'));
+    hydrateCells(wrap, root).then(() => log('matrix hidratada sp-matrix'));
     btn.addEventListener('click', () => addAllToCart(wrap));
   }
 
-  // ---------- hidratar ----------
+  /* ---------- hidratar celdas ---------- */
   async function hydrateCells(container, root) {
     const cells = Array.from(container.querySelectorAll('td'));
     const queue = cells.slice();
@@ -230,26 +239,26 @@
     async function worker() {
       while (queue.length) {
         const td = queue.shift();
-        const colorPtav = parseInt(td.closest('tr')?.dataset.colorPtav || '0', 10)
-                       || parseInt(td.closest('tr')?.dataset.colorId   || '0', 10);
-        const sizePtav  = parseInt(td.dataset.sizePtav || '0', 10)
-                       || parseInt(td.dataset.sizeId   || '0', 10);
+        const colorPtav = parseInt(td.closest('tr')?.dataset.colorPtav || '0', 10) ||
+                          parseInt(td.closest('tr')?.dataset.colorId   || '0', 10);
+        const sizePtav  = parseInt(td.dataset.sizePtav || '0', 10) ||
+                          parseInt(td.dataset.sizeId   || '0', 10);
 
         const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
 
         const info = await fetchCombination(combo, root);
-        log('↳ respuesta combo', combo, info);
-
-        if (info && (info.product_id || info.variant_id || info.id)) {
-          const variantId = parseInt(info.product_id || info.variant_id || info.id, 10);
+        if (info && (info.product_id || info.variant_id)) {
+          const variantId = parseInt(info.product_id || info.variant_id, 10);
           td.querySelector('.sp-qty').dataset.variantId = variantId;
 
-          const priceNum = (info.display_price ?? info.price ?? info.list_price ?? info.website_price ?? null);
-          if (priceNum !== null) td.querySelector('.sp-price').textContent = fmtPrice(priceNum);
+          const price = [info.price, info.list_price, info.website_price, info.price_reduce]
+            .find(v => typeof v === 'number');
+          if (price != null) td.querySelector('.sp-price').textContent = fmtPrice(price);
 
-          let stock = (info.stock_quantity ?? info.availability ?? null);
-          if (stock === null) stock = await getStock(variantId);
-          if (stock !== null) td.querySelector('.sp-stock').textContent = `Stock: ${stock}`;
+          const stock = (info.stock_quantity != null) ? info.stock_quantity
+                        : (info.virtual_available != null) ? info.virtual_available
+                        : null;
+          if (stock != null) td.querySelector('.sp-stock').textContent = `Stock: ${stock}`;
 
           const img = td.closest('tr').querySelector('.sp-color__img');
           if (img && !img.src) img.src = `/web/image/product.product/${variantId}/image_256`;
@@ -258,10 +267,10 @@
         }
       }
     }
-    await Promise.all(new Array(4).fill(0).map(worker));
+    await Promise.all(new Array(6).fill(0).map(worker));
   }
 
-  // ---------- carrito ----------
+  /* ---------- carrito ---------- */
   function addAllToCart(container) {
     const inputs = container.querySelectorAll('.sp-qty');
     const ops = [];
@@ -281,7 +290,12 @@
     Promise.allSettled(ops).then(() => window.location.reload());
   }
 
-  // ---------- boot ----------
-  function start() { if (document.querySelector('.o_wsale_product_page')) buildMatrix(); }
-  (document.readyState === 'loading') ? document.addEventListener('DOMContentLoaded', start) : start();
+  /* ---------- boot ---------- */
+  function start() {
+    if (document.querySelector('.o_wsale_product_page')) buildMatrix();
+  }
+  (document.readyState === 'loading')
+    ? document.addEventListener('DOMContentLoaded', start)
+    : start();
 })();
+</script>
