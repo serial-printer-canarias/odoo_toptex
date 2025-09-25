@@ -2,14 +2,14 @@
 odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function () {
     'use strict';
 
-    // ---------- helpers de ready (sin dependencias) ----------
+    // ---------- ready sin dependencias ----------
     function onReady(cb) {
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', cb, { once: true });
         } else cb();
     }
 
-    // ---------- selectores robustos ----------
+    // ---------- selectores ----------
     const LINE_SEL = '.o_cart_product, .js_cart_lines tr, .o_wsale_cart_item, .cart_line';
     const INFO_SEL = '.o_wsale_product_information, .o_wsale_cart_description, .o_wsale_cart_item_description, .product-name, .oe_subdescription';
 
@@ -19,7 +19,7 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         return m ? m[1] : null;
     }
     function getLineId(lineEl) {
-        if (!lineEl) return urlLineId(); // Fallback crítico
+        if (!lineEl) return urlLineId();
         const c = lineEl.getAttribute('data-line-id') ? lineEl :
             lineEl.querySelector('[data-line-id]') ||
             lineEl.querySelector('input[name="line_id"]') ||
@@ -32,43 +32,33 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         const out = [];
         const re = /SVG\s*:\s*#([0-9a-fA-F]{3,8})/g;
         let m, i = 0;
-        while ((m = re.exec(text))) { out.push({ idx: i++, hex: '#' + m[1] }); }
+        while ((m = re.exec(text))) out.push({ idx: i++, hex: '#' + m[1] });
         return out.length ? out : [{ idx: 0, hex: null }];
     }
 
-    // Genera varios patrones de URL por índice (para poder mostrar >1 imagen)
-    function buildUrlCandidates(lineId, i) {
-        const n = i + 1;                // 1-based
-        const v = Date.now();           // cache-buster
-        const bases = [
-            `/spw/line_preview/${lineId}`,
+    // Candidatos por índice (prioriza endpoints indexados; el clásico solo para idx 0)
+    function buildUrlCandidates(lineId, idx) {
+        const n = idx + 1;
+        const v = Date.now();
+        const basesIndexed = [
             `/spw/line_preview/${lineId}-${n}`,
             `/spw/line_preview/${lineId}/${n}`,
             `/spw/line_preview/${lineId}_${n}`,
-            `/spw/line_preview/${lineId}?i=${n}`
         ];
+        const withQuery = `/spw/line_preview/${lineId}?i=${n}&v=${v}`;
         const exts = ['png', 'webp', 'jpg', 'jpeg'];
+
         const urls = [];
+        for (const b of basesIndexed) for (const ext of exts) urls.push(`${b}.${ext}?v=${v}`);
+        urls.push(withQuery); // sin extensión
 
-        // con extensión
-        for (const b of bases) for (const ext of exts) urls.push(`${b}.${ext}?v=${v}`);
-        // sin extensión
-        urls.push(`/spw/line_preview/${lineId}?i=${n}&v=${v}`);
-
-        // además: patrón “único” clásico por compatibilidad (el que ya te funcionó)
-        urls.unshift(`/spw/line_preview/${lineId}.png?v=${v}`);
-
-        return [...new Set(urls)];
-    }
-
-    function tryLoad(img, candidates) {
-        let k = 0;
-        function next() {
-            if (k >= candidates.length) { img.remove(); return; } // nada válido → retiramos
-            img.src = candidates[k++];
+        if (idx === 0) {
+            // Solo la primera posición puede usar el clásico sin índice
+            urls.unshift(`/spw/line_preview/${lineId}.png?v=${v}`,
+                         `/spw/line_preview/${lineId}.webp?v=${v}`,
+                         `/spw/line_preview/${lineId}.jpg?v=${v}`);
         }
-        img.addEventListener('error', next);
-        next();
+        return [...new Set(urls)];
     }
 
     function ensureWrap(info) {
@@ -93,32 +83,44 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         return wrap;
     }
 
+    // Intenta cargar la primera URL no usada; en load la marca como usada
+    function tryLoad(img, candidates, seen) {
+        let k = 0;
+        function next() {
+            while (k < candidates.length && seen.has(candidates[k])) k++;
+            if (k >= candidates.length) { img.remove(); return; }
+            const url = candidates[k++];
+            img.onload = () => { seen.add(url); };
+            img.onerror = next;
+            img.src = url;
+        }
+        next();
+    }
+
     function renderLine(lineEl) {
         const info = lineEl.querySelector(INFO_SEL) || lineEl;
         if (!info) return;
 
         const lineId = getLineId(lineEl);
-        if (!lineId) return; // sin id no podemos pedir imágenes
+        if (!lineId) return;
 
         const wrap = ensureWrap(info);
         const imgsWrap = wrap.querySelector('.spw-imgs');
         const pillsWrap = wrap.querySelector('.spw-pills');
 
-        // Limpieza controlada
         imgsWrap.innerHTML = '';
         pillsWrap.innerHTML = '';
 
         const persos = parsePersonalizations(info.textContent || '');
+        const seen = new Set(); // evita repetir la misma imagen en la misma línea
 
         persos.forEach(({ idx, hex }) => {
-            // píldora (vertical y en orden)
             const pill = document.createElement('span');
             pill.title = hex || '—';
             pill.style.cssText = 'width:14px;height:14px;border-radius:9999px;border:1px solid #e5e7eb;display:inline-block';
             if (hex) pill.style.background = hex;
             pillsWrap.appendChild(pill);
 
-            // imagen
             const img = new Image();
             img.alt = 'Personalización';
             img.loading = 'lazy';
@@ -126,31 +128,30 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
             imgsWrap.appendChild(img);
 
             const candidates = buildUrlCandidates(lineId, idx);
-            tryLoad(img, candidates);
+            tryLoad(img, candidates, seen);
         });
     }
 
     function initialInject() { document.querySelectorAll(LINE_SEL).forEach(renderLine); }
     function observeMutations() {
         const root = document.querySelector('#o_cart, .o_wsale_products_main, .o_wsale_cart_summary, .js_cart_lines') || document.body;
-        const mo = new MutationObserver(ms => {
+        new MutationObserver(ms => {
             for (const m of ms) {
                 m.addedNodes && m.addedNodes.forEach(n => {
-                    if (!(n instanceof HTMLElement)) return;
-                    if (n.matches?.(LINE_SEL)) renderLine(n);
-                    else n.querySelectorAll?.(LINE_SEL).forEach(renderLine);
+                    if (n instanceof HTMLElement) {
+                        if (n.matches?.(LINE_SEL)) renderLine(n);
+                        else n.querySelectorAll?.(LINE_SEL).forEach(renderLine);
+                    }
                 });
             }
-        });
-        mo.observe(root, { childList: true, subtree: true });
+        }).observe(root, { childList: true, subtree: true });
     }
 
     function boot() {
-        // Solo actuamos en páginas de carrito
         if (!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines')) return;
         initialInject();
         observeMutations();
-        console.log('[SPW] injector listo (fotos + píldoras)');
+        console.log('[SPW] injector listo (sin repetidos; multi-foto por línea)');
     }
 
     onReady(boot);
