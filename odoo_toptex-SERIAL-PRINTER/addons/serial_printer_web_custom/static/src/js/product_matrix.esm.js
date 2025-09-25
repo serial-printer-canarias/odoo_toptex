@@ -2,9 +2,8 @@
 (function () {
   'use strict';
 
-  const log  = (...a) => console.log('[SP]', ...a);
+  const log = (...a) => console.log('[SP]', ...a);
   const warn = (...a) => console.warn('[SP]', ...a);
-  const err  = (...a) => console.error('[SP]', ...a);
 
   // ---------- helpers de anclaje ----------
   function getJsProduct() {
@@ -40,7 +39,9 @@
   }
   function getAttributeBlocks(root) {
     const blocks = [];
-    const containers = root.querySelectorAll('[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]');
+    const containers = root.querySelectorAll(
+      '[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]'
+    );
     containers.forEach((el) => {
       const name = (el.getAttribute('data-attribute_name') || el.getAttribute('data-attribute-name') || '').trim();
       const options = [];
@@ -58,6 +59,8 @@
     const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || '');
     let color = blocks.find(b => isColor(b.name));
     let size  = blocks.find(b => isSize(b.name));
+
+    // Si sólo hay 1 bloque (p.ej. One Size oculto), sintetizamos tamaño
     if (!size && blocks.length === 1) {
       size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null }], _synthetic: true };
       if (!color) color = blocks[0];
@@ -67,108 +70,111 @@
     return { color, size };
   }
 
-  // ---------- JSON-RPC ----------
-  // En Website, las rutas públicas de combinación aceptan JSON-RPC con {params:{...}} (NO args/kwargs)
-  async function jsonRpc(route, params) {
-    const res = await fetch(route, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params, id: Date.now() }),
-    });
-    if (!res.ok) throw new Error(`${route} HTTP ${res.status}`);
-    const data = await res.json();
-    if (data?.error) {
-      const e = data.error;
-      throw Object.assign(new Error(e.message || 'RPC error'), { detail: e });
+  // ---------- util precio ----------
+  function fmtPrice(v) {
+    const num = typeof v === 'string' ? parseFloat(v) : v;
+    if (isNaN(num)) return '—';
+    try {
+      const lang = document.documentElement.lang || 'es-ES';
+      const curr = document.querySelector('[data-website-currency-code]')?.dataset.websiteCurrencyCode || 'EUR';
+      return new Intl.NumberFormat(lang, { style: 'currency', currency: curr }).format(num);
+    } catch {
+      return (Math.round(num * 100) / 100).toFixed(2);
     }
-    return data.result;
   }
 
-  // ---------- combinación / stock ----------
-  function getTemplateId(root) {
-    // Odoo 18: el envoltorio principal lleva data-main-object="product.template" y data-website-id
-    const main = document.querySelector('[data-main-object="product.template"]');
-    const alt  = root?.querySelector('[data-product-template-id]');
-    return parseInt(
-      main?.getAttribute('data-oe-id') // a veces contiene el id del template
-      || main?.dataset?.oeId
-      || alt?.dataset?.productTemplateId
-      || root?.querySelector('input[name="product_template_id"]')?.value
-      || root?.querySelector('input[name="product_id"]')?.value
-      || '0', 10) || 0;
+  // ---------- args de combinación ----------
+  function readTemplateId(root) {
+    // intenta varias fuentes
+    const fromMain = document.querySelector('main[data-main-object*="product.template"][data-oe-id]')?.getAttribute('data-oe-id');
+    const fromData = root.querySelector('[data-product-template-id]')?.dataset.productTemplateId;
+    const fromInput = root.querySelector('input[name="product_template_id"]')?.value
+                   || root.querySelector('input[name="product_id"]')?.value;
+    return parseInt(fromMain || fromData || fromInput || '0', 10) || 0;
   }
   function comboArgs(ptavIds, root) {
-    const tmplId = getTemplateId(root);
+    const tmplId = readTemplateId(root);
     const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || '0', 10) || undefined;
+    // Forma EXACTA que espera el controller website_sale.get_combination_info
     return {
-      product_template_id: tmplId,
-      product_id: 0,
-      combination: (ptavIds || []).map(n => parseInt(n, 10)).filter(Boolean),
+      product_template_id: tmplId,        // int
+      product_id: 0,                      // 0 en página de template
+      combination: ptavIds,               // PTAV IDs
       add_qty: 1,
       parent_combination: [],
       pricelist_id: pricelistId,
-      // banderas “clásicas” que algunos controladores consumen (no molestan si no se usan)
       only_template: false,
-      no_variant_attribute_values: [],
-      product_template_attribute_value_ids: [],
       is_main_product: true,
-      display_default_code: true,
       strict: true,
+      // si existen atributos "no_variant" en la página, no pasa nada con []
+      product_template_attribute_value_ids: [],
+      no_variant_attribute_values: [],
+      display_default_code: true,
     };
   }
+
+  // ---------- POST website (NO JSON-RPC) ----------
+  async function websitePost(url, payload) {
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
+    let data = null;
+    try { data = await res.json(); } catch { data = null; }
+    // algunos controladores devuelven {jsonrpc:'2.0', result:{...}}
+    const out = data && typeof data === 'object' && 'result' in data ? data.result : data;
+    return out || {};
+  }
+
   async function fetchCombination(ptavIds, root) {
-    const params = comboArgs(ptavIds, root);
-    // Orden recomendado: Website -> Shop (antiguo) -> Sale (seguro 404 bajo website)
-    const routes = [
+    const payload = comboArgs(ptavIds, root);
+    const endpoints = [
       '/website_sale/get_combination_info',
       '/shop/get_combination_info',
-      '/sale/get_combination_info',
+      '/shop/product_configurator/get_combination_info',
     ];
-    for (const r of routes) {
+    for (const ep of endpoints) {
       try {
-        log('probando', r, '◀', params);
-        const result = await jsonRpc(r, params);
-        if (result) return result;
+        log('probando', ep, '→', payload);
+        const info = await websitePost(ep, payload);
+        // si el controller respondió con "error" embebido, continúa
+        if (info && typeof info === 'object' && !info.error) return info;
       } catch (e) {
-        if (String(e?.message || '').includes('HTTP 404')) {
-          // pasar al siguiente
-          continue;
-        }
-        // AccessError por método privado => probar siguiente ruta
-        if (e?.detail?.data?.name === 'odoo.exceptions.AccessError') {
-          continue;
-        }
-        warn('respuesta con error en', r, e?.detail || e);
-        // seguimos probando fallback
+        warn(ep, 'falló:', e.message || e);
       }
     }
     return null;
   }
 
+  // ---------- (opcional) stock por RPC; si no hay permisos, ignora ----------
   async function getStock(variantId) {
     try {
-      const res = await jsonRpc('/web/dataset/call_kw', {
-        model: 'product.product',
-        method: 'read',
-        args: [[variantId], ['qty_available']],
-        kwargs: {},
+      const res = await fetch('/web/dataset/call_kw', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'call',
+          params: {
+            model: 'product.product',
+            method: 'read',
+            args: [[variantId], ['qty_available']],
+            kwargs: {},
+          },
+          id: Date.now(),
+        }),
       });
-      return (Array.isArray(res) && res[0] && typeof res[0].qty_available === 'number') ? res[0].qty_available : null;
-    } catch (e) {
-      warn('stock read falló', e?.detail || e);
-      return null;
+      const data = await res.json();
+      if (data?.error) throw new Error('rpc access error');
+      const r = data?.result?.[0];
+      return typeof r?.qty_available === 'number' ? r.qty_available : null;
+    } catch {
+      return null; // sin stock si no hay permisos
     }
-  }
-  function fmtPrice(v) {
-    try {
-      const lang = document.documentElement.lang || 'es-ES';
-      const curr = document.querySelector('[data-website-currency-code]')?.dataset.websiteCurrencyCode || 'EUR';
-      return new Intl.NumberFormat(lang, { style: 'currency', currency: curr }).format(v);
-    } catch { return (Math.round(v * 100) / 100).toFixed(2); }
   }
 
   // ---------- construir tabla ----------
@@ -201,8 +207,8 @@
       tr.innerHTML = `
         <th class="sp-sticky-left">
           <div class="sp-color">
-            <img class="sp-color__img" alt="">
-            <span class="sp-color__name">${c.name || ''}</span>
+            <img class="sp-color__img" alt="" style="width:28px;height:28px;object-fit:cover;border-radius:4px;background:#f3f3f3">
+            <span class="sp-color__name" style="margin-left:8px">${c.name || ''}</span>
           </div>
         </th>`;
       size.options.forEach(s => {
@@ -210,11 +216,14 @@
         td.dataset.sizePtav = s.ptavId || '';
         td.dataset.sizeId   = s.id || '';
         td.innerHTML = `
-          <div class="sp-cell">
+          <div class="sp-cell" style="display:flex;flex-direction:column;gap:4px">
             <input class="sp-qty" type="number" min="0" step="1"
                    data-color-ptav="${c.ptavId || ''}" data-size-ptav="${s.ptavId || ''}"
-                   data-color-id="${c.id || ''}" data-size-id="${s.id || ''}">
-            <div class="sp-meta"><span class="sp-price">—</span><span class="sp-stock">—</span></div>
+                   data-color-id="${c.id || ''}" data-size-id="${s.id || ''}"
+                   style="max-width:92px">
+            <div class="sp-meta" style="font-size:.85rem;opacity:.85;display:flex;gap:8px">
+              <span class="sp-price">—</span><span class="sp-stock">—</span>
+            </div>
           </div>`;
         tr.appendChild(td);
       });
@@ -230,11 +239,11 @@
 
     anchor.appendChild(wrap);
 
-    hydrateCells(wrap, root);
+    hydrateCells(wrap, root).then(() => log('matrix hidratada sp-matrix-' + new Date().toISOString().slice(0,10).replaceAll('-','')));
     btn.addEventListener('click', () => addAllToCart(wrap));
   }
 
-  // ---------- hidratar ----------
+  // ---------- hidratar celdas (precio/stock/foto) ----------
   async function hydrateCells(container, root) {
     const cells = Array.from(container.querySelectorAll('td'));
     const queue = cells.slice();
@@ -242,6 +251,7 @@
     async function worker() {
       while (queue.length) {
         const td = queue.shift();
+
         const colorPtav = parseInt(td.closest('tr')?.dataset.colorPtav || '0', 10)
                        || parseInt(td.closest('tr')?.dataset.colorId   || '0', 10);
         const sizePtav  = parseInt(td.dataset.sizePtav || '0', 10)
@@ -250,33 +260,41 @@
         const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
         const info = await fetchCombination(combo, root);
 
-        if (info && (info.product_id || info.has_discount !== undefined)) {
-          // id variante
-          if (info.product_id) td.querySelector('.sp-qty').dataset.variantId = info.product_id;
+        if (info && (info.product_id || info.variant_id || info.id)) {
+          const variantId = parseInt(info.product_id || info.variant_id || info.id, 10);
+          td.querySelector('.sp-qty').dataset.variantId = variantId;
 
-          // precio (varía según versión)
-          const price = (typeof info.price === 'number') ? info.price
-                      : (typeof info.list_price === 'number') ? info.list_price
-                      : (typeof info.website_price === 'number') ? info.website_price : null;
-          if (price !== null) td.querySelector('.sp-price').textContent = fmtPrice(price);
+          // precio (admite varias claves y string/float)
+          const priceNum = (info.price !== undefined ? info.price
+                          : info.list_price !== undefined ? info.list_price
+                          : info.website_price !== undefined ? info.website_price
+                          : info.display_price !== undefined ? info.display_price
+                          : null);
+          if (priceNum !== null) td.querySelector('.sp-price').textContent = fmtPrice(priceNum);
 
-          // stock
+          // stock (si lo expone website_sale_stock)
           let stock = (info.stock_quantity !== undefined) ? info.stock_quantity : null;
-          if (stock === null && info.product_id) stock = await getStock(info.product_id);
+          if (stock === null && info.availability !== undefined && typeof info.availability === 'number') {
+            stock = info.availability;
+          }
+          if (stock === null) {
+            // último recurso: RPC (si falla permisos, ignora)
+            stock = await getStock(variantId);
+          }
           if (stock !== null) td.querySelector('.sp-stock').textContent = `Stock: ${stock}`;
 
-          // imagen por variante
-          if (info.product_id) {
-            const img = td.closest('tr').querySelector('.sp-color__img');
-            if (img && !img.src) img.src = `/web/image/product.product/${info.product_id}/image_128`;
+          // imagen del variant
+          const img = td.closest('tr').querySelector('.sp-color__img');
+          if (img && !img.src) {
+            img.src = `/web/image/product.product/${variantId}/image_256`;
           }
         } else {
           td.classList.add('sp-unavailable');
         }
       }
     }
-    await Promise.all(new Array(6).fill(0).map(worker));
-    log('matrix hidratada sp-matrix');
+    // pocos workers para no saturar
+    await Promise.all(new Array(4).fill(0).map(worker));
   }
 
   // ---------- carrito ----------
