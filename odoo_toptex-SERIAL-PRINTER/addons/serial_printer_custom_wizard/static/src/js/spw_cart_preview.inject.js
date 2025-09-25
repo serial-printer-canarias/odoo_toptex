@@ -33,7 +33,7 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         return id || null;
     }
 
-    // Devuelve los HEX en el orden que aparecen en el texto
+    // Extrae todos los HEX en el orden del texto
     function extractHexesInOrder(text) {
         if (!text) return [];
         const re = /SVG\s*:\s*(#[0-9a-fA-F]{3,8})/g;
@@ -43,25 +43,19 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         return out;
     }
 
-    function alreadyInjected(lineEl) {
-        return !!lineEl.querySelector('.spw-cart-preview');
-    }
-
     function buildUrl(lineId, idx, ext) {
-        // idx=0 => /spw/line_preview/ID.ext
-        // idx>0 => /spw/line_preview/ID-idx.ext
         const sfx = idx > 0 ? `-${idx}` : '';
         return `/spw/line_preview/${lineId}${sfx}.${ext}?v=${Date.now()}`;
     }
 
-    // Carga secuencial: base y luego -1, -2, ...; prueba webp y png
-    function loadAllPreviews(lineId, imgCol, max = 12, stopAfterMisses = 2) {
-        let idx = 0;          // 0 = base
+    // Carga /ID.(webp|png) y /ID-1.(…), /ID-2.(…), … hasta maxIdx
+    function loadAllPreviews(lineId, imgCol, maxIdx = 12, stopAfterMisses = 2) {
+        let idx = 0;
         let misses = 0;
         let found = 0;
 
         function tryIndex() {
-            if (idx > max) return;
+            if (idx > maxIdx) return;
             const urls = [buildUrl(lineId, idx, 'webp'), buildUrl(lineId, idx, 'png')];
             let p = 0;
 
@@ -78,8 +72,7 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
                 img.decoding = 'async';
                 img.loading = 'lazy';
                 img.alt = 'Personalización';
-                img.style.cssText =
-                    'max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff';
+                img.style.cssText = 'max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff';
                 img.onload = () => {
                     found += 1;
                     misses = 0;
@@ -88,7 +81,7 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
                     tryIndex();
                 };
                 img.onerror = tryNextUrl;
-                img.src = url;             // <- ESTO DISPARA LA PETICIÓN
+                img.src = url;
             }
             tryNextUrl();
         }
@@ -98,41 +91,45 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     /* ------------------------- inyección por línea ----------------------- */
     function injectInto(lineEl) {
         const info = lineEl.querySelector(INFO_SEL) || lineEl;
-        if (!info || alreadyInjected(lineEl)) return;
+        if (!info) return;
+
+        // Si ya existe nuestro bloque, lo reemplazamos (evita duplicados)
+        const existing = lineEl.querySelector('.spw-cart-preview');
+        if (existing) existing.remove();
 
         const lineId = getLineId(lineEl);
-        const hexes = extractHexesInOrder(info.textContent || '');
+        const hexes  = extractHexesInOrder(info.textContent || '');
 
-        // contenedor principal
+        // contenedor principal (se inserta YA para no depender del onload)
         const wrap = document.createElement('div');
         wrap.className = 'spw-cart-preview';
-        wrap.style.cssText =
-            'margin-top:10px;display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap';
+        wrap.style.cssText = 'margin-top:10px;display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap';
 
-        // columna de imágenes (multiples personalizaciones)
         const imgCol = document.createElement('div');
         imgCol.style.cssText = 'display:flex;flex-direction:column;gap:10px';
 
-        if (lineId) {
-            loadAllPreviews(lineId, imgCol, 12, 2);
-        }
-
-        // columna de píldoras (vertical, mismo orden que el texto)
         const pillsCol = document.createElement('div');
         pillsCol.style.cssText = 'display:flex;flex-direction:column;gap:6px;min-width:18px';
+
+        // Píldoras (en vertical, en el mismo orden que aparecen en el texto)
         hexes.forEach((hex) => {
             const pill = document.createElement('span');
             pill.title = hex;
-            pill.style.cssText =
-                'display:inline-block;width:16px;height:16px;border-radius:9999px;border:1px solid #e5e7eb';
+            pill.style.cssText = 'display:inline-block;width:16px;height:16px;border-radius:9999px;border:1px solid #e5e7eb';
             pill.style.background = hex;
             pillsCol.appendChild(pill);
         });
 
-        if (imgCol.childElementCount || pillsCol.childElementCount) {
+        // Insertamos el bloque si hay algo que mostrar o cargar
+        if (lineId || hexes.length) {
             wrap.appendChild(imgCol);
             wrap.appendChild(pillsCol);
             info.appendChild(wrap);
+        }
+
+        // Carga de TODAS las imágenes de personalización
+        if (lineId) {
+            loadAllPreviews(lineId, imgCol, 12, 2);
         }
     }
 
