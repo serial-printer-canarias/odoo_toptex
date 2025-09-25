@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const log = (...a) => console.log('[SP]', ...a);
+  const log  = (...a) => console.log('[SP]', ...a);
   const warn = (...a) => console.warn('[SP]', ...a);
 
   // ---------- helpers de anclaje ----------
@@ -28,7 +28,7 @@
     return anchor;
   }
 
-  // ---------- leer bloques de atributos, capturando PTAV ----------
+  // ---------- leer bloques de atributos (PTAV) ----------
   function readIds(inp) {
     const d = inp.dataset || {};
     const ptav =
@@ -39,9 +39,7 @@
   }
   function getAttributeBlocks(root) {
     const blocks = [];
-    const containers = root.querySelectorAll(
-      '[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]'
-    );
+    const containers = root.querySelectorAll('[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]');
     containers.forEach((el) => {
       const name = (el.getAttribute('data-attribute_name') || el.getAttribute('data-attribute-name') || '').trim();
       const options = [];
@@ -60,7 +58,6 @@
     let color = blocks.find(b => isColor(b.name));
     let size  = blocks.find(b => isSize(b.name));
 
-    // Si sólo hay 1 bloque (p.ej. One Size oculto), sintetizamos tamaño
     if (!size && blocks.length === 1) {
       size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null }], _synthetic: true };
       if (!color) color = blocks[0];
@@ -78,16 +75,13 @@
       const lang = document.documentElement.lang || 'es-ES';
       const curr = document.querySelector('[data-website-currency-code]')?.dataset.websiteCurrencyCode || 'EUR';
       return new Intl.NumberFormat(lang, { style: 'currency', currency: curr }).format(num);
-    } catch {
-      return (Math.round(num * 100) / 100).toFixed(2);
-    }
+    } catch { return (Math.round(num * 100) / 100).toFixed(2); }
   }
 
-  // ---------- args de combinación ----------
+  // ---------- args combinación ----------
   function readTemplateId(root) {
-    // intenta varias fuentes
-    const fromMain = document.querySelector('main[data-main-object*="product.template"][data-oe-id]')?.getAttribute('data-oe-id');
-    const fromData = root.querySelector('[data-product-template-id]')?.dataset.productTemplateId;
+    const fromMain  = document.querySelector('main[data-main-object*="product.template"][data-oe-id]')?.getAttribute('data-oe-id');
+    const fromData  = root.querySelector('[data-product-template-id]')?.dataset.productTemplateId;
     const fromInput = root.querySelector('input[name="product_template_id"]')?.value
                    || root.querySelector('input[name="product_id"]')?.value;
     return parseInt(fromMain || fromData || fromInput || '0', 10) || 0;
@@ -95,18 +89,16 @@
   function comboArgs(ptavIds, root) {
     const tmplId = readTemplateId(root);
     const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || '0', 10) || undefined;
-    // Forma EXACTA que espera el controller website_sale.get_combination_info
     return {
-      product_template_id: tmplId,        // int
-      product_id: 0,                      // 0 en página de template
-      combination: ptavIds,               // PTAV IDs
+      product_template_id: tmplId,
+      product_id: 0,
+      combination: ptavIds,
       add_qty: 1,
       parent_combination: [],
       pricelist_id: pricelistId,
       only_template: false,
       is_main_product: true,
       strict: true,
-      // si existen atributos "no_variant" en la página, no pasa nada con []
       product_template_attribute_value_ids: [],
       no_variant_attribute_values: [],
       display_default_code: true,
@@ -124,32 +116,27 @@
     if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
     let data = null;
     try { data = await res.json(); } catch { data = null; }
-    // algunos controladores devuelven {jsonrpc:'2.0', result:{...}}
-    const out = data && typeof data === 'object' && 'result' in data ? data.result : data;
-    return out || {};
+    return (data && typeof data === 'object' && 'result' in data) ? data.result : (data || {});
   }
 
   async function fetchCombination(ptavIds, root) {
     const payload = comboArgs(ptavIds, root);
     const endpoints = [
-      '/website_sale/get_combination_info',
-      '/shop/get_combination_info',
-      '/shop/product_configurator/get_combination_info',
+      '/website_sale/get_combination_info', // el bueno en Odoo 17/18
+      '/shop/get_combination_info',         // fallback
+      '/shop/product_configurator/get_combination_info', // fallback
     ];
     for (const ep of endpoints) {
       try {
-        log('probando', ep, '→', payload);
+        log('probando', ep, payload);
         const info = await websitePost(ep, payload);
-        // si el controller respondió con "error" embebido, continúa
-        if (info && typeof info === 'object' && !info.error) return info;
-      } catch (e) {
-        warn(ep, 'falló:', e.message || e);
-      }
+        if (info && !info.error) return info;
+      } catch (e) { warn(ep, '→', e.message || e); }
     }
     return null;
   }
 
-  // ---------- (opcional) stock por RPC; si no hay permisos, ignora ----------
+  // ---------- stock opcional (si permisos) ----------
   async function getStock(variantId) {
     try {
       const res = await fetch('/web/dataset/call_kw', {
@@ -159,12 +146,7 @@
         body: JSON.stringify({
           jsonrpc: '2.0',
           method: 'call',
-          params: {
-            model: 'product.product',
-            method: 'read',
-            args: [[variantId], ['qty_available']],
-            kwargs: {},
-          },
+          params: { model: 'product.product', method: 'read', args: [[variantId], ['qty_available']], kwargs: {} },
           id: Date.now(),
         }),
       });
@@ -172,9 +154,7 @@
       if (data?.error) throw new Error('rpc access error');
       const r = data?.result?.[0];
       return typeof r?.qty_available === 'number' ? r.qty_available : null;
-    } catch {
-      return null; // sin stock si no hay permisos
-    }
+    } catch { return null; }
   }
 
   // ---------- construir tabla ----------
@@ -225,9 +205,8 @@
               <span class="sp-price">—</span><span class="sp-stock">—</span>
             </div>
           </div>`;
-        tr.appendChild(td);
+        tbody.appendChild(tr).appendChild(td);
       });
-      tbody.appendChild(tr);
     });
 
     table.append(thead, tbody);
@@ -239,11 +218,11 @@
 
     anchor.appendChild(wrap);
 
-    hydrateCells(wrap, root).then(() => log('matrix hidratada sp-matrix-' + new Date().toISOString().slice(0,10).replaceAll('-','')));
+    hydrateCells(wrap, root).then(() => log('matrix hidratada'));
     btn.addEventListener('click', () => addAllToCart(wrap));
   }
 
-  // ---------- hidratar celdas (precio/stock/foto) ----------
+  // ---------- hidratar ----------
   async function hydrateCells(container, root) {
     const cells = Array.from(container.querySelectorAll('td'));
     const queue = cells.slice();
@@ -251,49 +230,34 @@
     async function worker() {
       while (queue.length) {
         const td = queue.shift();
-
         const colorPtav = parseInt(td.closest('tr')?.dataset.colorPtav || '0', 10)
                        || parseInt(td.closest('tr')?.dataset.colorId   || '0', 10);
         const sizePtav  = parseInt(td.dataset.sizePtav || '0', 10)
                        || parseInt(td.dataset.sizeId   || '0', 10);
 
         const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
+
         const info = await fetchCombination(combo, root);
+        log('↳ respuesta combo', combo, info);
 
         if (info && (info.product_id || info.variant_id || info.id)) {
           const variantId = parseInt(info.product_id || info.variant_id || info.id, 10);
           td.querySelector('.sp-qty').dataset.variantId = variantId;
 
-          // precio (admite varias claves y string/float)
-          const priceNum = (info.price !== undefined ? info.price
-                          : info.list_price !== undefined ? info.list_price
-                          : info.website_price !== undefined ? info.website_price
-                          : info.display_price !== undefined ? info.display_price
-                          : null);
+          const priceNum = (info.display_price ?? info.price ?? info.list_price ?? info.website_price ?? null);
           if (priceNum !== null) td.querySelector('.sp-price').textContent = fmtPrice(priceNum);
 
-          // stock (si lo expone website_sale_stock)
-          let stock = (info.stock_quantity !== undefined) ? info.stock_quantity : null;
-          if (stock === null && info.availability !== undefined && typeof info.availability === 'number') {
-            stock = info.availability;
-          }
-          if (stock === null) {
-            // último recurso: RPC (si falla permisos, ignora)
-            stock = await getStock(variantId);
-          }
+          let stock = (info.stock_quantity ?? info.availability ?? null);
+          if (stock === null) stock = await getStock(variantId);
           if (stock !== null) td.querySelector('.sp-stock').textContent = `Stock: ${stock}`;
 
-          // imagen del variant
           const img = td.closest('tr').querySelector('.sp-color__img');
-          if (img && !img.src) {
-            img.src = `/web/image/product.product/${variantId}/image_256`;
-          }
+          if (img && !img.src) img.src = `/web/image/product.product/${variantId}/image_256`;
         } else {
           td.classList.add('sp-unavailable');
         }
       }
     }
-    // pocos workers para no saturar
     await Promise.all(new Array(4).fill(0).map(worker));
   }
 
