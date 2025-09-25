@@ -2,22 +2,31 @@
 odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function () {
     'use strict';
 
-    // ---------- ready sin dependencias ----------
+    // -------- ready sin dependencias --------
     function onReady(cb) {
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', cb, { once: true });
         } else cb();
     }
 
-    // ---------- selectores ----------
+    // -------- selectores --------
     const LINE_SEL = '.o_cart_product, .js_cart_lines tr, .o_wsale_cart_item, .cart_line';
     const INFO_SEL = '.o_wsale_product_information, .o_wsale_cart_description, .o_wsale_cart_item_description, .product-name, .oe_subdescription';
 
-    // ---------- util ----------
+    // -------- utils --------
+    const ts = () => Date.now();
+
+    function addQuery(url, params) {
+        const u = new URL(url, window.location.origin);
+        Object.entries(params || {}).forEach(([k, v]) => u.searchParams.set(k, v));
+        return u.pathname + (u.search ? u.search : '');
+    }
+
     function urlLineId() {
         const m = location.search.match(/[?&]spw_line_id=(\d+)/);
         return m ? m[1] : null;
     }
+
     function getLineId(lineEl) {
         if (!lineEl) return urlLineId();
         const c = lineEl.getAttribute('data-line-id') ? lineEl :
@@ -36,28 +45,39 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         return out.length ? out : [{ idx: 0, hex: null }];
     }
 
-    // Candidatos por índice (prioriza endpoints indexados; el clásico solo para idx 0)
+    // candidatos por índice; probamos patrones indexados y, si todo falla,
+    // un fallback "clásico" pero ÚNICO por índice para que no se quite el resto.
     function buildUrlCandidates(lineId, idx) {
         const n = idx + 1;
-        const v = Date.now();
-        const basesIndexed = [
-            `/spw/line_preview/${lineId}-${n}`,
-            `/spw/line_preview/${lineId}/${n}`,
-            `/spw/line_preview/${lineId}_${n}`,
-        ];
-        const withQuery = `/spw/line_preview/${lineId}?i=${n}&v=${v}`;
+        const base = `/spw/line_preview/${lineId}`;
         const exts = ['png', 'webp', 'jpg', 'jpeg'];
 
-        const urls = [];
-        for (const b of basesIndexed) for (const ext of exts) urls.push(`${b}.${ext}?v=${v}`);
-        urls.push(withQuery); // sin extensión
+        const indexedBases = [
+            `${base}-${n}`,
+            `${base}/${n}`,
+            `${base}_${n}`,
+        ];
 
-        if (idx === 0) {
-            // Solo la primera posición puede usar el clásico sin índice
-            urls.unshift(`/spw/line_preview/${lineId}.png?v=${v}`,
-                         `/spw/line_preview/${lineId}.webp?v=${v}`,
-                         `/spw/line_preview/${lineId}.jpg?v=${v}`);
+        const urls = [];
+
+        // 1) patrones indexados con extensión
+        for (const b of indexedBases) for (const ext of exts) {
+            urls.push(addQuery(`${b}.${ext}`, { v: ts() }));
         }
+
+        // 2) patrón indexado por query (?i=n) con y sin extensión
+        for (const ext of exts) {
+            urls.push(addQuery(`${base}.${ext}`, { i: n, v: ts() }));
+        }
+        urls.push(addQuery(base, { i: n, v: ts() }));
+
+        // 3) último recurso: la clásica sin índice PERO distinta por índice
+        // (añadimos marker para no colisionar entre sí)
+        for (const ext of exts) {
+            urls.push(addQuery(`${base}.${ext}`, { i: n, fb: 1, v: ts() }));
+        }
+
+        // dedup por string
         return [...new Set(urls)];
     }
 
@@ -83,15 +103,14 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         return wrap;
     }
 
-    // Intenta cargar la primera URL no usada; en load la marca como usada
-    function tryLoad(img, candidates, seen) {
+    // carga el primer candidato que responda 200; si ninguno carga, elimina el <img>
+    function tryLoad(img, candidates) {
         let k = 0;
         function next() {
-            while (k < candidates.length && seen.has(candidates[k])) k++;
             if (k >= candidates.length) { img.remove(); return; }
             const url = candidates[k++];
-            img.onload = () => { seen.add(url); };
             img.onerror = next;
+            img.onload  = null; // no necesitamos marcar nada
             img.src = url;
         }
         next();
@@ -112,15 +131,16 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         pillsWrap.innerHTML = '';
 
         const persos = parsePersonalizations(info.textContent || '');
-        const seen = new Set(); // evita repetir la misma imagen en la misma línea
 
         persos.forEach(({ idx, hex }) => {
+            // píldora (vertical)
             const pill = document.createElement('span');
             pill.title = hex || '—';
             pill.style.cssText = 'width:14px;height:14px;border-radius:9999px;border:1px solid #e5e7eb;display:inline-block';
             if (hex) pill.style.background = hex;
             pillsWrap.appendChild(pill);
 
+            // imagen
             const img = new Image();
             img.alt = 'Personalización';
             img.loading = 'lazy';
@@ -128,11 +148,12 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
             imgsWrap.appendChild(img);
 
             const candidates = buildUrlCandidates(lineId, idx);
-            tryLoad(img, candidates, seen);
+            tryLoad(img, candidates);
         });
     }
 
     function initialInject() { document.querySelectorAll(LINE_SEL).forEach(renderLine); }
+
     function observeMutations() {
         const root = document.querySelector('#o_cart, .o_wsale_products_main, .o_wsale_cart_summary, .js_cart_lines') || document.body;
         new MutationObserver(ms => {
@@ -151,7 +172,7 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         if (!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines')) return;
         initialInject();
         observeMutations();
-        console.log('[SPW] injector listo (sin repetidos; multi-foto por línea)');
+        console.log('[SPW] injector listo (multi-foto por línea; fallback por índice)');
     }
 
     onReady(boot);
