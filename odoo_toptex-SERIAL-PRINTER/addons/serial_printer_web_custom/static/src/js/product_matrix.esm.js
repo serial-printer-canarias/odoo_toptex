@@ -2,14 +2,15 @@
 (function () {
   'use strict';
 
-  const TAG = 'sp-matrix-2025-09-24c';
-  const log = (...a) => console.log('[SP]', ...a);
+  const log  = (...a) => console.log('[SP]', ...a);
+  const warn = (...a) => console.warn('[SP]', ...a);
+  const err  = (...a) => console.error('[SP]', ...a);
 
   // ---------- helpers de anclaje ----------
   function getJsProduct() {
     return document.querySelector('.o_wsale_product_page .js_product')
-      || document.querySelector('.js_product')
-      || document.querySelector('.o_wsale_product_page');
+        || document.querySelector('.js_product')
+        || document.querySelector('.o_wsale_product_page');
   }
   function placeAnchor() {
     let anchor = document.getElementById('sp-matrix-anchor');
@@ -31,11 +32,10 @@
   // ---------- leer bloques de atributos, capturando PTAV ----------
   function readIds(inp) {
     const d = inp.dataset || {};
-    const ptav = parseInt(
-      d.ptav || d.ptavId || d.productTemplateAttributeValueId || d.productTemplateAttributeValue ||
-      d.ptav_id || d.ptavl || '0', 10
-    ) || null;
-    const av = parseInt(d.valueId || d.attributeValueId || inp.value || '0', 10) || null;
+    const ptav =
+      parseInt(d.ptav || d.ptavId || d.productTemplateAttributeValueId || d.productTemplateAttributeValue || d.ptav_id || d.ptavl || '0', 10) || null;
+    const av =
+      parseInt(d.valueId || d.attributeValueId || inp.value || '0', 10) || null;
     return { ptavId: ptav, avId: av };
   }
   function getAttributeBlocks(root) {
@@ -67,105 +67,102 @@
     return { color, size };
   }
 
-  // ---------- transportes ----------
-  // JSON-RPC para /web/dataset/call_kw (stock, etc.)
-  async function callKw(model, method, args = [], kwargs = {}) {
-    const res = await fetch('/web/dataset/call_kw', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify({
-        jsonrpc: '2.0', method: 'call', id: Date.now(),
-        params: { model, method, args, kwargs }
-      }),
-    });
-    if (!res.ok) throw new Error(`/web/dataset/call_kw HTTP ${res.status}`);
-    const data = await res.json();
-    if (data.error) throw data.error;
-    return data.result;
-  }
-
-  // POST plano para controladores website (NO JSON-RPC)
-  async function websitePost(url, params) {
-    // Odoo website acepta form-encoded; serializamos arrays como JSON
-    const form = new URLSearchParams();
-    Object.entries(params || {}).forEach(([k, v]) => {
-      form.set(k, (v && typeof v === 'object') ? JSON.stringify(v) : String(v ?? ''));
-    });
-    const res = await fetch(url, {
+  // ---------- JSON-RPC ----------
+  // En Website, las rutas públicas de combinación aceptan JSON-RPC con {params:{...}} (NO args/kwargs)
+  async function jsonRpc(route, params) {
+    const res = await fetch(route, {
       method: 'POST',
       credentials: 'same-origin',
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest',
       },
-      body: form.toString(),
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params, id: Date.now() }),
     });
-    if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
-    // los controladores devuelven JSON directo
-    return res.json();
+    if (!res.ok) throw new Error(`${route} HTTP ${res.status}`);
+    const data = await res.json();
+    if (data?.error) {
+      const e = data.error;
+      throw Object.assign(new Error(e.message || 'RPC error'), { detail: e });
+    }
+    return data.result;
   }
 
   // ---------- combinación / stock ----------
+  function getTemplateId(root) {
+    // Odoo 18: el envoltorio principal lleva data-main-object="product.template" y data-website-id
+    const main = document.querySelector('[data-main-object="product.template"]');
+    const alt  = root?.querySelector('[data-product-template-id]');
+    return parseInt(
+      main?.getAttribute('data-oe-id') // a veces contiene el id del template
+      || main?.dataset?.oeId
+      || alt?.dataset?.productTemplateId
+      || root?.querySelector('input[name="product_template_id"]')?.value
+      || root?.querySelector('input[name="product_id"]')?.value
+      || '0', 10) || 0;
+  }
   function comboArgs(ptavIds, root) {
-    const tmplId = parseInt(
-      root.querySelector('[data-product-template-id]')?.dataset.productTemplateId
-      || root.querySelector('input[name="product_template_id"]')?.value
-      || root.querySelector('input[name="product_id"]')?.value || 0, 10);
-    const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || 0, 10);
+    const tmplId = getTemplateId(root);
+    const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || '0', 10) || undefined;
     return {
-      product_template_id: tmplId || undefined,
+      product_template_id: tmplId,
       product_id: 0,
-      combination: ptavIds,          // PTAV IDs
+      combination: (ptavIds || []).map(n => parseInt(n, 10)).filter(Boolean),
       add_qty: 1,
       parent_combination: [],
-      pricelist_id: pricelistId || undefined,
+      pricelist_id: pricelistId,
+      // banderas “clásicas” que algunos controladores consumen (no molestan si no se usan)
+      only_template: false,
+      no_variant_attribute_values: [],
+      product_template_attribute_value_ids: [],
+      is_main_product: true,
+      display_default_code: true,
+      strict: true,
     };
   }
-
   async function fetchCombination(ptavIds, root) {
-    const args = comboArgs(ptavIds, root);
-
-    // 1) Ruta oficial en Odoo 17/18
-    try {
-      log('probando /website_sale/get_combination_info', args);
-      const r = await websitePost('/website_sale/get_combination_info', args);
-      if (r && (r.product_id || r.variant_id || r.id)) return r;
-    } catch (e) {
-      console.warn('[SP] combinación por /website_sale/get_combination_info falló:', e?.message || e);
+    const params = comboArgs(ptavIds, root);
+    // Orden recomendado: Website -> Shop (antiguo) -> Sale (seguro 404 bajo website)
+    const routes = [
+      '/website_sale/get_combination_info',
+      '/shop/get_combination_info',
+      '/sale/get_combination_info',
+    ];
+    for (const r of routes) {
+      try {
+        log('probando', r, '◀', params);
+        const result = await jsonRpc(r, params);
+        if (result) return result;
+      } catch (e) {
+        if (String(e?.message || '').includes('HTTP 404')) {
+          // pasar al siguiente
+          continue;
+        }
+        // AccessError por método privado => probar siguiente ruta
+        if (e?.detail?.data?.name === 'odoo.exceptions.AccessError') {
+          continue;
+        }
+        warn('respuesta con error en', r, e?.detail || e);
+        // seguimos probando fallback
+      }
     }
-
-    // 2) Otras rutas (por compatibilidad según build)
-    try {
-      log('probando /shop/get_combination_info', args);
-      const r2 = await websitePost('/shop/get_combination_info', args);
-      if (r2 && (r2.product_id || r2.variant_id || r2.id)) return r2;
-    } catch (e) {
-      console.warn('[SP] combinación por /shop/get_combination_info falló:', e?.message || e);
-    }
-
-    try {
-      log('probando /shop/product_configurator/get_combination_info', args);
-      const r3 = await websitePost('/shop/product_configurator/get_combination_info', args);
-      if (r3 && (r3.product_id || r3.variant_id || r3.id)) return r3;
-    } catch (e) {
-      console.warn('[SP] combinación por /shop/product_configurator/get_combination_info falló:', e?.message || e);
-    }
-
     return null;
   }
 
   async function getStock(variantId) {
     try {
-      const res = await callKw('product.product', 'read', [[variantId], ['qty_available']]);
-      const qty = res && res[0] && typeof res[0].qty_available === 'number' ? res[0].qty_available : null;
-      return qty;
+      const res = await jsonRpc('/web/dataset/call_kw', {
+        model: 'product.product',
+        method: 'read',
+        args: [[variantId], ['qty_available']],
+        kwargs: {},
+      });
+      return (Array.isArray(res) && res[0] && typeof res[0].qty_available === 'number') ? res[0].qty_available : null;
     } catch (e) {
-      console.warn('[SP] stock read falló:', e?.message || e);
+      warn('stock read falló', e?.detail || e);
       return null;
     }
   }
-
   function fmtPrice(v) {
     try {
       const lang = document.documentElement.lang || 'es-ES';
@@ -187,7 +184,7 @@
     const anchor = placeAnchor();
     anchor.innerHTML = '';
 
-    const wrap  = document.createElement('div');   wrap.className  = 'sp-matrix';
+    const wrap = document.createElement('div'); wrap.className = 'sp-matrix';
     const table = document.createElement('table'); table.className = 'sp-matrix__table';
 
     const thead = document.createElement('thead');
@@ -253,27 +250,33 @@
         const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
         const info = await fetchCombination(combo, root);
 
-        if (info && (info.product_id || info.variant_id || info.id)) {
-          const variantId = parseInt(info.product_id || info.variant_id || info.id, 10);
-          td.querySelector('.sp-qty').dataset.variantId = variantId;
+        if (info && (info.product_id || info.has_discount !== undefined)) {
+          // id variante
+          if (info.product_id) td.querySelector('.sp-qty').dataset.variantId = info.product_id;
 
-          const price = [info.price, info.list_price, info.website_price, info.computed_price]
-            .find(v => typeof v === 'number');
-          if (price != null) td.querySelector('.sp-price').textContent = fmtPrice(price);
+          // precio (varía según versión)
+          const price = (typeof info.price === 'number') ? info.price
+                      : (typeof info.list_price === 'number') ? info.list_price
+                      : (typeof info.website_price === 'number') ? info.website_price : null;
+          if (price !== null) td.querySelector('.sp-price').textContent = fmtPrice(price);
 
+          // stock
           let stock = (info.stock_quantity !== undefined) ? info.stock_quantity : null;
-          if (stock === null) stock = await getStock(variantId);
+          if (stock === null && info.product_id) stock = await getStock(info.product_id);
           if (stock !== null) td.querySelector('.sp-stock').textContent = `Stock: ${stock}`;
 
-          const img = td.closest('tr').querySelector('.sp-color__img');
-          if (img && !img.src) img.src = `/web/image/product.product/${variantId}/image_128`;
+          // imagen por variante
+          if (info.product_id) {
+            const img = td.closest('tr').querySelector('.sp-color__img');
+            if (img && !img.src) img.src = `/web/image/product.product/${info.product_id}/image_128`;
+          }
         } else {
           td.classList.add('sp-unavailable');
         }
       }
     }
     await Promise.all(new Array(6).fill(0).map(worker));
-    log('matrix hidratada', TAG);
+    log('matrix hidratada sp-matrix');
   }
 
   // ---------- carrito ----------
@@ -297,13 +300,6 @@
   }
 
   // ---------- boot ----------
-  function start() {
-    if (document.querySelector('.o_wsale_product_page')) {
-      log('boot', TAG);
-      buildMatrix();
-    }
-  }
-  (document.readyState === 'loading')
-    ? document.addEventListener('DOMContentLoaded', start)
-    : start();
+  function start() { if (document.querySelector('.o_wsale_product_page')) buildMatrix(); }
+  (document.readyState === 'loading') ? document.addEventListener('DOMContentLoaded', start) : start();
 })();
