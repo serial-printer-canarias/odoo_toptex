@@ -22,7 +22,6 @@
             "serial_printer_custom_wizard/static/src/js/spw_cart.js",
             "serial_printer_custom_wizard/static/src/js/spw.js",
             "serial_printer_custom_wizard/static/src/css/spw.css",
-            "serial_printer_custom_wizard/static/src/js/spw_cart_token.js",
             # --- AÑADIR ESTE ARCHIVO NUEVO (el que inyecta en el carrito) ---
             "serial_printer_custom_wizard/static/src/js/spw_cart_preview.inject.js",
         ],
