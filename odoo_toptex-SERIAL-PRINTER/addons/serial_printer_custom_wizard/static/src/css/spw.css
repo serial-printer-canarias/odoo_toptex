@@ -39,3 +39,9 @@ header.o_header_standard,
 
 /* La preview queda ordenada debajo del texto de la línea */
 .o_wsale_cart_item .spw-preview { order: 10; width: 100%; }
+
+/* SPW: ajuste móvil carrito */
+@media (max-width: 576px){
+  .spw-cart-block{ gap: 6px; }
+  .spw-cart-block img{ max-width: 92px; }
+}
