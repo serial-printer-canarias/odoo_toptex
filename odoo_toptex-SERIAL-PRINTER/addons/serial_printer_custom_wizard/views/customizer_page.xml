@@ -122,7 +122,7 @@
                 <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset && window.spwReset();">Reset</a>
+                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -262,7 +262,7 @@
             var txt = await resp.text();
             var data=null; try{ data = JSON.parse(txt); }catch(_){}
             return {ok: resp.ok && (!!data ? (data.ok===true || data.ok==="true") : true), data:data||{}, status:resp.status, raw:txt};
-          }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
+          }catch(e){ return {ok:false, data:null, status:0, raw:txt}; }
         }
 
         async function addToCart(){
