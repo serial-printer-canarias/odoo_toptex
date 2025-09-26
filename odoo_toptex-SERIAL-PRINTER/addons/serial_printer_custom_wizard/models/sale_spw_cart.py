@@ -1,23 +1,26 @@
 # -*- coding: utf-8 -*-
-import uuid
-from odoo import http
-from odoo.http import request
+from odoo import models
 
-class SPWCartController(http.Controller):
+class SaleOrder(models.Model):
+    _inherit = 'sale.order'
 
-    @http.route(['/spw/add_to_cart'], type='json', auth='public', website=True, csrf=False)
-    def spw_add_to_cart(self, product_id, quantity=1, **kw):
-        # token único por personalización
-        spw_token = kw.get('spw_token') or uuid.uuid4().hex[:12]
+    def _cart_find_product_line(self, product_id=None, line_id=None, **kwargs):
+        lines = super()._cart_find_product_line(product_id=product_id, line_id=line_id, **kwargs)
+        token = kwargs.get('spw_token')
 
-        order = request.website.sale_get_order(force_create=True)
-        res = order._cart_update(
-            product_id=int(product_id),
-            add_qty=float(quantity),
-            # ¡sin line_id para no forzar update de una línea existente!
-            spw_token=spw_token,
-        )
+        if token:
+            # Sólo líneas con el mismo token
+            return lines.filtered(lambda l: l.spw_token == token)
 
-        # Respondemos con el token y la line_id creada (útil para previews)
-        res['spw_token'] = spw_token
+        # Sin token: nunca mezclar con líneas personalizadas
+        return lines.filtered(lambda l: not l.spw_token)
+
+    def _cart_update(self, product_id=None, line_id=None, add_qty=0, set_qty=0, **kwargs):
+        token = kwargs.get('spw_token')
+        # ¡nunca forzar line_id si hay token! (queremos línea nueva)
+        if token:
+            line_id = None
+        res = super()._cart_update(product_id=product_id, line_id=line_id, add_qty=add_qty, set_qty=set_qty, **kwargs)
+        if token and res.get('line_id'):
+            self.env['sale.order.line'].sudo().browse(res['line_id']).write({'spw_token': token})
         return res
