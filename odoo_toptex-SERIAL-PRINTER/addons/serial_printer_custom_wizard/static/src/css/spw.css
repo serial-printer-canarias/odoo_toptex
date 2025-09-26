@@ -40,3 +40,19 @@
   .o_wsale_layout .o_wsale_sidebar,
   .o_wsale_layout_sidebar{ display:block !important; }
 }
+
+/* Carrito móvil (preview) */
+@media (max-width:576px){
+  .spw-cart-block{gap:6px;}
+  .spw-cart-block img{max-width:92px;}
+}
+
+/* Desktop: solo z-index; no forzar display para evitar menú doble/oculto */
+@media (min-width:992px){
+  .o_header_standard,
+  .o_header_affixed{ z-index:2000 !important; }
+
+  /* Sidebar de filtros en listados */
+  .o_wsale_layout .o_wsale_sidebar,
+  .o_wsale_layout_sidebar{ display:block !important; }
+}
