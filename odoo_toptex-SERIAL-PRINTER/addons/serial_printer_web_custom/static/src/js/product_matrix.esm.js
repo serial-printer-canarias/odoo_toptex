@@ -1,5 +1,4 @@
-<!-- product_matrix.esm.js -->
-<script>
+// static/src/js/product_matrix.esm.js
 /* SP Matrix – Odoo 18: precio, stock, foto y carrito */
 (function () {
   'use strict';
@@ -72,28 +71,46 @@
     return { color, size };
   }
 
-  /* ---------- JSON-RPC util ---------- */
+  /* ---------- JSON-RPC util (robusto a HTML/redirects) ---------- */
   async function rpc(url, params) {
     const res = await fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
       headers: {
+        'Accept': 'application/json',
         'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest'
+        'X-Requested-With': 'XMLHttpRequest',
       },
       body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params, id: Date.now() }),
     });
+
+    const contentType = res.headers.get('content-type') || '';
+
+    // Si no es OK, devolvemos texto para diagnosticar
     if (!res.ok) {
-      // Devolvemos texto por si es 404 para poder decidir fallback
       const txt = await res.text().catch(() => '');
-      throw Object.assign(new Error(`HTTP ${res.status}`), { httpStatus: res.status, body: txt });
+      throw Object.assign(new Error(`HTTP ${res.status}`), { httpStatus: res.status, body: txt, url });
     }
-    const data = await res.json();
+
+    // Si responde HTML (login/traceback), evitamos "Unexpected token <"
+    if (!/application\/json/i.test(contentType)) {
+      const txt = await res.text().catch(() => '');
+      throw Object.assign(new Error('Respuesta NO JSON del servidor'), { httpStatus: res.status, body: txt, url });
+    }
+
+    let data;
+    try {
+      data = await res.json();
+    } catch (e) {
+      const txt = await res.text().catch(() => '');
+      throw Object.assign(new Error('No se pudo parsear JSON'), { cause: e, body: txt, url });
+    }
+
     if (data && data.error) {
       const e = data.error;
       const msg = (e.data && e.data.message) || e.message || 'RPC error';
       const dbg = (e.data && e.data.debug) || '';
-      const err = Object.assign(new Error(msg), { debug: dbg, odoo: e });
+      const err = Object.assign(new Error(msg), { debug: dbg, odoo: e, url });
       throw err;
     }
     return data.result;
@@ -104,7 +121,7 @@
     const tmplId = parseInt(
       root.querySelector('[data-product-template-id]')?.dataset.productTemplateId
       || root.querySelector('input[name="product_template_id"]')?.value
-      || root.getAttribute('data-oe-id') /* cuando main tiene data-main-object="product.template" */
+      || root.getAttribute('data-oe-id')
       || 0, 10);
     const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || 0, 10);
     return { tmplId, pricelistId };
@@ -112,13 +129,10 @@
 
   function buildPayload(ptavIds, ctx) {
     return {
-      // 4 obligatorios:
       product_template_id: ctx.tmplId,
       product_id: 0,
-      combination: ptavIds,   // <<< PTAV IDs
+      combination: ptavIds,
       add_qty: 1,
-
-      // contexto estándar de Odoo web:
       parent_combination: [],
       pricelist_id: ctx.pricelistId || undefined,
       only_template: false,
@@ -134,7 +148,6 @@
     const ctx = readContext(root);
     const payload = buildPayload(ptavIds, ctx);
 
-    // Orden correcto: 18/17 usan /website_sale; antiguo /shop existe en algún 14/15.
     const endpoints = [
       '/website_sale/get_combination_info',
       '/shop/get_combination_info',
@@ -146,11 +159,8 @@
         const r = await rpc(url, payload);
         if (r) return r;
       } catch (e) {
-        // si es 404 probamos el siguiente; si son args mal formados, ya vamos con kwargs correctos
         if (e && e.httpStatus === 404) { warn(url, '404 → fallback'); continue; }
-        // algunos Odoo devuelven 200 con error dentro de "error.data" (ya lo captura rpc)
         warn('combinación por', url, 'falló:', e.message);
-        // si no es 404, no tiene sentido seguir probando el mismo patrón
         continue;
       }
     }
@@ -298,4 +308,3 @@
     ? document.addEventListener('DOMContentLoaded', start)
     : start();
 })();
-</script>
