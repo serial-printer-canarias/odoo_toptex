@@ -1,4 +1,4 @@
-/* ===== SP Matrix – SCSS compatible con Odoo (libsass) ===== */
+/* ===== SP Matrix – SCSS compacto y alineado ===== */
 
 .sp-matrix {
   overflow-x: auto;
@@ -9,7 +9,7 @@
   border-spacing: 0;
   table-layout: fixed;
   width: 100%;
-  min-width: auto; /* One Size → sin scroll horizontal */
+  min-width: auto; /* One Size → sin scroll */
   background: var(--o-bg, #fff);
 }
 
@@ -18,7 +18,7 @@
   top: 0;
   background: var(--o-bg, #fff);
   z-index: 3;
-  padding: 12px 10px; /* más espacio vertical legible */
+  padding: 10px 8px;
   font-weight: 600;
   text-align: center;
   white-space: nowrap;
@@ -26,18 +26,19 @@
 
 .sp-matrix__table th,
 .sp-matrix__table td {
-  padding: 12px 10px; /* más aire vertical */
-  min-width: 92px;    /* ancho mínimo por talla */
+  padding: 10px 8px;
+  min-width: 92px;
   text-align: center;
   vertical-align: middle;
   border-bottom: 1px solid #eee;
 }
 
+/* Columna color: alinear foto y texto pegados */
 .sp-sticky-left {
   position: sticky;
   left: 0;
   z-index: 4;
-  min-width: 190px; /* columna color más ancha */
+  min-width: 170px;
   text-align: left;
   background: var(--o-bg, #fff);
   box-shadow: 1px 0 0 rgba(0, 0, 0, 0.05);
@@ -46,12 +47,12 @@
 .sp-color {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px; /* menos hueco */
 }
 
 .sp-color__img {
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   object-fit: cover;
   border-radius: 6px;
   border: 1px solid #eee;
@@ -60,13 +61,13 @@
 .sp-cell {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
 }
 
 .sp-qty {
-  width: 80px;
-  height: 36px;
+  width: 76px;
+  height: 34px;
   text-align: center;
 }
 
@@ -78,4 +79,12 @@
 
 .sp-unavailable {
   opacity: 0.45;
+}
+
+/* Mobile: más compacto y foto proporcional */
+@media (max-width: 576px) {
+  .sp-sticky-left { min-width: 150px; }
+  .sp-color__img { width: 32px; height: 32px; }
+  .sp-qty { width: 64px; height: 32px; }
+  .sp-meta { font-size: 11px; }
 }
