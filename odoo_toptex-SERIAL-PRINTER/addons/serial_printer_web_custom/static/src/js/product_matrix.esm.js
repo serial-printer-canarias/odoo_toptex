@@ -189,7 +189,7 @@
     size.options.forEach(s => { const th=document.createElement('th'); th.textContent = s.name; trh.appendChild(th); });
     thead.appendChild(trh);
 
-    /* min-width dinámico según nº de tallas (para scroll solo cuando toque) */
+    // Ancho mínimo dinámico según nº de tallas
     const cols = size.options.length;
     if (cols >= 10)      table.style.minWidth = '1340px';
     else if (cols >= 8)  table.style.minWidth = '1160px';
@@ -277,33 +277,70 @@
     await Promise.all(new Array(6).fill(0).map(worker));
   }
 
-  /* ---------------- carrito ---------------- */
+  /* ---------------- carrito (robusto) ---------------- */
   function getCsrf() {
-    return (window.odoo && window.odoo.csrf_token)
-        || $('input[name="csrf_token"]')?.value || '';
-  }
-  async function cartUpdate(payload) {
-    const urls = ['/shop/cart/update_json', '/website_sale/cart/update_json'];
-    let lastErr;
-    for (const u of urls) {
-      try {
-        const r = await fetch(u, {
-          method:'POST', credentials:'same-origin',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type':'application/json',
-            'X-Requested-With':'XMLHttpRequest'
-          },
-          body: JSON.stringify(payload),
-        });
-        if (r.ok) return true;
-        lastErr = new Error(`HTTP ${r.status}`);
-      } catch (e) { lastErr = e; }
-    }
-    throw lastErr || new Error('cart update failed');
+    return (
+      document.querySelector('meta[name="csrf-token"]')?.content ||
+      (window.odoo && window.odoo.csrf_token) ||
+      document.querySelector('input[name="csrf_token"]')?.value ||
+      ''
+    );
   }
 
-  /* ======= Añadir selección (secuencial + fallback form) ======= */
+  async function cartUpdateJSON(url, item, csrf) {
+    const r = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRF-Token': csrf || '',
+      },
+      body: JSON.stringify({
+        product_id: item.product_id,
+        add_qty: item.add_qty,
+        display: false,
+        csrf_token: csrf || undefined,
+      }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    try {
+      const data = await r.json();
+      if (data && data.error) throw new Error('JSON error');
+    } catch (_) { /* algunas versiones devuelven vacío; lo aceptamos */ }
+    return true;
+  }
+
+  async function cartUpdateForm(url, item, csrf, tmplId) {
+    const fd = new FormData();
+    fd.append('product_id', String(item.product_id));
+    fd.append('add_qty', String(item.add_qty));
+    fd.append('express', 'false');
+    if (tmplId) fd.append('product_template_id', String(tmplId));
+    if (csrf)  fd.append('csrf_token', csrf);
+    const r = await fetch(url, { method: 'POST', credentials: 'same-origin', body: fd });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return true;
+  }
+
+  async function cartUpdateQS(url, item, csrf, tmplId) {
+    const qs = new URLSearchParams({
+      product_id: String(item.product_id),
+      add_qty: String(item.add_qty),
+      express: 'false',
+    });
+    if (tmplId) qs.set('product_template_id', String(tmplId));
+    if (csrf)  qs.set('csrf_token', csrf);
+    const r = await fetch(`${url}?${qs.toString()}`, {
+      method: 'GET',
+      credentials: 'same-origin',
+      redirect: 'follow',
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return true;
+  }
+
   function addAllToCart(container) {
     const inputs = container.querySelectorAll('.sp-qty');
     const items = [];
@@ -314,38 +351,34 @@
     });
     if (!items.length) return;
 
-    const csrf = getCsrf();
-
-    const postForm = (url, payload) => {
-      const fd = new FormData();
-      fd.append('product_id', String(payload.product_id));
-      fd.append('add_qty', String(payload.add_qty));
-      fd.append('express', 'false');
-      if (csrf) fd.append('csrf_token', csrf);
-      return fetch(url, { method: 'POST', credentials: 'same-origin', body: fd });
-    };
+    const csrf   = getCsrf();
+    const root   = (document.querySelector('.o_wsale_product_page') || document);
+    const tmplId = parseInt(
+      root.querySelector('[data-product-template-id]')?.dataset.productTemplateId ||
+      root.querySelector('input[name="product_template_id"]')?.value || '0', 10
+    ) || undefined;
 
     (async () => {
       for (const item of items) {
         let ok = false;
 
-        // 1) JSON
-        try {
-          await cartUpdate({ product_id: item.product_id, add_qty: item.add_qty, display:false, csrf_token: csrf });
-          ok = true;
-        } catch (_) {}
-
-        // 2) Fallback form POST
+        for (const u of ['/shop/cart/update_json', '/website_sale/cart/update_json']) {
+          try { await cartUpdateJSON(u, item, csrf); ok = true; break; }
+          catch (e) { console.warn('[SP] JSON fallo', u, e.message); }
+        }
         if (!ok) {
           for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
-            try {
-              const r = await postForm(u, item);
-              if (r.ok) { ok = true; break; }
-            } catch (_) {}
+            try { await cartUpdateForm(u, item, csrf, tmplId); ok = true; break; }
+            catch (e) { console.warn('[SP] FORM fallo', u, e.message); }
           }
         }
-
-        if (!ok) warn('No se pudo añadir', item.product_id);
+        if (!ok) {
+          for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
+            try { await cartUpdateQS(u, item, csrf, tmplId); ok = true; break; }
+            catch (e) { console.warn('[SP] QS fallo', u, e.message); }
+          }
+        }
+        if (!ok) console.warn('[SP] No se pudo añadir', item);
       }
       window.location.reload();
     })();
