@@ -1,5 +1,4 @@
-# controllers/spw_add_to_cart_meta.py
-# (recuerda tenerlo importado en controllers/__init__.py)
+# -*- coding: utf-8 -*-
 import base64
 from odoo import http
 from odoo.http import request
@@ -9,10 +8,11 @@ class SPWCartMeta(http.Controller):
     @http.route('/spw/add_to_cart_meta', type='json', auth='public', website=True, csrf=False)
     def add_to_cart_meta(self, variant_id, qty=1, tech=None, svg_color=None, notes=None, spw_token=None, **kw):
         order = request.website.sale_get_order(force_create=True)
-        # clave: pasar spw_token y NO line_id
+        # clave: pasar spw_token y NO pasar line_id
         res = order._cart_update(product_id=int(variant_id), add_qty=float(qty or 1), spw_token=spw_token)
         line = request.env['sale.order.line'].sudo().browse(res['line_id'])
 
+        # Descripción SOLO de ESTA personalización
         base_name = (line.name or '').split('\n')[0]
         meta = []
         if tech: meta.append('Técnica: %s' % tech)
