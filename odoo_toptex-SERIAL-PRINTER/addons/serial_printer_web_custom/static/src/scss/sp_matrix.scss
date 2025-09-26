@@ -38,3 +38,61 @@
 .sp-qty { width: 76px; text-align: center; }
 .sp-meta { font-size: 12px; line-height: 1.2; white-space: nowrap; }
 .sp-unavailable { opacity: .45; }
+
+/* ===== SP Matrix – layout adaptativo ===== */
+.sp-matrix { overflow-x: auto; }
+
+/* Base: sin forzar ancho → en One Size NO hay scroll */
+.sp-matrix__table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  width: 100%;
+  min-width: auto;               /* <— importante */
+  background: var(--o-bg, #fff);
+}
+
+.sp-matrix__table thead th {
+  position: sticky; top: 0;
+  background: var(--o-bg, #fff);
+  z-index: 3;
+  padding: 12px 10px;            /* más aire vertical */
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.sp-matrix__table th,
+.sp-matrix__table td {
+  padding: 12px 10px;            /* más espacio vertical */
+  min-width: 92px;
+  text-align: center;
+  vertical-align: middle;
+  border-bottom: 1px solid #eee;
+}
+
+.sp-sticky-left {
+  position: sticky; left: 0;
+  z-index: 4;
+  min-width: 190px;
+  text-align: left;
+  background: var(--o-bg, #fff);
+  box-shadow: 1px 0 0 rgba(0,0,0,.05);
+}
+
+.sp-color { display: flex; align-items: center; gap: 10px; }
+.sp-color__img { width: 42px; height: 42px; object-fit: cover; border-radius: 6px; border: 1px solid #eee; }
+.sp-cell { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.sp-qty { width: 80px; height: 36px; text-align: center; }
+.sp-meta { font-size: 12px; line-height: 1.2; white-space: nowrap; }
+.sp-unavailable { opacity: .45; }
+
+/* -- SOLO forzar min-width cuando hay MUCHAS tallas --
+   Usamos :has() (Chrome/Edge/Firefox OK). Cuenta columnas del <thead>.
+   th:nth-child(7) = Color + 6 tallas, etc.
+*/
+@supports selector(:has(*)) {
+  .sp-matrix__table:has(thead th:nth-child(7)) { min-width: 980px; }   /* >= 6 tallas */
+  .sp-matrix__table:has(thead th:nth-child(9)) { min-width: 1160px; }  /* >= 8 tallas */
+  .sp-matrix__table:has(thead th:nth-child(11)) { min-width: 1340px; } /* >= 10 tallas */
+}
