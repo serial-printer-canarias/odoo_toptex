@@ -7,7 +7,6 @@
 
   /* ---------------- helpers ---------------- */
   function $(sel, ctx=document){ return ctx.querySelector(sel); }
-  function $all(sel, ctx=document){ return Array.from(ctx.querySelectorAll(sel)); }
 
   function getRoot() {
     return $('.o_wsale_product_page .js_product')
@@ -190,12 +189,12 @@
     size.options.forEach(s => { const th=document.createElement('th'); th.textContent = s.name; trh.appendChild(th); });
     thead.appendChild(trh);
 
-    /* --- NUEVO: min-width dinámico según nº de tallas --- */
-    const cols = size.options.length; // nº de tallas
+    /* min-width dinámico según nº de tallas (para scroll solo cuando toque) */
+    const cols = size.options.length;
     if (cols >= 10)      table.style.minWidth = '1340px';
     else if (cols >= 8)  table.style.minWidth = '1160px';
     else if (cols >= 6)  table.style.minWidth = '980px';
-    else                 table.style.minWidth = 'auto'; // One Size o pocas tallas
+    else                 table.style.minWidth = 'auto';
 
     const tbody = document.createElement('tbody');
     color.options.forEach(c => {
@@ -254,9 +253,7 @@
         let info = null;
         try {
           info = await getCombo(combo, root);
-        } catch (e) {
-          warn('combo error', e.message);
-        }
+        } catch (e) { warn('combo error', e.message); }
         if (!info) { td.classList.add('sp-unavailable'); continue; }
 
         const variantId = getVariantId(info);
@@ -292,7 +289,11 @@
       try {
         const r = await fetch(u, {
           method:'POST', credentials:'same-origin',
-          headers: {'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type':'application/json',
+            'X-Requested-With':'XMLHttpRequest'
+          },
           body: JSON.stringify(payload),
         });
         if (r.ok) return true;
@@ -302,7 +303,7 @@
     throw lastErr || new Error('cart update failed');
   }
 
-  /* ======= addAllToCart con fallback ======= */
+  /* ======= Añadir selección (secuencial + fallback form) ======= */
   function addAllToCart(container) {
     const inputs = container.querySelectorAll('.sp-qty');
     const items = [];
@@ -324,23 +325,30 @@
       return fetch(url, { method: 'POST', credentials: 'same-origin', body: fd });
     };
 
-    const sendOne = async (item) => {
-      try {
-        await cartUpdate({ product_id: item.product_id, add_qty: item.add_qty, display:false, csrf_token: csrf });
-        return true;
-      } catch (_) {
-        for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
-          try {
-            const r = await postForm(u, item);
-            if (r.ok) return true;
-          } catch (_) {}
-        }
-        throw new Error('No se pudo actualizar el carrito');
-      }
-    };
+    (async () => {
+      for (const item of items) {
+        let ok = false;
 
-    Promise.allSettled(items.map(sendOne))
-      .then(() => window.location.reload());
+        // 1) JSON
+        try {
+          await cartUpdate({ product_id: item.product_id, add_qty: item.add_qty, display:false, csrf_token: csrf });
+          ok = true;
+        } catch (_) {}
+
+        // 2) Fallback form POST
+        if (!ok) {
+          for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
+            try {
+              const r = await postForm(u, item);
+              if (r.ok) { ok = true; break; }
+            } catch (_) {}
+          }
+        }
+
+        if (!ok) warn('No se pudo añadir', item.product_id);
+      }
+      window.location.reload();
+    })();
   }
 
   /* ---------------- boot ---------------- */
