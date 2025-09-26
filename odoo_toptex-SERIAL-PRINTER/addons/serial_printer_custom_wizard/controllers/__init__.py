@@ -1,8 +1,4 @@
-# addons/serial_printer_custom_wizard/controllers/__init__.py
-# -*- coding: utf-8 -*-
-from . import main            # tu archivo original (no lo toco)
-from . import spw_add_to_cart # <-- IMPORTANTE: registra la ruta nueva
-from . import customizer
-from . import controllers
-from . import spw_preview
+from . import main            # si lo usas para páginas
+from . import customizer      # si define la página del customizer
 from . import spw_add_to_cart_meta
+from . import spw_preview
