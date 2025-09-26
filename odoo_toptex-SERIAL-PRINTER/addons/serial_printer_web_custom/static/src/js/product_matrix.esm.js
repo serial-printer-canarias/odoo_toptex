@@ -301,7 +301,6 @@
       body: JSON.stringify(payload),
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    // algunas versiones devuelven vacío; si hay JSON con error lo detectamos
     try {
       const data = await r.json();
       if (data && data.error) throw new Error('JSON error');
@@ -324,7 +323,6 @@
   function addAllToCart(container) {
     const inputs = container.querySelectorAll('.sp-qty');
 
-    // Recojo items, PTAVs (combinación) y template id
     const root = getRoot();
     const ctx  = readCtx(root);
     const csrf = getCsrf();
@@ -337,15 +335,14 @@
       const tr = inp.closest('tr');
       const sizePtav  = parseInt(td?.dataset.sizePtav || td?.dataset.sizeId || '0', 10);
       const colorPtav = parseInt(tr?.dataset.colorPtav || tr?.dataset.colorId || '0', 10);
-      const combination = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
+      const combination = (sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav]).filter(n => n > 0);
 
       if (qty > 0 && product_id) {
         items.push({
           product_id,
           add_qty: qty,
-          // extra datos por si el endpoint los exige
           product_template_id: ctx.tmplId || undefined,
-          combination: combination.filter(n => n > 0),
+          combination,
           csrf_token: csrf || undefined,
           display: false,
           express: false,
@@ -358,13 +355,13 @@
       for (const item of items) {
         let ok = false;
 
-        // 1) JSON (shop / website_sale)
+        // 1) JSON
         for (const u of ['/shop/cart/update_json', '/website_sale/cart/update_json']) {
           try { await cartUpdateJSON(u, item); log('añadido JSON', u, item); ok = true; break; }
           catch (e) { warn('fallo JSON', u, e.message); }
         }
 
-        // 2) Form POST clásico (con los mismos campos)
+        // 2) FORM
         if (!ok) {
           for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
             try { await cartUpdateForm(u, item); log('añadido FORM', u, item); ok = true; break; }
@@ -372,21 +369,20 @@
           }
         }
 
-        // 3) Último recurso: GET con querystring mínimo
+        // 3) GET QS mínimo
         if (!ok) {
           const qs = new URLSearchParams({
             product_id: String(item.product_id),
             add_qty: String(item.add_qty),
             express: 'false',
           });
-          if (csrf)  qs.set('csrf_token', csrf);
+          if (csrf) qs.set('csrf_token', csrf);
           if (ctx.tmplId) qs.set('product_template_id', String(ctx.tmplId));
           const url = '/shop/cart/update?' + qs.toString();
           try {
             const r = await fetch(url, { method: 'GET', credentials: 'same-origin', redirect: 'follow' });
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            log('añadido GET', url);
-            ok = true;
+            log('añadido GET', url); ok = true;
           } catch (e) { warn('fallo GET', e.message); }
         }
 
