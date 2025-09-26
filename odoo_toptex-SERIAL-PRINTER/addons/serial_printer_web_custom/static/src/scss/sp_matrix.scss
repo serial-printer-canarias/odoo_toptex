@@ -1,21 +1,18 @@
-/* ===== SP Matrix – SCSS compacto y alineado ===== */
+/* ===== SP Matrix – SCSS compacto, sin “tapar” la tabla ===== */
 
-.sp-matrix {
-  overflow-x: auto;
-}
+.sp-matrix { overflow-x: auto; }
 
 .sp-matrix__table {
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
   width: 100%;
-  min-width: auto; /* One Size → sin scroll */
+  min-width: auto; // One Size sin scroll
   background: var(--o-bg, #fff);
 }
 
 .sp-matrix__table thead th {
-  position: sticky;
-  top: 0;
+  position: sticky; top: 0;
   background: var(--o-bg, #fff);
   z-index: 3;
   padding: 10px 8px;
@@ -27,35 +24,38 @@
 .sp-matrix__table th,
 .sp-matrix__table td {
   padding: 10px 8px;
-  min-width: 92px;
+  min-width: 88px;            // un poco más estrecho por talla
   text-align: center;
   vertical-align: middle;
   border-bottom: 1px solid #eee;
 }
 
-/* Columna color: alinear foto y texto pegados */
+/* Columna izquierda fija y MÁS ESTRECHA para que no tape */
 .sp-sticky-left {
-  position: sticky;
-  left: 0;
+  position: sticky; left: 0;
   z-index: 4;
-  min-width: 170px;
+  width: 150px;               // fijo y estrecho
+  min-width: 150px;
+  max-width: 170px;
   text-align: left;
   background: var(--o-bg, #fff);
-  box-shadow: 1px 0 0 rgba(0, 0, 0, 0.05);
+  box-shadow: 1px 0 0 rgba(0,0,0,.05);
+  overflow: hidden;           // evita que la imagen sobresalga
 }
 
 .sp-color {
   display: flex;
   align-items: center;
-  gap: 8px; /* menos hueco */
+  gap: 6px;                   // menos hueco entre foto y texto
 }
 
 .sp-color__img {
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   object-fit: cover;
   border-radius: 6px;
   border: 1px solid #eee;
+  flex: 0 0 30px;
 }
 
 .sp-cell {
@@ -65,11 +65,7 @@
   align-items: center;
 }
 
-.sp-qty {
-  width: 76px;
-  height: 34px;
-  text-align: center;
-}
+.sp-qty { width: 70px; height: 32px; text-align: center; }
 
 .sp-meta {
   font-size: 12px;
@@ -77,14 +73,12 @@
   white-space: nowrap;
 }
 
-.sp-unavailable {
-  opacity: 0.45;
-}
+.sp-unavailable { opacity: .45; }
 
-/* Mobile: más compacto y foto proporcional */
+/* Mobile */
 @media (max-width: 576px) {
-  .sp-sticky-left { min-width: 150px; }
-  .sp-color__img { width: 32px; height: 32px; }
-  .sp-qty { width: 64px; height: 32px; }
+  .sp-sticky-left { width: 140px; min-width: 140px; }
+  .sp-color__img { width: 28px; height: 28px; }
+  .sp-qty { width: 64px; height: 30px; }
   .sp-meta { font-size: 11px; }
 }
