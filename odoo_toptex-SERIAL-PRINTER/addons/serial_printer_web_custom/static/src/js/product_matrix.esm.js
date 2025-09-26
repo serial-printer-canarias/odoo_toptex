@@ -320,60 +320,79 @@
     return true;
   }
 
+  async function ensureVariantIdFromCell(inp, root) {
+    let vid = parseInt(inp.dataset.variantId || '0', 10);
+    if (vid) return vid;
+    const td = inp.closest('td');
+    const tr = inp.closest('tr');
+    const sizePtav  = parseInt(td?.dataset.sizePtav || td?.dataset.sizeId || '0', 10);
+    const colorPtav = parseInt(tr?.dataset.colorPtav || tr?.dataset.colorId || '0', 10);
+    const combo = (sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav]).filter(n => n > 0);
+    const info = await getCombo(combo, root);
+    vid = getVariantId(info || {});
+    return vid || 0;
+  }
+
   function addAllToCart(container) {
     const inputs = container.querySelectorAll('.sp-qty');
-
-    const root = getRoot();
-    const ctx  = readCtx(root);
-    const csrf = getCsrf();
-
-    const items = [];
-    inputs.forEach(inp => {
-      const qty = parseFloat(inp.value || '0');
-      const product_id = parseInt(inp.dataset.variantId || '0', 10);
-      const td = inp.closest('td');
-      const tr = inp.closest('tr');
-      const sizePtav  = parseInt(td?.dataset.sizePtav || td?.dataset.sizeId || '0', 10);
-      const colorPtav = parseInt(tr?.dataset.colorPtav || tr?.dataset.colorId || '0', 10);
-      const combination = (sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav]).filter(n => n > 0);
-
-      if (qty > 0 && product_id) {
-        items.push({
-          product_id,
-          add_qty: qty,
-          product_template_id: ctx.tmplId || undefined,
-          combination,
-          csrf_token: csrf || undefined,
-          display: false,
-          express: false,
-        });
-      }
-    });
-    if (!items.length) return;
+    const root   = getRoot();
+    const ctx    = readCtx(root);
+    const csrf   = getCsrf();
 
     (async () => {
-      for (const item of items) {
+      let any = false;
+
+      for (const inp of inputs) {
+        const qty = parseFloat(inp.value || '0');
+        if (!(qty > 0)) continue;
+
+        // asegura variant_id
+        const variantId = await ensureVariantIdFromCell(inp, root);
+        if (!variantId) { warn('sin variantId para celda', inp); continue; }
+        any = true;
+
+        // reconstruye combinación por si el endpoint la exige
+        const td = inp.closest('td');
+        const tr = inp.closest('tr');
+        const sizePtav  = parseInt(td?.dataset.sizePtav || td?.dataset.sizeId || '0', 10);
+        const colorPtav = parseInt(tr?.dataset.colorPtav || tr?.dataset.colorId || '0', 10);
+        const combination = (sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav]).filter(n => n > 0);
+
+        const payload = {
+          product_id: variantId,
+          add_qty: qty,
+          set_qty: undefined,                   // algunos módulos usan set_qty; lo dejamos undefined
+          product_template_id: ctx.tmplId || undefined,
+          combination,
+          no_variant_attribute_values: [],
+          product_custom_attribute_values: [],
+          display: false,
+          express: false,
+          csrf_token: csrf || undefined,
+        };
+
         let ok = false;
 
         // 1) JSON
         for (const u of ['/shop/cart/update_json', '/website_sale/cart/update_json']) {
-          try { await cartUpdateJSON(u, item); log('añadido JSON', u, item); ok = true; break; }
+          try { await cartUpdateJSON(u, payload); log('añadido JSON', u, payload); ok = true; break; }
           catch (e) { warn('fallo JSON', u, e.message); }
         }
 
-        // 2) FORM
+        // 2) FORM (añadimos también set_qty como respaldo)
         if (!ok) {
+          const formPayload = { ...payload, set_qty: undefined };
           for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
-            try { await cartUpdateForm(u, item); log('añadido FORM', u, item); ok = true; break; }
+            try { await cartUpdateForm(u, formPayload); log('añadido FORM', u, formPayload); ok = true; break; }
             catch (e) { warn('fallo FORM', u, e.message); }
           }
         }
 
-        // 3) GET QS mínimo
+        // 3) GET (mínimo imprescindible)
         if (!ok) {
           const qs = new URLSearchParams({
-            product_id: String(item.product_id),
-            add_qty: String(item.add_qty),
+            product_id: String(payload.product_id),
+            add_qty: String(payload.add_qty),
             express: 'false',
           });
           if (csrf) qs.set('csrf_token', csrf);
@@ -382,13 +401,15 @@
           try {
             const r = await fetch(url, { method: 'GET', credentials: 'same-origin', redirect: 'follow' });
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            log('añadido GET', url); ok = true;
+            log('añadido GET', url);
+            ok = true;
           } catch (e) { warn('fallo GET', e.message); }
         }
 
-        if (!ok) warn('NO se pudo añadir', item);
+        if (!ok) warn('NO se pudo añadir', payload);
       }
-      window.location.reload();
+
+      if (any) window.location.reload();
     })();
   }
 
