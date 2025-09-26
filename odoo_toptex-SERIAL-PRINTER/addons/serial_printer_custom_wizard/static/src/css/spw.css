@@ -46,16 +46,18 @@ header.o_header_standard,
   .spw-cart-block img{ max-width: 92px; }
 }
 
-/* SPW GUARD – asegurar menú y sidebar visibles en escritorio */
+/* --- FIX NAV / SIDEBAR DESKTOP --- */
 @media (min-width: 992px){
-  header .navbar,
-  header .navbar .navbar-collapse,
-  #top_menu{
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
+  /* z-index alto, pero NO forzar display/visibility para evitar menú doble */
+  .o_header_standard,
+  .o_header_affixed{
+    z-index: 2000 !important;
   }
-  /* sidebar de ficha de producto */
+  /* desactivar el header clonado pegajoso para no duplicar menú */
+  .o_header_affixed{
+    display: none !important;
+  }
+  /* asegurar sidebar visible en listado de productos */
   .o_wsale_layout .o_wsale_sidebar,
   .o_wsale_layout_sidebar{
     display: block !important;
