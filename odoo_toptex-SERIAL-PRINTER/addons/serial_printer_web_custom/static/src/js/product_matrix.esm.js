@@ -1,17 +1,20 @@
-// static/src/js/product_matrix.esm.js
-/* SP Matrix – Odoo 18: precio, stock, foto y carrito */
+/* SP Matrix – Odoo 18: precio, stock, foto y carrito (robusto) */
 (function () {
   'use strict';
 
-  const log = (...a) => console.log('[SP]', ...a);
+  const log  = (...a) => console.log('[SP]', ...a);
   const warn = (...a) => console.warn('[SP]', ...a);
 
-  /* ---------- helpers de anclaje ---------- */
-  function getJsProduct() {
-    return document.querySelector('.o_wsale_product_page .js_product')
-        || document.querySelector('.js_product')
-        || document.querySelector('.o_wsale_product_page')
-        || document.querySelector('[data-main-object="product.template"]');
+  /* ---------------- helpers ---------------- */
+  function $(sel, ctx=document){ return ctx.querySelector(sel); }
+  function $all(sel, ctx=document){ return Array.from(ctx.querySelectorAll(sel)); }
+
+  function getRoot() {
+    return $('.o_wsale_product_page .js_product')
+        || $('.js_product')
+        || $('.o_wsale_product_page')
+        || $('[data-main-object="product.template"]')
+        || document.body;
   }
   function placeAnchor() {
     let anchor = document.getElementById('sp-matrix-anchor');
@@ -20,10 +23,8 @@
       anchor.id = 'sp-matrix-anchor';
       anchor.className = 'sp-matrix-anchor';
     }
-    const root = getJsProduct();
-    if (!root) { document.body.appendChild(anchor); return anchor; }
-    const attrs =
-      root.querySelector('.js_attributes')
+    const root = getRoot();
+    const attrs = root.querySelector('.js_attributes')
       || root.querySelector('ul.o_wsale_product_attribute')
       || root.querySelector('[data-attribute_name]')?.closest('.row, ul, div');
     (attrs || root.querySelector('.product_price, .o_wsale_product_price_section') || root)
@@ -31,39 +32,38 @@
     return anchor;
   }
 
-  /* ---------- leer bloques de atributos (PTAV) ---------- */
-  function readIds(inp) {
+  /* ---------- lectura de atributos (PTAV) ---------- */
+  function readIdsFromInput(inp) {
     const d = inp.dataset || {};
-    const ptav =
-      parseInt(d.ptav || d.ptavId || d.productTemplateAttributeValueId || d.productTemplateAttributeValue || d.ptav_id || d.ptavl || '0', 10) || null;
-    const av =
-      parseInt(d.valueId || d.attributeValueId || inp.value || '0', 10) || null;
-    return { ptavId: ptav, avId: av };
+    const ptav = parseInt(
+      d.ptav || d.ptavId || d.productTemplateAttributeValueId ||
+      d.productTemplateAttributeValue || d.ptav_id || d.ptavl || inp.value || '0', 10
+    ) || null;
+    const av = parseInt(d.valueId || d.attributeValueId || '0', 10) || null;
+    return { ptavId: ptav, avId: av, id: ptav || av };
   }
-  function getAttributeBlocks(root) {
+  function getBlocks(root) {
     const blocks = [];
-    const containers = root.querySelectorAll(
-      '[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]'
-    );
-    containers.forEach((el) => {
+    const containers = root.querySelectorAll('[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]');
+    containers.forEach(el => {
       const name = (el.getAttribute('data-attribute_name') || el.getAttribute('data-attribute-name') || '').trim();
       const options = [];
-      el.querySelectorAll('input[type="radio"],input[type="checkbox"]').forEach((inp) => {
-        const { ptavId, avId } = readIds(inp);
+      el.querySelectorAll('input[type="radio"],input[type="checkbox"]').forEach(inp => {
+        const o = readIdsFromInput(inp);
         const label = (inp.closest('label')?.textContent || inp.title || '').trim();
-        if (ptavId || avId) options.push({ name: label, ptavId, avId, id: ptavId || avId });
+        if (o.id) options.push({ name: label, ...o });
       });
       if (options.length) blocks.push({ name, options, el });
     });
     return blocks;
   }
-  function pickColorAndSize(blocks) {
-    const isColor = n => /color|couleur|farbe|colou?r|colore|kleur/i.test(n || '');
-    const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || '');
+  function pickColorSize(blocks) {
+    const isColor = n => /color|couleur|farbe|colou?r|colore|kleur/i.test(n||'');
+    const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n||'');
     let color = blocks.find(b => isColor(b.name));
     let size  = blocks.find(b => isSize(b.name));
     if (!size && blocks.length === 1) {
-      size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null }], _synthetic: true };
+      size = { name: 'One Size', options: [{ id:-1, name:'One Size', ptavId:null }], _synthetic:true };
       if (!color) color = blocks[0];
     }
     if (!color && blocks.length) color = blocks[0];
@@ -71,62 +71,45 @@
     return { color, size };
   }
 
-  /* ---------- JSON-RPC util (robusto a HTML/redirects) ---------- */
+  /* ---------------- JSON-RPC robusto ---------------- */
   async function rpc(url, params) {
     const res = await fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
       headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
+        'Accept':'application/json',
+        'Content-Type':'application/json',
+        'X-Requested-With':'XMLHttpRequest'
       },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params, id: Date.now() }),
+      body: JSON.stringify({ jsonrpc:'2.0', method:'call', params, id: Date.now() }),
     });
-
-    const contentType = res.headers.get('content-type') || '';
-
-    // Si no es OK, devolvemos texto para diagnosticar
+    const ct = res.headers.get('content-type') || '';
     if (!res.ok) {
-      const txt = await res.text().catch(() => '');
+      const txt = await res.text().catch(()=> '');
       throw Object.assign(new Error(`HTTP ${res.status}`), { httpStatus: res.status, body: txt, url });
     }
-
-    // Si responde HTML (login/traceback), evitamos "Unexpected token <"
-    if (!/application\/json/i.test(contentType)) {
-      const txt = await res.text().catch(() => '');
-      throw Object.assign(new Error('Respuesta NO JSON del servidor'), { httpStatus: res.status, body: txt, url });
+    if (!/application\/json/i.test(ct)) {
+      const txt = await res.text().catch(()=> '');
+      throw Object.assign(new Error('Respuesta NO JSON'), { body: txt, url });
     }
-
-    let data;
-    try {
-      data = await res.json();
-    } catch (e) {
-      const txt = await res.text().catch(() => '');
-      throw Object.assign(new Error('No se pudo parsear JSON'), { cause: e, body: txt, url });
-    }
-
-    if (data && data.error) {
+    const data = await res.json();
+    if (data?.error) {
       const e = data.error;
       const msg = (e.data && e.data.message) || e.message || 'RPC error';
-      const dbg = (e.data && e.data.debug) || '';
-      const err = Object.assign(new Error(msg), { debug: dbg, odoo: e, url });
-      throw err;
+      throw Object.assign(new Error(msg), { odoo: e, url });
     }
     return data.result;
   }
 
-  /* ---------- combinación / stock ---------- */
-  function readContext(root) {
+  /* ---------------- combo/ctx ---------------- */
+  function readCtx(root) {
     const tmplId = parseInt(
       root.querySelector('[data-product-template-id]')?.dataset.productTemplateId
       || root.querySelector('input[name="product_template_id"]')?.value
-      || root.getAttribute('data-oe-id')
-      || 0, 10);
-    const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || 0, 10);
+      || root.getAttribute('data-oe-id') || '0', 10);
+    const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || '0', 10);
     return { tmplId, pricelistId };
   }
-
   function buildPayload(ptavIds, ctx) {
     return {
       product_template_id: ctx.tmplId,
@@ -143,58 +126,68 @@
       strict: true,
     };
   }
-
-  async function fetchCombination(ptavIds, root) {
-    const ctx = readContext(root);
+  async function getCombo(ptavIds, root) {
+    const ctx = readCtx(root);
     const payload = buildPayload(ptavIds, ctx);
-
-    const endpoints = [
-      '/website_sale/get_combination_info',
-      '/shop/get_combination_info',
-    ];
-
-    for (const url of endpoints) {
+    const urls = ['/website_sale/get_combination_info', '/shop/get_combination_info'];
+    for (const u of urls) {
       try {
-        log('probando', url, '▸', payload);
-        const r = await rpc(url, payload);
+        const r = await rpc(u, payload);
         if (r) return r;
       } catch (e) {
-        if (e && e.httpStatus === 404) { warn(url, '404 → fallback'); continue; }
-        warn('combinación por', url, 'falló:', e.message);
-        continue;
+        if (e.httpStatus === 404) { continue; }
+        warn('combo fallo', u, e.message);
       }
     }
     return null;
   }
 
+  /* ---- extractores tolerantes (nombres cambian según versión) ---- */
+  function getVariantId(info) {
+    return parseInt(
+      info?.product_id ?? info?.variant_id ?? info?.id ?? info?.product?.id ?? 0, 10
+    ) || 0;
+  }
+  function getPrice(info) {
+    const v = [info?.price, info?.list_price, info?.website_price, info?.price_reduce,
+               info?.price_with_tax, info?.price_without_discount]
+              .find(x => typeof x === 'number');
+    return (typeof v === 'number') ? v : null;
+  }
+  function getStock(info) {
+    const v = [info?.stock_quantity, info?.virtual_available, info?.qty_available,
+               info?.free_qty, info?.available_quantity, info?.stock, info?.stock_qty]
+              .find(x => typeof x === 'number');
+    if (typeof v === 'number') return v;
+    if (info?.is_out_of_stock === true) return 0;
+    return null;
+  }
   function fmtPrice(v) {
     try {
       const lang = document.documentElement.lang || 'es-ES';
-      const curr = document.querySelector('[data-website-currency-code]')?.dataset.websiteCurrencyCode || 'EUR';
-      return new Intl.NumberFormat(lang, { style: 'currency', currency: curr }).format(v);
+      const curr = $('[data-website-currency-code]')?.dataset.websiteCurrencyCode || 'EUR';
+      return new Intl.NumberFormat(lang, { style:'currency', currency:curr }).format(v);
     } catch { return (Math.round(v * 100) / 100).toFixed(2); }
   }
 
-  /* ---------- construir tabla ---------- */
+  /* ---------------- UI ---------------- */
   async function buildMatrix() {
-    const root = getJsProduct();
-    if (!root) return;
-
-    const blocks = getAttributeBlocks(root);
+    const root = getRoot();
+    const blocks = getBlocks(root);
     if (!blocks.length) return;
-    const { color, size } = pickColorAndSize(blocks);
+    const { color, size } = pickColorSize(blocks);
     if (!color || !size) return;
 
     const anchor = placeAnchor();
     anchor.innerHTML = '';
 
-    const wrap = document.createElement('div'); wrap.className = 'sp-matrix';
+    const wrap  = document.createElement('div'); wrap.className = 'sp-matrix';
     const table = document.createElement('table'); table.className = 'sp-matrix__table';
 
     const thead = document.createElement('thead');
-    const trh = document.createElement('tr');
+    const trh   = document.createElement('tr');
     trh.innerHTML = `<th class="sp-sticky-left">Color</th>`;
-    size.options.forEach(s => { const th = document.createElement('th'); th.textContent = s.name; trh.appendChild(th); });
+    size.options.forEach(s => { const th=document.createElement('th'); th.textContent = s.name; trh.appendChild(th); });
     thead.appendChild(trh);
 
     const tbody = document.createElement('tbody');
@@ -215,9 +208,7 @@
         td.dataset.sizeId   = s.id || '';
         td.innerHTML = `
           <div class="sp-cell">
-            <input class="sp-qty" type="number" min="0" step="1"
-                   data-color-ptav="${c.ptavId || ''}" data-size-ptav="${s.ptavId || ''}"
-                   data-color-id="${c.id || ''}" data-size-id="${s.id || ''}">
+            <input class="sp-qty" type="number" min="0" step="1">
             <div class="sp-meta">
               <span class="sp-price">—</span>
               <span class="sp-stock">—</span>
@@ -232,78 +223,93 @@
     wrap.appendChild(table);
 
     const btn = document.createElement('button');
-    btn.type = 'button'; btn.className = 'btn btn-primary mt-2 sp-add-to-cart'; btn.textContent = 'Añadir selección';
+    btn.type = 'button';
+    btn.className = 'btn btn-primary mt-2 sp-add-to-cart';
+    btn.textContent = 'Añadir selección';
     wrap.appendChild(btn);
 
     anchor.appendChild(wrap);
 
-    hydrateCells(wrap, root).then(() => log('matrix hidratada sp-matrix'));
+    await hydrate(wrap, root);
     btn.addEventListener('click', () => addAllToCart(wrap));
   }
 
-  /* ---------- hidratar celdas ---------- */
-  async function hydrateCells(container, root) {
+  async function hydrate(container, root) {
     const cells = Array.from(container.querySelectorAll('td'));
     const queue = cells.slice();
-
     async function worker() {
       while (queue.length) {
         const td = queue.shift();
-        const colorPtav = parseInt(td.closest('tr')?.dataset.colorPtav || '0', 10) ||
-                          parseInt(td.closest('tr')?.dataset.colorId   || '0', 10);
-        const sizePtav  = parseInt(td.dataset.sizePtav || '0', 10) ||
-                          parseInt(td.dataset.sizeId   || '0', 10);
-
+        const colorPtav = parseInt(td.closest('tr')?.dataset.colorPtav || td.closest('tr')?.dataset.colorId || '0', 10);
+        const sizePtav  = parseInt(td.dataset.sizePtav || td.dataset.sizeId || '0', 10);
         const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
 
-        const info = await fetchCombination(combo, root);
-        if (info && (info.product_id || info.variant_id)) {
-          const variantId = parseInt(info.product_id || info.variant_id, 10);
-          td.querySelector('.sp-qty').dataset.variantId = variantId;
-
-          const price = [info.price, info.list_price, info.website_price, info.price_reduce]
-            .find(v => typeof v === 'number');
-          if (price != null) td.querySelector('.sp-price').textContent = fmtPrice(price);
-
-          const stock = (info.stock_quantity != null) ? info.stock_quantity
-                        : (info.virtual_available != null) ? info.virtual_available
-                        : null;
-          if (stock != null) td.querySelector('.sp-stock').textContent = `Stock: ${stock}`;
-
-          const img = td.closest('tr').querySelector('.sp-color__img');
-          if (img && !img.src) img.src = `/web/image/product.product/${variantId}/image_256`;
-        } else {
-          td.classList.add('sp-unavailable');
+        let info = null;
+        try {
+          info = await getCombo(combo, root);
+        } catch (e) {
+          warn('combo error', e.message);
         }
+        if (!info) { td.classList.add('sp-unavailable'); continue; }
+
+        const variantId = getVariantId(info);
+        if (variantId) td.querySelector('.sp-qty').dataset.variantId = String(variantId);
+
+        const price = getPrice(info);
+        if (price != null) td.querySelector('.sp-price').textContent = fmtPrice(price);
+
+        const stock = getStock(info);
+        if (stock != null) td.querySelector('.sp-stock').textContent = `Stock: ${stock}`;
+
+        const img = td.closest('tr').querySelector('.sp-color__img');
+        if (img && !img.src) {
+          img.src = `/web/image/product.product/${variantId || 0}/image_256`;
+          img.onerror = () => { img.src = `/web/image/product.template/${readCtx(root).tmplId}/image_256`; };
+        }
+
+        if (!variantId && price == null && stock == null) td.classList.add('sp-unavailable');
       }
     }
     await Promise.all(new Array(6).fill(0).map(worker));
   }
 
-  /* ---------- carrito ---------- */
+  /* ---------------- carrito ---------------- */
+  function getCsrf() {
+    return (window.odoo && window.odoo.csrf_token)
+        || $('input[name="csrf_token"]')?.value || '';
+  }
+  async function cartUpdate(payload) {
+    const urls = ['/shop/cart/update_json', '/website_sale/cart/update_json'];
+    let lastErr;
+    for (const u of urls) {
+      try {
+        const r = await fetch(u, {
+          method:'POST', credentials:'same-origin',
+          headers: {'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},
+          body: JSON.stringify(payload),
+        });
+        if (r.ok) return true;
+        lastErr = new Error(`HTTP ${r.status}`);
+      } catch (e) { lastErr = e; }
+    }
+    throw lastErr || new Error('cart update failed');
+  }
   function addAllToCart(container) {
     const inputs = container.querySelectorAll('.sp-qty');
     const ops = [];
-    inputs.forEach((inp) => {
+    inputs.forEach(inp => {
       const qty = parseFloat(inp.value || '0');
       const product_id = parseInt(inp.dataset.variantId || '0', 10);
       if (qty > 0 && product_id) {
-        ops.push(fetch('/shop/cart/update_json', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-          body: JSON.stringify({ product_id, add_qty: qty, display: false }),
-        }));
+        ops.push(cartUpdate({ product_id, add_qty: qty, display:false, csrf_token: getCsrf() }));
       }
     });
     if (!ops.length) return;
     Promise.allSettled(ops).then(() => window.location.reload());
   }
 
-  /* ---------- boot ---------- */
-  function start() {
-    if (document.querySelector('.o_wsale_product_page')) buildMatrix();
-  }
+  /* ---------------- boot ---------------- */
+  function start(){ if ($('.o_wsale_product_page')) buildMatrix(); }
   (document.readyState === 'loading')
     ? document.addEventListener('DOMContentLoaded', start)
     : start();
