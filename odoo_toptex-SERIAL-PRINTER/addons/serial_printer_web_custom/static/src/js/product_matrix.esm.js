@@ -142,7 +142,7 @@
     return null;
   }
 
-  /* ---- extractores tolerantes (nombres cambian según versión) ---- */
+  /* ---- extractores tolerantes ---- */
   function getVariantId(info) {
     return parseInt(
       info?.product_id ?? info?.variant_id ?? info?.id ?? info?.product?.id ?? 0, 10
@@ -294,19 +294,50 @@
     }
     throw lastErr || new Error('cart update failed');
   }
+
+  /* ======= SOLO MODIFICADO: addAllToCart con fallback ======= */
   function addAllToCart(container) {
     const inputs = container.querySelectorAll('.sp-qty');
-    const ops = [];
+    const items = [];
     inputs.forEach(inp => {
       const qty = parseFloat(inp.value || '0');
       const product_id = parseInt(inp.dataset.variantId || '0', 10);
-      if (qty > 0 && product_id) {
-        ops.push(cartUpdate({ product_id, add_qty: qty, display:false, csrf_token: getCsrf() }));
-      }
+      if (qty > 0 && product_id) items.push({ product_id, add_qty: qty });
     });
-    if (!ops.length) return;
-    Promise.allSettled(ops).then(() => window.location.reload());
+    if (!items.length) return;
+
+    const csrf = getCsrf();
+
+    const postForm = (url, payload) => {
+      const fd = new FormData();
+      fd.append('product_id', String(payload.product_id));
+      fd.append('add_qty', String(payload.add_qty));
+      fd.append('express', 'false');
+      if (csrf) fd.append('csrf_token', csrf);
+      return fetch(url, { method: 'POST', credentials: 'same-origin', body: fd });
+    };
+
+    const sendOne = async (item) => {
+      // 1) intenta tus endpoints JSON (cartUpdate existente)
+      try {
+        await cartUpdate({ product_id: item.product_id, add_qty: item.add_qty, display:false, csrf_token: csrf });
+        return true;
+      } catch (_) {
+        // 2) fallback a POST clásico
+        for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
+          try {
+            const r = await postForm(u, item);
+            if (r.ok) return true;
+          } catch (_) {}
+        }
+        throw new Error('No se pudo actualizar el carrito');
+      }
+    };
+
+    Promise.allSettled(items.map(sendOne))
+      .then(() => window.location.reload());
   }
+  /* ========================================================= */
 
   /* ---------------- boot ---------------- */
   function start(){ if ($('.o_wsale_product_page')) buildMatrix(); }
