@@ -57,34 +57,30 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         return out.length ? out : [{ idx: 0, hex: null }];
     }
 
+    // ---------- CAMBIO: priorizar /spw/line_preview/<id>?i=n ----------
     function buildUrlCandidates(lineId, idx) {
         var n = idx + 1;
         var base = '/spw/line_preview/' + lineId;
-        var exts = ['png', 'webp', 'jpg', 'jpeg'];
-        var indexedBases = [ base + '-' + n, base + '/' + n, base + '_' + n ];
+        var exts = ['png','webp','jpg','jpeg'];
         var urls = [];
-        var i, j;
+        var i;
 
-        // indexados con extension
-        for (i = 0; i < indexedBases.length; i++) {
-            for (j = 0; j < exts.length; j++) {
-                urls.push(addQuery(indexedBases[i] + '.' + exts[j], { v: ts() }));
-            }
-        }
-        // ?i=n con y sin extension
-        for (j = 0; j < exts.length; j++) {
-            urls.push(addQuery(base + '.' + exts[j], { i: n, v: ts() }));
-        }
+        // 1) canónica: ?i=n (con cache-buster)
         urls.push(addQuery(base, { i: n, v: ts() }));
+        for (i = 0; i < exts.length; i++) {
+            urls.push(addQuery(base + '.' + exts[i], { i: n, v: ts() }));
+        }
 
-        // fallback unico por indice (no colisiona con otros indices)
-        for (j = 0; j < exts.length; j++) {
-            urls.push(addQuery(base + '.' + exts[j], { i: n, fb: 1, v: ts() }));
+        // 2) compatibilidad con rutas antiguas indexadas
+        var indexedBases = [ base + '-' + n, base + '/' + n, base + '_' + n ];
+        for (var b = 0; b < indexedBases.length; b++) {
+            for (i = 0; i < exts.length; i++) {
+                urls.push(addQuery(indexedBases[b] + '.' + exts[i], { v: ts() }));
+            }
         }
 
         // dedup
-        var seen = {};
-        var dedup = [];
+        var seen = {}, dedup = [];
         for (i = 0; i < urls.length; i++) {
             if (!seen[urls[i]]) { seen[urls[i]] = 1; dedup.push(urls[i]); }
         }
