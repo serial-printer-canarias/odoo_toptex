@@ -15,6 +15,7 @@
             "serial_printer_web_custom/static/src/js/sp_probe.esm.js",
             "serial_printer_web_custom/static/src/js/product_matrix.esm.js",
             "serial_printer_web_custom/static/src/scss/product_matrix.scss",
+            "serial_printer_web_custom/static/src/scss/sp_matrix.scss",
         ],
     },
     "installable": True,
