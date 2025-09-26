@@ -190,6 +190,13 @@
     size.options.forEach(s => { const th=document.createElement('th'); th.textContent = s.name; trh.appendChild(th); });
     thead.appendChild(trh);
 
+    /* --- NUEVO: min-width dinámico según nº de tallas --- */
+    const cols = size.options.length; // nº de tallas
+    if (cols >= 10)      table.style.minWidth = '1340px';
+    else if (cols >= 8)  table.style.minWidth = '1160px';
+    else if (cols >= 6)  table.style.minWidth = '980px';
+    else                 table.style.minWidth = 'auto'; // One Size o pocas tallas
+
     const tbody = document.createElement('tbody');
     color.options.forEach(c => {
       const tr = document.createElement('tr');
@@ -295,7 +302,7 @@
     throw lastErr || new Error('cart update failed');
   }
 
-  /* ======= SOLO MODIFICADO: addAllToCart con fallback ======= */
+  /* ======= addAllToCart con fallback ======= */
   function addAllToCart(container) {
     const inputs = container.querySelectorAll('.sp-qty');
     const items = [];
@@ -318,12 +325,10 @@
     };
 
     const sendOne = async (item) => {
-      // 1) intenta tus endpoints JSON (cartUpdate existente)
       try {
         await cartUpdate({ product_id: item.product_id, add_qty: item.add_qty, display:false, csrf_token: csrf });
         return true;
       } catch (_) {
-        // 2) fallback a POST clásico
         for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
           try {
             const r = await postForm(u, item);
@@ -337,7 +342,6 @@
     Promise.allSettled(items.map(sendOne))
       .then(() => window.location.reload());
   }
-  /* ========================================================= */
 
   /* ---------------- boot ---------------- */
   function start(){ if ($('.o_wsale_product_page')) buildMatrix(); }
