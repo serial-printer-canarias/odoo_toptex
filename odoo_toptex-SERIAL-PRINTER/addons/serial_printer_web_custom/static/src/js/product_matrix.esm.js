@@ -277,7 +277,8 @@
     await Promise.all(new Array(6).fill(0).map(worker));
   }
 
-  /* ---------------- carrito (robusto) ---------------- */
+  /* ---------------- carrito (hiper-robusto) ---------------- */
+
   function getCsrf() {
     return (
       document.querySelector('meta[name="csrf-token"]')?.content ||
@@ -287,7 +288,7 @@
     );
   }
 
-  async function cartUpdateJSON(url, item, csrf) {
+  async function cartUpdateJSON(url, payload) {
     const r = await fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
@@ -295,90 +296,101 @@
         'Accept': 'application/json',
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest',
-        'X-CSRF-Token': csrf || '',
+        'X-CSRF-Token': payload.csrf_token || ''
       },
-      body: JSON.stringify({
-        product_id: item.product_id,
-        add_qty: item.add_qty,
-        display: false,
-        csrf_token: csrf || undefined,
-      }),
+      body: JSON.stringify(payload),
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    // algunas versiones devuelven vacío; si hay JSON con error lo detectamos
     try {
       const data = await r.json();
       if (data && data.error) throw new Error('JSON error');
-    } catch (_) { /* algunas versiones devuelven vacío; lo aceptamos */ }
+    } catch (_) {}
     return true;
   }
 
-  async function cartUpdateForm(url, item, csrf, tmplId) {
+  async function cartUpdateForm(url, payload) {
     const fd = new FormData();
-    fd.append('product_id', String(item.product_id));
-    fd.append('add_qty', String(item.add_qty));
-    fd.append('express', 'false');
-    if (tmplId) fd.append('product_template_id', String(tmplId));
-    if (csrf)  fd.append('csrf_token', csrf);
+    Object.entries(payload).forEach(([k,v]) => {
+      if (v === undefined || v === null) return;
+      if (Array.isArray(v)) v.forEach(val => fd.append(k, String(val)));
+      else fd.append(k, String(v));
+    });
     const r = await fetch(url, { method: 'POST', credentials: 'same-origin', body: fd });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return true;
-  }
-
-  async function cartUpdateQS(url, item, csrf, tmplId) {
-    const qs = new URLSearchParams({
-      product_id: String(item.product_id),
-      add_qty: String(item.add_qty),
-      express: 'false',
-    });
-    if (tmplId) qs.set('product_template_id', String(tmplId));
-    if (csrf)  qs.set('csrf_token', csrf);
-    const r = await fetch(`${url}?${qs.toString()}`, {
-      method: 'GET',
-      credentials: 'same-origin',
-      redirect: 'follow',
-    });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return true;
   }
 
   function addAllToCart(container) {
     const inputs = container.querySelectorAll('.sp-qty');
+
+    // Recojo items, PTAVs (combinación) y template id
+    const root = getRoot();
+    const ctx  = readCtx(root);
+    const csrf = getCsrf();
+
     const items = [];
     inputs.forEach(inp => {
       const qty = parseFloat(inp.value || '0');
       const product_id = parseInt(inp.dataset.variantId || '0', 10);
-      if (qty > 0 && product_id) items.push({ product_id, add_qty: qty });
+      const td = inp.closest('td');
+      const tr = inp.closest('tr');
+      const sizePtav  = parseInt(td?.dataset.sizePtav || td?.dataset.sizeId || '0', 10);
+      const colorPtav = parseInt(tr?.dataset.colorPtav || tr?.dataset.colorId || '0', 10);
+      const combination = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
+
+      if (qty > 0 && product_id) {
+        items.push({
+          product_id,
+          add_qty: qty,
+          // extra datos por si el endpoint los exige
+          product_template_id: ctx.tmplId || undefined,
+          combination: combination.filter(n => n > 0),
+          csrf_token: csrf || undefined,
+          display: false,
+          express: false,
+        });
+      }
     });
     if (!items.length) return;
-
-    const csrf   = getCsrf();
-    const root   = (document.querySelector('.o_wsale_product_page') || document);
-    const tmplId = parseInt(
-      root.querySelector('[data-product-template-id]')?.dataset.productTemplateId ||
-      root.querySelector('input[name="product_template_id"]')?.value || '0', 10
-    ) || undefined;
 
     (async () => {
       for (const item of items) {
         let ok = false;
 
+        // 1) JSON (shop / website_sale)
         for (const u of ['/shop/cart/update_json', '/website_sale/cart/update_json']) {
-          try { await cartUpdateJSON(u, item, csrf); ok = true; break; }
-          catch (e) { console.warn('[SP] JSON fallo', u, e.message); }
+          try { await cartUpdateJSON(u, item); log('añadido JSON', u, item); ok = true; break; }
+          catch (e) { warn('fallo JSON', u, e.message); }
         }
+
+        // 2) Form POST clásico (con los mismos campos)
         if (!ok) {
           for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
-            try { await cartUpdateForm(u, item, csrf, tmplId); ok = true; break; }
-            catch (e) { console.warn('[SP] FORM fallo', u, e.message); }
+            try { await cartUpdateForm(u, item); log('añadido FORM', u, item); ok = true; break; }
+            catch (e) { warn('fallo FORM', u, e.message); }
           }
         }
+
+        // 3) Último recurso: GET con querystring mínimo
         if (!ok) {
-          for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
-            try { await cartUpdateQS(u, item, csrf, tmplId); ok = true; break; }
-            catch (e) { console.warn('[SP] QS fallo', u, e.message); }
-          }
+          const qs = new URLSearchParams({
+            product_id: String(item.product_id),
+            add_qty: String(item.add_qty),
+            express: 'false',
+          });
+          if (csrf)  qs.set('csrf_token', csrf);
+          if (ctx.tmplId) qs.set('product_template_id', String(ctx.tmplId));
+          const url = '/shop/cart/update?' + qs.toString();
+          try {
+            const r = await fetch(url, { method: 'GET', credentials: 'same-origin', redirect: 'follow' });
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            log('añadido GET', url);
+            ok = true;
+          } catch (e) { warn('fallo GET', e.message); }
         }
-        if (!ok) console.warn('[SP] No se pudo añadir', item);
+
+        if (!ok) warn('NO se pudo añadir', item);
       }
       window.location.reload();
     })();
