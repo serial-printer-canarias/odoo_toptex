@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- ============ PÁGINA DEL PERSONALIZADOR (SIN CAMBIOS SALVO 2 LÍNEAS) ============ -->
+  <!-- ============ PÁGINA DEL PERSONALIZADOR (AJUSTE addToCart) ============ -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
       <t t-set="main_object" t-value="template"/>
 
-      <!-- (1) SOLO AÑADIDO EL data-spw-wizard="1" -->
       <div class="container my-5 spw-customizer" data-spw-wizard="1">
         <input type="hidden" id="spw_template_id" t-att-value="template.id"/>
         <input type="hidden" id="spw_variant_id" t-att-value="variant_id or ''"/>
@@ -122,7 +121,7 @@
                 <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
+                     onclick="window.spwReset && window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -142,13 +141,12 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (descarga iOS + añadir al carrito) ====== -->
+      <!-- ====== JS INLINE (ajuste addToCart con update_json) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
 
         function $(sel, root){return (root||document).querySelector(sel);}
-        function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
         function $val(id, d){ var el=$("#"+id); return el?el.value:d; }
 
         async function loadImage(src){
@@ -167,13 +165,26 @@
             r.readAsDataURL(file);
           });
         }
-        function dataURLtoBase64(u){ var i=u.indexOf(','); return i!==-1?u.slice(i+1):u; }
 
-        // (2) UTILIDAD MÍNIMA PARA TOKEN ÚNICO POR PERSONALIZACIÓN
+        // utilidades fetch
+        async function postJSON(url, payload){
+          try{
+            var resp = await fetch(url,{
+              method:"POST",
+              headers:{ "Content-Type":"application/json", "X-Requested-With":"XMLHttpRequest" },
+              credentials:"same-origin",
+              body: JSON.stringify(payload),
+            });
+            var txt = await resp.text();
+            var data=null; try{ data = JSON.parse(txt); }catch(_){}
+            return {ok: resp.ok && !!data, data:data, status:resp.status, raw:txt};
+          }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
+        }
+
+        // token único por personalización
         function uid(){ return 'spw_' + Math.random().toString(36).slice(2,10) + '_' + Date.now().toString(36); }
 
-        var S={ logoDataURL:"", isSVG:false };
-
+        // aplicar transform al overlay
         function applyTransform(){
           var logo = $("#spw_logo_preview"); if(!logo) return;
           var base = $("#spw_product_img");  if(!base) return;
@@ -196,6 +207,7 @@
           logo.style.opacity = "1";
         }
 
+        // render PNG combinando base + overlay
         async function renderPNGDataURL(){
           var internalBaseEl = $("#spw-base-img");
           var baseSrc = (internalBaseEl && internalBaseEl.getAttribute("src")) ||
@@ -241,95 +253,56 @@
           return canvas.toDataURL("image/png");
         }
 
-        async function postJSON(url, payload){
-          try{
-            var resp = await fetch(url,{
-              method:"POST",
-              headers:{ "Content-Type":"application/json", "X-Requested-With":"XMLHttpRequest" },
-              credentials:"same-origin",
-              body: JSON.stringify(payload),
-            });
-            var txt = await resp.text();
-            var data=null; try{ data = JSON.parse(txt); }catch(_){}
-            return {ok: !!(data && (data.ok===true || data.ok==="true")), data:data, status:resp.status, raw:txt};
-          }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
-        }
-        async function postForm(url, payload){
-          try{
-            var fd = new FormData();
-            Object.keys(payload||{}).forEach(function(k){ fd.append(k, payload[k]); });
-            var resp = await fetch(url, { method: "POST", body: fd, credentials:"same-origin" });
-            var txt = await resp.text();
-            var data=null; try{ data = JSON.parse(txt); }catch(_){}
-            return {ok: resp.ok && (!!data ? (data.ok===true || data.ok==="true") : true), data:data||{}, status:resp.status, raw:txt};
-          }catch(e){ return {ok:false, data:null, status:0, raw:txt}; }
-        }
-
+        // ===== AJUSTE PRINCIPAL: usar /shop/cart/update_json con spw_token =====
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim();
-          var qty=parseInt($val("spw_qty","1"),10)||1;
+          if(!variantId){ alert("Falta la variante del producto."); return; }
+
+          var qty=parseFloat($val("spw_qty","1")||1)||1;
           var tech=( (document.querySelector("input[name='spw_tech']:checked")||{}).value )||"";
           var svgColor=( (document.querySelector("input[name='spw_svg_color']:checked")||{}).value )||"";
           var notes=($val("spw_notes","")||"").trim();
-          if(!variantId){ alert("Falta la variante del producto."); return; }
 
-          // (3) TOKEN ÚNICO POR PERSONALIZACIÓN
-          var spw_token = uid();
+          var spw_token = uid();   // token único por personalización
 
-          var pngB64="";
+          // 1) Añadir línea nueva (ruta nativa Odoo que invoca _cart_update)
+          var r1 = await postJSON("/shop/cart/update_json", {
+            product_id: parseInt(variantId,10),
+            add_qty: qty,
+            spw_token: spw_token,
+            display: false
+          });
+          if(!(r1.ok && r1.data && r1.data.line_id)){
+            alert("No se pudo añadir al carrito."); return;
+          }
+          var lineId = r1.data.line_id;
+
+          // 2) Guardar meta en el nombre de ESA línea (no cambia qty)
+          await postJSON("/spw/add_to_cart_meta", {
+            variant_id: parseInt(variantId,10),
+            qty: 0, tech: tech, svg_color: svgColor, notes: notes, spw_token: spw_token
+          });
+
+          // 3) Adjuntar PNG
           try{
             var du = await renderPNGDataURL();
-            sessionStorage.setItem('spw_last_product_id', String(variantId));
-            sessionStorage.setItem('spw_last_png', du || '');
-            sessionStorage.setItem('spw_last_color', svgColor || '');
-            pngB64 = du ? du.split('base64,')[1] : "";
+            var pngB64 = du ? du.split('base64,')[1] : "";
+            if (pngB64){ await postJSON("/spw/attach_png", { line_id: lineId, png_b64: pngB64 }); }
           }catch(_){}
 
-          // 1) meta JSON -> fallback HTTP  (AÑADIMOS spw_token)
-          var r1 = await postJSON("/spw/add_to_cart_meta", {
-            variant_id: parseInt(variantId,10),
-            qty: qty,
-            tech: tech,
-            svg_color: svgColor,
-            notes: notes,
-            spw_token: spw_token
-          });
-          if(!r1.ok){
-            r1 = await postForm("/spw/add_to_cart_meta_http", {
-              variant_id: variantId,
-              qty: qty,
-              tech: tech,
-              svg_color: svgColor,
-              notes: notes,
-              spw_token: spw_token
-            });
-          }
-          if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
-
-          try { if (r1.data && r1.data.line_id) sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id)); } catch(_){}
-
-          // 2) PNG JSON -> fallback HTTP (no bloquea redirección)
-          if(pngB64){
-            var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
-            if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
-          }
-
-          var baseUrl = (r1.data && r1.data.cart_url) || "/shop/cart";
-          var withParam = (r1.data && r1.data.line_id) ? (baseUrl + (baseUrl.indexOf('?')===-1?'?':'&') + 'spw_line_id=' + encodeURIComponent(r1.data.line_id)) : baseUrl;
-          window.location.href = withParam;
+          // 4) Redirigir enfocando la línea
+          var baseUrl = "/shop/cart";
+          window.location.href = baseUrl + (baseUrl.indexOf('?')===-1?'?':'&') + 'spw_line_id=' + encodeURIComponent(lineId);
         }
 
-        // Descarga PNG segura en iOS/Android/escritorio
+        // Descarga PNG segura
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
             var a = document.createElement("a");
             a.href = dataUrl; a.download = "personalizacion.png";
-            if (typeof a.download === "undefined") {
-              window.location.href = dataUrl;
-            } else {
-              document.body.appendChild(a); a.click(); a.remove();
-            }
+            if (typeof a.download === "undefined") { window.location.href = dataUrl; }
+            else { document.body.appendChild(a); a.click(); a.remove(); }
           }catch(_){ alert("No se pudo generar el PNG."); }
         }
 
@@ -339,10 +312,7 @@
           if(logoInput){
             logoInput.addEventListener("change", async function(ev){
               var f = ev.target.files && ev.target.files[0]; if(!f) return;
-              var name=(f.name||"").toLowerCase();
-              S.isSVG = name.endsWith(".svg");
               var dataURL = await readAsDataURL(f);
-              S.logoDataURL = dataURL;
               logoEl.src = dataURL;
               applyTransform();
             });
@@ -370,16 +340,19 @@
     </t>
   </template>
 
-  <!-- ============ INYECCIÓN EN website.layout: preview por línea (MEJORADA) ============ -->
+  <!-- ============ INYECCIÓN EN website.layout: preview por línea (SIN CAMBIOS) ============ -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <style id="spw-cart-style">
         .spw-cart-block{margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
         .spw-cart-block img{max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px}
         .spw-swatch{width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;display:inline-block}
+        @media (max-width: 576px){
+          .spw-cart-block{gap:6px}
+          .spw-cart-block img{max-width:92px}
+        }
       </style>
 
-      <!-- (sin cambios en el injector) -->
       <script type="text/javascript"><![CDATA[
       (function(){
         "use strict";
@@ -388,9 +361,7 @@
         function q(s,r){return (r||document).querySelector(s);}
         function qa(s,r){return Array.from((r||document).querySelectorAll(s));}
 
-        function urlParam(name){
-          try{ return new URL(location.href).searchParams.get(name); }catch(_){ return null; }
-        }
+        function urlParam(name){ try{ return new URL(location.href).searchParams.get(name); }catch(_){ return null; } }
         function parseLineIdFromHref(node){
           try{
             var a = node.closest('a[href*="line_id="]') || node.querySelector('a[href*="line_id="]');
