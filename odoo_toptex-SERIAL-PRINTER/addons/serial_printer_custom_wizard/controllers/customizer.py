@@ -2,47 +2,64 @@
 from odoo import http
 from odoo.http import request
 
-class SPWCustomizerPublic(http.Controller):
+class SpwCustomizer(http.Controller):
 
-    @http.route(['/spw/customizer'], type='http', auth='public', website=True, sitemap=False)
+    @http.route(['/spw/customizer',
+                 '/spw/customizer/<int:product_id>'],
+                type='http', auth='public', website=True, sitemap=False)
     def spw_customizer(self, product_id=None, variant_id=None, **kw):
-        Product = request.env['product.product'].sudo()
-        Tmpl = request.env['product.template'].sudo()
+        """Renderiza la página del personalizador para un producto/variante."""
+        ProductT = request.env['product.template'].sudo()
+        ProductP = request.env['product.product'].sudo()
 
-        tmpl = variant = False
-        try:
-            if variant_id:
-                v = Product.browse(int(variant_id))
+        template = None
+        variant = None
+
+        # product_id puede llegar como template o como variant: probamos ambos
+        if product_id:
+            template = ProductT.browse(product_id)
+            if not template.exists():
+                v = ProductP.browse(product_id)
                 if v.exists():
                     variant = v
-                    tmpl = v.product_tmpl_id
-            if not tmpl and product_id:
-                t = Tmpl.browse(int(product_id))
-                if t.exists():
-                    tmpl = t
-                    if not variant:
-                        variant = Product.search([('product_tmpl_id', '=', t.id)], limit=1)
-        except Exception:
-            pass
+                    template = v.product_tmpl_id
 
-        # Construir img_src (siempre una ruta válida)
-        img_src = ""
-        if variant:
-            img_src = "/web/image/product.product/%s/image_1920" % variant.id
-        elif tmpl:
-            v2 = Product.search([('product_tmpl_id', '=', tmpl.id)], limit=1)
-            img_src = "/web/image/product.product/%s/image_1920" % v2.id if v2 else "/web/image/product.template/%s/image_1920" % tmpl.id
+        # Permitir ?product_template_id= / ?tmpl_id=
+        if not template:
+            ptid = kw.get('product_template_id') or kw.get('tmpl_id')
+            if ptid:
+                template = ProductT.browse(int(ptid))
+
+        # Variant explícita por ?variant_id=
+        if variant_id and not variant:
+            v = ProductP.browse(int(variant_id))
+            if v.exists():
+                variant = v
+                template = v.product_tmpl_id
+
+        # Fallback seguro
+        if not template or not template.exists():
+            return request.redirect('/shop')
+
+        # Imagen base (si hay variant usamos la suya; si no, la primera variante o la del template)
+        if variant and variant.exists():
+            img_src = '/web/image/product.product/%s/image_1920' % variant.id
+            variant_id_val = variant.id
+        else:
+            pv = template.product_variant_id
+            if pv.exists():
+                img_src = '/web/image/product.product/%s/image_1920' % pv.id
+                variant_id_val = pv.id
+            else:
+                img_src = '/web/image/product.template/%s/image_1920' % template.id
+                variant_id_val = None
 
         values = {
-            "template": tmpl,
-            "variant_id": variant.id if variant else False,
-            "img_src": img_src,
+            'template': template,
+            'variant_id': variant_id_val,
+            'img_src': img_src,
+            'website': request.website,
         }
 
-        # Render seguro de tu vista
-        view = request.env.ref('serial_printer_custom_wizard.spw_customize_page', raise_if_not_found=False)
-        if view:
-            return view._render(values)
-
-        # Fallback: si la vista no existe, no uses website.404 -> redirige
-        return request.redirect('/shop')
+        # >>> Forma correcta en Odoo 17/18
+        return request.render('serial_printer_custom_wizard.spw_customize_page', values)
