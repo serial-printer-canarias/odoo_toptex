@@ -8,15 +8,13 @@ class SPWCartMeta(http.Controller):
     @http.route('/spw/add_to_cart_meta', type='json', auth='public', website=True, csrf=False)
     def add_to_cart_meta(self, variant_id, qty=1, tech=None, svg_color=None, notes=None, spw_token=None, **kw):
         """
-        No crea línea (ya la crea /shop/cart/update_json). Solo ajusta el 'name' de ESA línea
-        cuando qty=0, pero mantenemos compatibilidad si qty>0.
+        No crea línea (la crea /shop/cart/update_json).
+        Si qty>0 lo permitimos por compatibilidad, pero normalmente vendrá qty=0.
         """
         order = request.website.sale_get_order(force_create=True)
-        # Si qty > 0, podría crear línea; si es 0 solo devuelve order y seguimos.
         res = order._cart_update(product_id=int(variant_id), add_qty=float(qty or 0), spw_token=spw_token) if float(qty or 0) else {}
         line_id = res.get('line_id')
 
-        # Si no tenemos line_id porque qty=0, intentamos localizar la última línea con ese token
         if not line_id and spw_token:
             line = request.env['sale.order.line'].sudo().search([
                 ('order_id', '=', order.id),
@@ -30,7 +28,6 @@ class SPWCartMeta(http.Controller):
 
         line = request.env['sale.order.line'].sudo().browse(line_id)
 
-        # Construir meta SOLO para esta personalización
         base_name = (line.name or '').split('\n')[0]
         meta = []
         if tech: meta.append('Técnica: %s' % tech)
@@ -64,9 +61,9 @@ class SPWCartMeta(http.Controller):
         (ex and ex.write(vals)) or Attach.create(vals)
         return {'ok': True}
 
-    # (opcional) servir el PNG si no lo tienes en otro controlador
     @http.route('/spw/line_preview/<int:line_id>.png', type='http', auth='public', website=True)
     def spw_line_preview_png(self, line_id, **kw):
+        """Sirve el PNG de preview guardado en la línea."""
         Attach = request.env['ir.attachment'].sudo()
         name = 'spw_preview_%s.png' % line_id
         att = Attach.search([
