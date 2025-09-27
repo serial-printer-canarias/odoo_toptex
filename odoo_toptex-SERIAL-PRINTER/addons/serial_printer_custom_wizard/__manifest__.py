@@ -9,12 +9,14 @@
     "data": [
         "views/customizer_page.xml",
         "views/product_personalize_button.xml",
-        # NO tocamos QWeb para el carrito
+        # IMPORTANTE: no cargar QWeb del carrito aquí
     ],
     "assets": {
         "web.assets_frontend": [
             "serial_printer_custom_wizard/static/src/css/personalizar_preview.css",
+            "serial_printer_custom_wizard/static/src/js/spw_button.js",
             "serial_printer_custom_wizard/static/src/js/spw_cart_preview.inject.js",
+            # Deja el resto de JS desactivados por ahora para no romper la web
         ],
     },
     "installable": True,
