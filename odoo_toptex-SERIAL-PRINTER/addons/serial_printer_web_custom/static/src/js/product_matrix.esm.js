@@ -1,4 +1,4 @@
-/* SP Matrix – Odoo 18: precio, stock, foto y carrito (final) */
+/* SP Matrix – Odoo 18: precio, stock, foto y carrito (POST clásico) */
 (function () {
   'use strict';
 
@@ -201,7 +201,6 @@
 
     await hydrate(wrap, root);
 
-    // bind directo por si Odoo re-renderiza
     btn.addEventListener('click', (ev)=>{ ev.preventDefault(); addAllToCart(wrap); }, {capture:true});
   }
 
@@ -237,7 +236,7 @@
     await Promise.all(new Array(6).fill(0).map(worker));
   }
 
-  /* ---------------- carrito ---------------- */
+  /* ---------------- carrito: SOLO FORM /cart/update ---------------- */
   function getCsrf() {
     return (
       document.querySelector('meta[name="csrf-token"]')?.content ||
@@ -247,37 +246,26 @@
     );
   }
 
-  // ⚠️ JSON: NO enviar csrf_token en el payload (provoca TypeError en algunas versiones)
-  async function cartUpdateJSON(url, payload) {
-    const jsonPayload = { ...payload };
-    delete jsonPayload.csrf_token;           // ← clave del fix
-    const r = await fetch(url, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      body: JSON.stringify(jsonPayload),
-    });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    // algunas instancias devuelven vacío; si hay JSON con error lo detectamos
-    try { const data = await r.json(); if (data && data.error) throw new Error('JSON error'); } catch {}
-    return true;
-  }
-
-  // FORM clásico: aquí sí se puede/ debe pasar csrf_token
-  async function cartUpdateForm(url, payload) {
+  async function postCartForm(url, payload) {
     const fd = new FormData();
-    Object.entries(payload).forEach(([k, v]) => {
-      if (v == null) return;
-      if (Array.isArray(v)) v.forEach(x => fd.append(k, String(x)));
-      else fd.append(k, String(v));
-    });
+    // mínimos
+    fd.append('product_id', String(payload.product_id));
+    fd.append('add_qty', String(payload.add_qty));
+    // contexto útil
+    if (payload.product_template_id) fd.append('product_template_id', String(payload.product_template_id));
+    if (payload.combination && payload.combination.length) {
+      // no siempre se usa, pero no molesta
+      payload.combination.forEach(v => fd.append('combination', String(v)));
+    }
+    // vacíos estándar
+    fd.append('product_custom_attribute_values', '[]');
+    fd.append('no_variant_attribute_values', '[]');
+    fd.append('express', 'false');
+    if (payload.csrf_token) fd.append('csrf_token', payload.csrf_token);
+
     const r = await fetch(url, { method: 'POST', credentials: 'same-origin', body: fd });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return true;
+    return r;
   }
 
   async function ensureVariantIdFromCell(inp, root) {
@@ -317,27 +305,15 @@
         add_qty: qty,
         product_template_id: ctx.tmplId || undefined,
         combination,
-        display: false,
-        express: false,
-        csrf_token: csrf || undefined,   // solo lo usaremos en FORM
+        csrf_token: csrf || undefined,
       };
 
       let ok = false;
-
-      // 1) JSON (sin csrf_token en body)
-      for (const u of ['/shop/cart/update_json', '/website_sale/cart/update_json']) {
-        try { await cartUpdateJSON(u, payload); log('✓ JSON', u); ok = true; break; }
-        catch (e) { warn('✗ JSON', u, e.message); }
+      // SOLO FORM
+      for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
+        try { await postCartForm(u, payload); ok = true; break; }
+        catch (e) { warn('Fallo FORM', u, e.message); }
       }
-
-      // 2) FORM (con csrf_token)
-      if (!ok) {
-        for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
-          try { await cartUpdateForm(u, payload); log('✓ FORM', u); ok = true; break; }
-          catch (e) { warn('✗ FORM', u, e.message); }
-        }
-      }
-
       if (!ok) warn('NO se pudo añadir', payload);
       else count++;
     }
