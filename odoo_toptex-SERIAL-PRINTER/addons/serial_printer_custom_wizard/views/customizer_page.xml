@@ -13,11 +13,16 @@
         <div class="row g-4">
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
+              <!-- Base same-origin para exportar PNG sin CORS -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
+
+              <!-- Imagen visible -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
+
+              <!-- Overlay del logo -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
           </div>
@@ -27,12 +32,14 @@
               <div class="card-body">
                 <h5 class="card-title mb-3">Personalización</h5>
 
+                <!-- Subir logo -->
                 <div class="mb-3">
                   <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
                   <input id="spw_logo_input" class="form-control" type="file"
                          accept=".png,.jpg,.jpeg,.svg,.PNG,.JPG,.JPEG,.SVG"/>
                 </div>
 
+                <!-- Técnica -->
                 <div class="mb-3">
                   <label class="form-label">Técnica</label>
                   <div class="d-flex gap-3 flex-wrap">
@@ -51,6 +58,7 @@
                   </div>
                 </div>
 
+                <!-- Color SVG -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
                   <div class="spw-color-row">
@@ -77,6 +85,7 @@
                   </div>
                 </div>
 
+                <!-- Controles -->
                 <div class="mb-3">
                   <label for="spw_size" class="form-label">Tamaño</label>
                   <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
@@ -94,6 +103,7 @@
                   <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
                 </div>
 
+                <!-- Cantidad / Observaciones -->
                 <div class="mb-3">
                   <label for="spw_qty" class="form-label">Cantidad</label>
                   <input id="spw_qty" class="form-control" type="number" min="1" value="1"/>
@@ -103,9 +113,10 @@
                   <textarea id="spw_notes" class="form-control" rows="3"></textarea>
                 </div>
 
+                <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset && window.spwReset();">Reset</a>
+                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -121,6 +132,7 @@
         </div>
       </div>
 
+      <!-- ====== JS inline mínimo ====== -->
       <script type="text/javascript"><![CDATA[
       (function(){
         "use strict";
@@ -206,7 +218,7 @@
             png_b64 = du ? du.split("base64,")[1] : "";
           }catch(_){}
 
-          // *** MINIMO CAMBIO PARA EVITAR EL FALLO: usar SIEMPRE el endpoint HTTP que ya tenías funcionando ***
+          // Usar primero el endpoint HTTP ya existente
           let r1 = await postForm("/spw/add_to_cart_meta_http", {
             variant_id: variantId,
             qty: String(qty),
@@ -216,7 +228,7 @@
             spw_token: spw_token
           });
 
-          // Fallback JSON por si vuestro endpoint espera JSON:
+          // Fallback JSON si el servidor lo espera así
           if(!(r1.ok && r1.data && r1.data.line_id)){
             r1 = await postJSON("/spw/add_to_cart_meta", {
               variant_id: parseInt(variantId,10),
@@ -227,20 +239,19 @@
               spw_token: spw_token
             });
           }
-
           if(!(r1.ok && r1.data && r1.data.line_id)){
             alert("No se pudo añadir.");
             return;
           }
 
-          const lineId = r1.data.line_id;
+          const lineId=r1.data.line_id;
 
           if(png_b64){
             const r2 = await postJSON("/spw/attach_png", { line_id: lineId, png_b64: png_b64 });
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: lineId, png_b64: png_b64 }); }
           }
 
-          window.location.href = "/shop/cart?spw_line_id=" + encodeURIComponent(lineId);
+          window.location.href="/shop/cart?spw_line_id="+encodeURIComponent(lineId);
         }
 
         function init(){
