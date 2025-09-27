@@ -25,13 +25,13 @@ class SPWCustomizerPublic(http.Controller):
         except Exception:
             pass
 
+        # Construir img_src (siempre una ruta válida)
+        img_src = ""
         if variant:
             img_src = "/web/image/product.product/%s/image_1920" % variant.id
         elif tmpl:
             v2 = Product.search([('product_tmpl_id', '=', tmpl.id)], limit=1)
             img_src = "/web/image/product.product/%s/image_1920" % v2.id if v2 else "/web/image/product.template/%s/image_1920" % tmpl.id
-        else:
-            img_src = ""
 
         values = {
             "template": tmpl,
@@ -39,8 +39,10 @@ class SPWCustomizerPublic(http.Controller):
             "img_src": img_src,
         }
 
-        try:
-            view = request.env.ref('serial_printer_custom_wizard.spw_customize_page', raise_if_not_found=True)
+        # Render seguro de tu vista
+        view = request.env.ref('serial_printer_custom_wizard.spw_customize_page', raise_if_not_found=False)
+        if view:
             return view._render(values)
-        except Exception:
-            return request.render('website.404')
+
+        # Fallback: si la vista no existe, no uses website.404 -> redirige
+        return request.redirect('/shop')
