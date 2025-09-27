@@ -221,7 +221,6 @@
             sessionStorage.setItem('spw_last_color', svgColor || '');
           }catch(_){}
 
-          // Primero formulario (lo que ya tenías)
           let r1 = await postForm("/spw/add_to_cart_meta_http", {
             variant_id: variantId,
             qty: String(qty),
@@ -231,7 +230,6 @@
             spw_token: spw_token
           });
           if(!(r1.ok && r1.data && r1.data.line_id)){
-            // Fallback JSON
             r1 = await postJSON("/spw/add_to_cart_meta", {
               variant_id: parseInt(variantId,10),
               qty: qty,
@@ -349,8 +347,8 @@
           }catch(_){ return ['#000000']; }
         }
         function buildPreviewURL(lineId, idx){
-          // una sola variante de URL para no saturar la red
-          return '/spw/line_preview/' + encodeURIComponent(lineId) + '.png?i=' + (idx+1) + '&_=' + Date.now();
+          // URL estable (sin timestamp) para evitar tormenta de peticiones.
+          return '/spw/line_preview/' + encodeURIComponent(lineId) + '.png?i=' + (idx+1);
         }
 
         function ensureWrap(line){
@@ -370,39 +368,37 @@
           var wrap = ensureWrap(line); if(!wrap) return;
 
           var colors = detectHexes(line);
-          var wanted = Math.max(colors.length, 1);
+          var target = Math.max(colors.length, 1);
 
-          // Si ya tenemos exactamente wanted imágenes cargadas, no hacemos nada
-          var imgs = qa('img', wrap);
-          if (imgs.length === wanted && imgs.every(function(im){ return im.dataset.loaded === '1'; })) return;
-
-          // Limpieza y creación exacta de N imágenes
-          wrap.innerHTML = '';
-          for(var i=0;i<wanted;i++){
-            var im = new Image();
-            im.alt = 'Personalización';
-            im.loading = 'lazy';
-            im.dataset.loaded = '0';
-            im.onload = function(){ this.dataset.loaded = '1'; };
-            im.onerror = function(){ this.remove(); };
-            im.src = buildPreviewURL(id, i);
-            wrap.appendChild(im);
+          // Añadir solo las imágenes que falten; no borrar ni recrear.
+          for (var i=1; i<=target; i++){
+            if (!wrap.querySelector('img[data-spw="1"][data-i="'+i+'"]')){
+              var im = new Image();
+              im.alt = 'Personalización';
+              im.loading = 'lazy';
+              im.dataset.spw = '1';
+              im.dataset.i = String(i);
+              im.src = buildPreviewURL(id, i-1);
+              wrap.appendChild(im);
+            }
           }
 
-          // Píldoras de color
-          colors.forEach(function(hex){
-            var sw = document.createElement('span');
-            sw.className = 'spw-swatch';
-            sw.title = hex;
-            sw.style.background = hex;
-            wrap.appendChild(sw);
-          });
+          // Píldoras: solo si aún no existen.
+          if (!wrap.querySelector('.spw-swatch')){
+            colors.forEach(function(hex){
+              var sw = document.createElement('span');
+              sw.className = 'spw-swatch';
+              sw.title = hex;
+              sw.style.background = hex;
+              wrap.appendChild(sw);
+            });
+          }
         }
 
         function inject(){
           var lines = findLines();
 
-          // Limpieza global de bloques huérfanos
+          // Eliminar bloques huérfanos
           qa('.spw-cart-block').forEach(function(n){
             var lid=n.getAttribute('data-line');
             var alive = lines.some(function(l){ return getLineId(l)===lid; });
@@ -411,7 +407,7 @@
 
           lines.forEach(renderLine);
 
-          // Si venimos del customizador, usar la imagen en memoria para esa línea
+          // Si venimos del customizador, mostrar la última imagen en memoria
           var wanted = urlParam('spw_line_id');
           if (wanted) {
             try{
@@ -422,10 +418,16 @@
                 var line = lines.find(function(l){ return getLineId(l) === wanted; });
                 if (line) {
                   var wrap = ensureWrap(line);
-                  if (wrap){
-                    wrap.innerHTML='';
-                    var im=new Image(); im.alt='Personalización'; im.loading='eager'; im.dataset.loaded='1'; im.src=lastPng; wrap.appendChild(im);
-                    if(lastColor){
+                  if (wrap && !wrap.querySelector('img[data-spw-last="1"]')){
+                    var im=new Image();
+                    im.alt='Personalización';
+                    im.loading='eager';
+                    im.dataset.spw='1';
+                    im.dataset.spwLast='1';
+                    im.dataset.i='1';
+                    im.src=lastPng;
+                    wrap.prepend(im);
+                    if(lastColor && !wrap.querySelector('.spw-swatch')){
                       var sw=document.createElement('span'); sw.className='spw-swatch'; sw.title=lastColor; sw.style.background=lastColor; wrap.appendChild(sw);
                     }
                   }
@@ -440,21 +442,23 @@
           }
         }
 
-        // Debounce del observador para evitar inyecciones en bucle
-        var pending=false;
-        function schedule(){ if(pending) return; pending=true; requestAnimationFrame(function(){ pending=false; inject(); }); }
-
-        function boot(){
+        // Evitar múltiples observers
+        if (!document.body.dataset.spwCartBound){
+          document.body.dataset.spwCartBound = '1';
           inject();
           var root = q('.js_cart_lines') || q('.o_wsale_cart') || q('main') || document.body;
           if(window.MutationObserver && root){
-            var mo = new MutationObserver(function(){ schedule(); });
+            var ticking=false;
+            var mo = new MutationObserver(function(){
+              if (ticking) return;
+              ticking = true;
+              requestAnimationFrame(function(){ ticking=false; inject(); });
+            });
             mo.observe(root, {childList:true, subtree:true});
           }
+          // Reintento único por si el DOM tarda en montar
           setTimeout(inject, 400);
         }
-
-        if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded", boot); } else { boot(); }
       })();
       ]]></script>
     </xpath>
