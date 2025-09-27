@@ -25,17 +25,13 @@ class SPWCustomizerPublic(http.Controller):
         except Exception:
             pass
 
-        # img_src para la imagen visible (usa variante si existe, si no la plantilla)
-        img_src = ""
         if variant:
             img_src = "/web/image/product.product/%s/image_1920" % variant.id
         elif tmpl:
-            # fallback a la primera variante o a la propia plantilla
             v2 = Product.search([('product_tmpl_id', '=', tmpl.id)], limit=1)
-            if v2:
-                img_src = "/web/image/product.product/%s/image_1920" % v2.id
-            else:
-                img_src = "/web/image/product.template/%s/image_1920" % tmpl.id
+            img_src = "/web/image/product.product/%s/image_1920" % v2.id if v2 else "/web/image/product.template/%s/image_1920" % tmpl.id
+        else:
+            img_src = ""
 
         values = {
             "template": tmpl,
@@ -43,7 +39,6 @@ class SPWCustomizerPublic(http.Controller):
             "img_src": img_src,
         }
 
-        # Render de tu plantilla por xml_id
         try:
             view = request.env.ref('serial_printer_custom_wizard.spw_customize_page', raise_if_not_found=True)
             return view._render(values)
