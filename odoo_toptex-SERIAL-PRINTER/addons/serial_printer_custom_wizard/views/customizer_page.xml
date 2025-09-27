@@ -5,7 +5,6 @@
       <t t-set="pageName" t-value="'spw_customize_page'"/>
       <t t-set="main_object" t-value="template"/>
 
-      <!-- Exponemos la variante por defecto para el JS -->
       <script type="text/javascript">
         window.SPW_DEF_VARIANT = <t t-esc="variant_id or (template.product_variant_id and template.product_variant_id.id) or 0"/>;
       </script>
@@ -18,18 +17,13 @@
         <div class="row g-4">
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
-              <!-- Base same-origin para exportar -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
-
-              <!-- Imagen visible (solo preview) -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src"
                    t-att-data-variant-id="variant_id or (template.product_variant_id and template.product_variant_id.id) or 0"
                    alt="Producto"/>
-
-              <!-- Overlay del logo -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
           </div>
@@ -126,7 +120,7 @@
                 <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset && window.spwReset();">Reset</a>
+                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -146,19 +140,17 @@
         </div>
       </div>
 
-      <!-- JS -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
-
         function $(sel, root){return (root||document).querySelector(sel);}
-        function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
         function $val(id, d){ var el=$("#"+id); return el?el.value:d; }
+        function qa(sel, root){return Array.from((root||document).querySelectorAll(sel));}
 
         async function loadImage(src){
           return new Promise(function(resolve, reject){
             var im=new Image();
-            im.crossOrigin = "anonymous"; // por si acaso, aunque usamos same-origin
+            im.crossOrigin = "anonymous";
             im.onload=function(){ resolve(im); };
             im.onerror=function(e){ reject(e); };
             im.src=src;
@@ -173,21 +165,16 @@
           });
         }
 
-        var S={};
-
         function applyTransform(){
           var logo = $("#spw_logo_preview"); if(!logo) return;
           var base = $("#spw_product_img");  if(!base) return;
-
           var sizePx = parseInt($val("spw_size","100"),10);
           var posX   = parseInt($val("spw_pos_x","0"),10);
           var posY   = parseInt($val("spw_pos_y","10"),10);
           var rot    = parseInt($val("spw_rotation","0"),10);
-
           var bw = base.clientWidth, bh = base.clientHeight;
           var leftPx = bw*(0.5 + posX/100);
           var topPx  = bh*(0.6 + posY/100);
-
           logo.style.position="absolute";
           logo.style.left = leftPx + "px";
           logo.style.top  = topPx  + "px";
@@ -203,9 +190,7 @@
                         || $val("spw_img_src","")
                         || ($("#spw_product_img")||{}).getAttribute("src");
           if(!baseSrc) throw new Error("Sin imagen base.");
-
           var baseIm = await loadImage(baseSrc);
-
           var canvas = document.createElement("canvas");
           var ctx = canvas.getContext("2d");
           canvas.width  = baseIm.naturalWidth  || baseIm.width;
@@ -218,11 +203,9 @@
             var bw = baseEl.clientWidth,  bh = baseEl.clientHeight;
             var br = baseEl.getBoundingClientRect();
             var lr = logoEl.getBoundingClientRect();
-
             var cx_norm = ((lr.left + lr.width/2)  - br.left) / bw;
             var cy_norm = ((lr.top  + lr.height/2) - br.top ) / bh;
             var w_norm  = lr.width / bw;
-
             var cx = cx_norm * canvas.width;
             var cy = cy_norm * canvas.height;
             var drawW = w_norm * canvas.width;
@@ -230,14 +213,12 @@
             var logoIm = await loadImage(logoEl.src);
             var ratio = (logoIm.naturalHeight || logoIm.height) / (logoIm.naturalWidth || logoIm.width);
             var drawH = drawW * ratio;
-
             var rot = (parseInt($val("spw_rotation","0"),10) * Math.PI)/180;
 
             ctx.save(); ctx.translate(cx, cy); ctx.rotate(rot);
             ctx.drawImage(logoIm, -drawW/2, -drawH/2, drawW, drawH);
             ctx.restore();
           }
-
           return canvas.toDataURL("image/png");
         }
 
@@ -283,7 +264,6 @@
           var tech=( (document.querySelector("input[name='spw_tech']:checked")||{}).value )||"";
           var svgColor=( (document.querySelector("input[name='spw_svg_color']:checked")||{}).value )||"";
           var notes=($val("spw_notes","")||"").trim();
-
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
           var du="", pngB64="";
@@ -295,7 +275,6 @@
             sessionStorage.setItem('spw_last_color', svgColor || '');
           }catch(_){}
 
-          // 1) meta JSON -> fallback HTTP
           var r1 = await postJSON("/spw/add_to_cart_meta", {
             variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
           });
@@ -304,7 +283,6 @@
           }); }
           if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
-          // 2) Adjuntar PNG (no bloquea)
           if(pngB64){
             var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
@@ -318,7 +296,6 @@
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
-            // 1) intento directo (desktop / Android moderno)
             var a = document.createElement("a");
             a.href = dataUrl; a.download = "personalizacion.png";
             if (typeof a.download !== "undefined") {
@@ -326,7 +303,6 @@
               return;
             }
           }catch(_){}
-          // 2) fallback universal vía POST (iOS)
           try{
             var du = await renderPNGDataURL();
             var b64 = du.split('base64,')[1] || "";
@@ -343,8 +319,8 @@
         }
 
         function init(){
-          var logoInput=$("#spw_logo_input");
-          var logoEl=$("#spw_logo_preview");
+          var logoInput=document.getElementById("spw_logo_input");
+          var logoEl=document.getElementById("spw_logo_preview");
           if(logoInput){
             logoInput.addEventListener("change", async function(ev){
               var f = ev.target.files && ev.target.files[0]; if(!f) return;
@@ -354,18 +330,18 @@
             });
           }
           ["spw_size","spw_pos_x","spw_pos_y","spw_rotation"].forEach(function(id){
-            var el=$("#"+id); if(el) el.addEventListener("input", applyTransform);
+            var el=document.getElementById(id); if(el) el.addEventListener("input", applyTransform);
           });
           window.spwReset=function(){
-            $("#spw_size").value=100;
-            $("#spw_pos_x").value=0;
-            $("#spw_pos_y").value=10;
-            $("#spw_rotation").value=0;
+            document.getElementById("spw_size").value=100;
+            document.getElementById("spw_pos_x").value=0;
+            document.getElementById("spw_pos_y").value=10;
+            document.getElementById("spw_rotation").value=0;
             applyTransform();
           };
 
-          var dl=$("#spw_download_png"); if(dl){ dl.addEventListener("click", downloadPNGiOSSafe); }
-          var add=$("#spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
+          var dl=document.getElementById("spw_download_png"); if(dl){ dl.addEventListener("click", downloadPNGiOSSafe); }
+          var add=document.getElementById("spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
 
           applyTransform();
         }
