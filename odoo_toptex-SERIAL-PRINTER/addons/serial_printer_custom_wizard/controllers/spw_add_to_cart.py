@@ -1,131 +1,92 @@
 # -*- coding: utf-8 -*-
-import base64, json
+import json
+import base64
 from odoo import http
-from odoo.http import request, content_disposition
+from odoo.http import request
 
-class SpwCart(http.Controller):
+class SpwAddToCart(http.Controller):
 
-    def _line_id_from_update(self, res):
-        if isinstance(res, dict):
-            return res.get("line_id") or res.get("line") or res.get("cart_line_id")
-        return None
-
-    # Añadir al carrito (JSON)
     @http.route('/spw/add_to_cart_meta', type='json', auth='public', website=True, csrf=False)
-    def add_to_cart_meta(self, variant_id=0, qty=1, tech='', svg_color='', notes=''):
+    def add_to_cart_meta(self, variant_id=None, qty=1, tech='', svg_color='', notes='', **kw):
         try:
             variant_id = int(variant_id or 0)
-            qty = int(qty or 1)
-            if not variant_id or qty <= 0:
-                return {'ok': False, 'message': 'Datos inválidos'}
+            if not variant_id:
+                return {'ok': False, 'message': 'variant_id faltante'}
+            variant = request.env['product.product'].sudo().browse(variant_id)
+            if not variant.exists():
+                return {'ok': False, 'message': 'Variante inexistente'}
 
-            product = request.env['product.product'].sudo().browse(variant_id)
-            if not product.exists():
-                return {'ok': False, 'message': 'Producto no existe'}
+            order = request.website.sale_get_order(force_create=1)
+            res = order._cart_update(product_id=variant.id, add_qty=int(qty or 1))
+            line = res.get('line') or request.env['sale.order.line'].sudo().browse(res.get('line_id'))
+            if not line or not line.exists():
+                return {'ok': False, 'message': 'No se pudo crear la línea'}
 
-            order = request.website.sale_get_order(force_create=True)
-            upd = order._cart_update(product_id=product.id, add_qty=qty)
-            line_id = self._line_id_from_update(upd)
+            line.sudo().write({
+                'spw_tech': tech or '',
+                'spw_svg_color': svg_color or '',
+                'spw_notes': notes or '',
+            })
 
-            if not line_id:
-                line = request.env['sale.order.line'].sudo().search(
-                    [('order_id', '=', order.id), ('product_id', '=', product.id)],
-                    order='id desc', limit=1
-                )
-                line_id = line.id or None
-
-            # Guardar metadatos visibles en la descripción (para leer color en el carrito)
-            if line_id:
-                line = request.env['sale.order.line'].sudo().browse(line_id)
-                extras = []
-                if tech: extras.append(f"Técnica: {tech}")
-                if svg_color: extras.append(f"Color SVG: {svg_color}")
-                if notes: extras.append(f"Notas: {notes}")
-                if extras:
-                    line.with_context(no_trigger=True).write({
-                        'name': (line.name or '') + '\n' + ' | '.join(extras)
-                    })
-                # Si existen campos técnicos, también guárdalos
-                vals = {}
-                if 'spw_tech' in line._fields: vals['spw_tech'] = tech
-                if 'spw_svg_color' in line._fields: vals['spw_svg_color'] = svg_color
-                if 'spw_notes' in line._fields: vals['spw_notes'] = notes
-                if vals: line.sudo().write(vals)
-
-            return {
-                'ok': True,
-                'line_id': line_id,
-                'cart_url': request.website._get_shop_cart_url(),
-            }
+            return {'ok': True, 'line_id': line.id, 'cart_url': '/shop/cart'}
         except Exception as e:
             return {'ok': False, 'message': str(e)}
 
-    # Fallback HTTP
-    @http.route('/spw/add_to_cart_meta_http', type='http', methods=['POST'], auth='public', website=True, csrf=False)
+    @http.route('/spw/add_to_cart_meta_http', type='http', auth='public', website=True, csrf=False)
     def add_to_cart_meta_http(self, **post):
         data = self.add_to_cart_meta(
             variant_id=post.get('variant_id'),
-            qty=post.get('qty') or 1,
-            tech=post.get('tech') or '',
-            svg_color=post.get('svg_color') or '',
-            notes=post.get('notes') or '',
+            qty=post.get('qty'),
+            tech=post.get('tech'),
+            svg_color=post.get('svg_color'),
+            notes=post.get('notes'),
         )
         return request.make_response(json.dumps(data), headers=[('Content-Type','application/json')])
 
-    # Adjuntar PNG a la línea
     @http.route('/spw/attach_png', type='json', auth='public', website=True, csrf=False)
-    def attach_png(self, line_id=0, png_b64=''):
+    def attach_png(self, line_id=None, png_b64=None, **kw):
         try:
-            line_id = int(line_id or 0)
-            if not line_id or not png_b64:
-                return {'ok': False, 'message': 'falta data'}
-
-            request.env['ir.attachment'].sudo().create({
-                'name': 'spw_preview.png',
-                'res_model': 'sale.order.line',
-                'res_id': line_id,
-                'type': 'binary',
-                'mimetype': 'image/png',
+            if not (line_id and png_b64):
+                return {'ok': False, 'message': 'Faltan datos PNG'}
+            line = request.env['sale.order.line'].sudo().browse(int(line_id))
+            if not line.exists():
+                return {'ok': False, 'message': 'Línea no encontrada'}
+            att = request.env['ir.attachment'].sudo().create({
+                'name': f'spw_preview_{line.id}.png',
                 'datas': png_b64,
+                'mimetype': 'image/png',
+                'res_model': 'sale.order.line',
+                'res_id': line.id,
                 'public': True,
             })
-            return {'ok': True}
+            line.sudo().write({'spw_preview_attachment_id': att.id})
+            return {'ok': True, 'attachment_id': att.id}
         except Exception as e:
             return {'ok': False, 'message': str(e)}
 
-    # Fallback HTTP para adjuntar
-    @http.route('/spw/attach_png_http', type='http', methods=['POST'], auth='public', website=True, csrf=False)
+    @http.route('/spw/attach_png_http', type='http', auth='public', website=True, csrf=False)
     def attach_png_http(self, **post):
         data = self.attach_png(line_id=post.get('line_id'), png_b64=post.get('png_b64'))
         return request.make_response(json.dumps(data), headers=[('Content-Type','application/json')])
 
-    # Servir preview en el carrito
-    @http.route('/spw/line_preview/<int:line_id>.png', type='http', auth='public', website=True, csrf=False)
+    @http.route('/spw/line_preview/<int:line_id>.png', type='http', auth='public', website=True, sitemap=False)
     def line_preview(self, line_id, **kw):
-        att = request.env['ir.attachment'].sudo().search([
-            ('res_model', '=', 'sale.order.line'),
-            ('res_id', '=', line_id),
-            ('mimetype', '=', 'image/png'),
-        ], order='id desc', limit=1)
+        line = request.env['sale.order.line'].sudo().browse(line_id)
+        if not line.exists():
+            return request.not_found()
+        att = line.sudo().spw_preview_attachment_id
         if not att:
-            return request.not_found()
-        data = base64.b64decode(att.datas or b'')
-        return request.make_response(data, headers=[('Content-Type', 'image/png')])
+            # transparente 1x1 si aún no hay adjunto
+            pixel = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAukB9WlqZ1sAAAAASUVORK5CYII=')
+            return request.make_response(pixel, headers=[('Content-Type','image/png')])
+        return request.redirect('/web/image/%d' % att.id)
 
-    # Descarga universal por POST (esto ya lo usa el customizer)
-    @http.route('/spw/download_png', type='http', methods=['POST'], auth='public', website=True, csrf=False)
+    @http.route('/spw/download_png', type='http', auth='public', website=True, csrf=False)
     def download_png(self, **post):
-        b64 = (post.get('png_b64') or '').strip()
-        if not b64:
+        png_b64 = post.get('png_b64')
+        if not png_b64:
             return request.not_found()
-        try:
-            data = base64.b64decode(b64)
-        except Exception:
-            return request.not_found()
-        return request.make_response(
-            data,
-            headers=[
-                ('Content-Type', 'image/png'),
-                ('Content-Disposition', content_disposition('personalizacion.png')),
-            ],
-        )
+        data = base64.b64decode(png_b64)
+        headers = [('Content-Type','image/png'),
+                   ('Content-Disposition','attachment; filename="personalizacion.png"')]
+        return request.make_response(data, headers=headers)
