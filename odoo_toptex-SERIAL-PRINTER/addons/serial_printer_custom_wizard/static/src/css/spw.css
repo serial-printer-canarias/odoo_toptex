@@ -33,7 +33,7 @@
 
 /* ---------- Header & Sidebar (desktop) ---------- */
 @media (min-width:992px){
-  /* No tocar layout del menú; sólo asegurar visibilidad y capa */
+  /* Mantener ambos headers visibles y en capa alta */
   .o_header_standard,
   .o_header_affixed{
     position:relative !important;
@@ -42,7 +42,7 @@
     opacity:1 !important;
     height:auto !important;
   }
-  /* Mostrar sólo uno según estado de scroll de Odoo */
+  /* Mostrar sólo uno según scroll (lógica de Odoo) */
   .o_header_standard{display:block !important;}
   .o_header_affixed{display:none !important;}
   body.o_header_is_scrolled .o_header_standard{display:none !important;}
