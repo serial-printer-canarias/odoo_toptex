@@ -1,36 +1,39 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- ================== PÁGINA DEL PERSONALIZADOR ================== -->
+  <!-- ========= PÁGINA DEL PERSONALIZADOR ========= -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
-      <!-- Necesario para el editor de sitio -->
+      <!-- Necesario para el editor web de Odoo -->
       <t t-set="pageName" t-value="'spw_customize_page'"/>
       <t t-set="main_object" t-value="template"/>
-      <t t-set="mainObject" t-value="{'model': 'product.template', 'id': template.id}"/>
 
       <div class="container my-5 spw-customizer">
+        <!-- contexto -->
         <input type="hidden" id="spw_template_id" t-att-value="template.id"/>
         <input type="hidden" id="spw_variant_id" t-att-value="variant_id or ''"/>
         <input type="hidden" id="spw_img_src" t-att-value="img_src"/>
 
         <div class="row g-4">
-          <!-- Lienzo -->
+          <!-- LADO IZQUIERDO: lienzo -->
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
-              <!-- Base same-origin para evitar CORS -->
+
+              <!-- Base same-origin para exportar en canvas sin CORS -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
-                   class="d-none" alt="Base interna Odoo"/>
+                   class="d-none" alt="Base Odoo"/>
 
+              <!-- Imagen visible -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
 
+              <!-- Overlay del logo -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
           </div>
 
-          <!-- Panel derecho -->
+          <!-- LADO DERECHO: controles -->
           <div class="col-12 col-lg-5">
             <div class="card h-100">
               <div class="card-body">
@@ -91,7 +94,7 @@
                   <div class="spw-help mt-1">Se aplica solo a logos SVG.</div>
                 </div>
 
-                <!-- Controles -->
+                <!-- Controles de posición / tamaño -->
                 <div class="mb-3">
                   <label for="spw_size" class="form-label">Tamaño</label>
                   <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
@@ -123,7 +126,7 @@
                 <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-									   onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
+                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -143,7 +146,21 @@
         </div>
       </div>
 
-      <!-- ====== JS INLINE (descarga iOS + añadir al carrito) ====== -->
+      <!-- ===== CSS mínimo para las “píldoras” de color en esta página ===== -->
+      <style>
+        .spw-color-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+        .spw-color-swatch{display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+        .spw-color-swatch input{position:absolute;opacity:0;width:0;height:0}
+        .spw-color-ring{width:18px;height:18px;border-radius:999px;border:1px solid #CBD5E1;display:inline-block}
+        .spw-color-swatch.is-black  .spw-color-ring{background:#000000}
+        .spw-color-swatch.is-white  .spw-color-ring{background:#FFFFFF}
+        .spw-color-swatch.is-red    .spw-color-ring{background:#D62828}
+        .spw-color-swatch.is-blue   .spw-color-ring{background:#2060FF}
+        .spw-color-swatch.is-green  .spw-color-ring{background:#2A9D8F}
+        .spw-color-swatch input:checked + .spw-color-ring{outline:2px solid #111827;outline-offset:2px}
+      </style>
+
+      <!-- ===== JS INLINE (incluye descarga universal por POST) ===== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -279,6 +296,7 @@
             pngB64 = du ? du.split('base64,')[1] : "";
           }catch(_){}
 
+          // 1) meta JSON -> fallback HTTP
           var r1 = await postJSON("/spw/add_to_cart_meta", {
             variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
           });
@@ -289,6 +307,7 @@
 
           try { if (r1.data && r1.data.line_id) sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id)); } catch(_){}
 
+          // 2) PNG JSON -> fallback HTTP (no bloquea redirección)
           if(pngB64){
             var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
@@ -299,24 +318,33 @@
           window.location.href = withParam;
         }
 
-        // Descarga PNG segura en iOS/Android/escritorio
+        // ===== DESCARGA UNIVERSAL POR POST (iOS/Android/desktop) =====
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
-            var a = document.createElement("a");
-            a.href = dataUrl; a.download = "personalizacion.png";
-            if (typeof a.download === "undefined") {
-              // Safari iOS abre en nueva pestaña
-              window.open(dataUrl, "_blank");
-            } else {
-              document.body.appendChild(a); a.click(); a.remove();
-            }
+            var b64 = (dataUrl && dataUrl.split('base64,')[1]) || '';
+
+            var form = document.createElement("form");
+            form.method = "POST";
+            form.action = "/spw/download_png";
+            form.enctype = "application/x-www-form-urlencoded";
+            form.style.display = "none";
+
+            var inp = document.createElement("input");
+            inp.type = "hidden";
+            inp.name = "png_b64";
+            inp.value = b64;
+            form.appendChild(inp);
+
+            document.body.appendChild(form);
+            form.submit();
+            setTimeout(function(){ form.remove(); }, 2000);
           }catch(_){ alert("No se pudo generar el PNG."); }
         }
 
         function init(){
-          var logoInput=document.getElementById("spw_logo_input");
-          var logoEl=document.getElementById("spw_logo_preview");
+          var logoInput=$("#spw_logo_input");
+          var logoEl=$("#spw_logo_preview");
           if(logoInput){
             logoInput.addEventListener("change", async function(ev){
               var f = ev.target.files && ev.target.files[0]; if(!f) return;
@@ -349,149 +377,6 @@
       })();
       ]]></script>
     </t>
-  </template>
-
-  <!-- ============ INYECCIÓN EN LAYOUT: preview en carrito y checkout ============ -->
-  <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart/Checkout Preview Inject" priority="99">
-    <xpath expr="//body" position="inside">
-      <style id="spw-cart-style">
-        .spw-cart-block{margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-        .spw-cart-block img{max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px}
-        .spw-swatch{width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;display:inline-block}
-      </style>
-
-      <script type="text/javascript"><![CDATA[
-      (function(){
-        "use strict";
-        if (!/(\/shop\/cart|\/shop\/checkout)/.test(location.pathname)) return;
-
-        function q(s,r){return (r||document).querySelector(s);}
-        function qa(s,r){return Array.from((r||document).querySelectorAll(s));}
-
-        function urlParam(name){
-          try{ return new URL(location.href).searchParams.get(name); }catch(_){ return null; }
-        }
-        function parseLineIdFromHref(node){
-          try{
-            var a = node.closest('a[href*="line_id="]') || node.querySelector('a[href*="line_id="]');
-            if(!a) return null;
-            var u = new URL(a.getAttribute('href'), location.origin);
-            return u.searchParams.get('line_id');
-          }catch(_){ return null; }
-        }
-        function getLineId(line){
-          if(!line) return null;
-          return line.getAttribute('data-line-id')
-            || ((q('input[name="line_id"]', line)||{}).value)
-            || parseLineIdFromHref(line)
-            || null;
-        }
-        function findLines(){
-          var sel = [
-            'tr.js_cart_line', '.o_wsale_cart_item', '.card.js_cart_item', '.o_cart_line',
-            '.o_wsale_checkout_item', '.o_checkout .o_wsale_cart_line'
-          ].join(',');
-          return qa(sel).filter(function(n){ return !!getLineId(n); });
-        }
-        function infoContainer(line){
-          return q('.o_wsale_product_information', line)
-              || q('.o_cart_product_info', line)
-              || q('td.o_wsale_cart_description', line)
-              || q('.media-body', line)
-              || q('.o_wsale_cart_line_info', line)
-              || line;
-        }
-        function detectHex(line){
-          try{
-            var cont = infoContainer(line);
-            if(!cont) return null;
-            var m = (cont.textContent||'').match(/#([0-9a-fA-F]{6})\b/);
-            return m ? ('#'+m[1].toUpperCase()) : null;
-          }catch(_){ return null; }
-        }
-
-        function insertPreview(line, pngSrc, hex){
-          var id = getLineId(line); if(!id) return;
-          qa('.spw-cart-block[data-line="'+id+'"]', line).forEach(function(n){ n.remove(); });
-
-          var wrap = document.createElement('div');
-          wrap.className = 'spw-cart-block';
-          wrap.setAttribute('data-line', id);
-
-          var img = new Image();
-          img.alt = 'Personalización';
-          img.loading = 'lazy';
-          img.src = pngSrc;
-          wrap.appendChild(img);
-
-          if (hex && /^#[0-9A-F]{6}$/.test(hex)) {
-            var sw = document.createElement('span');
-            sw.className = 'spw-swatch';
-            sw.title = hex;
-            sw.style.background = hex;
-            wrap.appendChild(sw);
-          }
-
-          var container = infoContainer(line) || line;
-          container.appendChild(wrap);
-        }
-
-        function inject(){
-          var lines = findLines();
-          qa('.spw-cart-block').forEach(function(n){
-            var lid = n.getAttribute('data-line');
-            var alive = lines.some(function(l){ return getLineId(l) === lid; });
-            if(!alive) n.remove();
-          });
-
-          lines.forEach(function(line){
-            var id = getLineId(line);
-            if(!id) return;
-            var src = '/spw/line_preview/' + encodeURIComponent(id) + '.png?_=' + Date.now();
-            var hex = detectHex(line);
-            insertPreview(line, src, hex);
-          });
-
-          var wanted = urlParam('spw_line_id');
-          if (wanted) {
-            try{
-              var lastId = sessionStorage.getItem('spw_last_line_id');
-              var lastPng = sessionStorage.getItem('spw_last_png');
-              var lastColor = sessionStorage.getItem('spw_last_color');
-              if (lastId && lastPng && lastId === wanted) {
-                var line = lines.find(function(l){ return getLineId(l) === wanted; });
-                if (line) {
-                  insertPreview(line, lastPng, lastColor || detectHex(line));
-                }
-              }
-            }catch(_){}
-            try{
-              sessionStorage.removeItem('spw_last_line_id');
-              sessionStorage.removeItem('spw_last_png');
-              sessionStorage.removeItem('spw_last_color');
-            }catch(_){}
-          }
-        }
-
-        function boot(){
-          inject();
-          var root = q('.js_cart_lines') || q('.o_wsale_cart') || q('.o_checkout') || q('main') || document.body;
-          if (window.MutationObserver && root){
-            var mo = new MutationObserver(function(){ requestAnimationFrame(inject); });
-            mo.observe(root, {childList:true, subtree:true});
-          }
-          setTimeout(inject, 400);
-          setTimeout(inject, 1200);
-        }
-
-        if (document.readyState === 'loading') {
-          document.addEventListener('DOMContentLoaded', boot);
-        } else {
-          boot();
-        }
-      })();
-      ]]></script>
-    </xpath>
   </template>
 
 </odoo>
