@@ -1,15 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <template id="product_personalize_button"
-            inherit_id="website_sale.product"
-            name="SPW: Personalize Button">
-    <xpath expr="//form[contains(@action, '/shop/cart/update')]" position="inside">
-      <div class="mt-2">
-        <button type="button" class="btn btn-primary w-100"
-                id="spw_customize_btn" t-att-data-ptmpl-id="product.id">
-          <span class="fa fa-magic me-1"/><span>Personalizar</span>
-        </button>
-      </div>
-    </xpath>
-  </template>
+  <data>
+    <template id="product_personalize_button"
+              inherit_id="website_sale.product"
+              name="SPW: Personalize Button">
+      <xpath expr="//form[contains(@action, '/shop/cart/update')]" position="inside">
+        <div class="mt-2">
+          <button type="button" class="btn btn-primary w-100"
+                  id="spw_customize_btn" t-att-data-ptmpl-id="product.id">
+            <span class="fa fa-magic me-1"/><span>Personalizar</span>
+          </button>
+        </div>
+      </xpath>
+    </template>
+  </data>
 </odoo>
