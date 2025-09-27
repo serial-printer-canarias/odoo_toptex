@@ -24,7 +24,7 @@
 /* Preview en carrito */
 .o_wsale_cart_item .spw-cart-preview,
 .o_wsale_cart_item .spw-preview{order:10;width:100%;}
-/* Evitar bullets extra encima del carrito */
+/* Evitar bullets extra */
 .o_wsale_cart_items, .o_wsale_cart_items li{list-style:none!important;}
 
 /* Carrito móvil */
@@ -33,17 +33,19 @@
   .spw-cart-block img{max-width:92px;}
 }
 
-/* Header y sidebar (desktop): solo stacking, sin romper el tema */
+/* Header y sidebar en desktop: solo stacking, no forzar display */
 @media (min-width:992px){
   .o_header_standard,
   .o_header_affixed{
     position:relative !important;
     z-index:2000 !important;
+    visibility:visible !important;
+    opacity:1 !important;
   }
-  /* las secciones full-bleed por debajo del header */
+  /* Secciones full-bleed por debajo del header */
   .s_discovery,.s_cover,.s_hero,.s_parallax{position:relative !important;z-index:1 !important;}
 
-  /* Sidebar de filtros visible en listado de productos */
+  /* Sidebar de filtros visible en listados */
   .o_wsale_layout .o_wsale_sidebar,
   .o_wsale_layout_sidebar{display:block !important;}
 }
