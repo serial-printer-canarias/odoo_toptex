@@ -42,7 +42,6 @@
     visibility:visible !important;
     opacity:1 !important;
   }
-  /* Secciones full-bleed por debajo del header */
   .s_discovery,.s_cover,.s_hero,.s_parallax{position:relative !important;z-index:1 !important;}
 
   /* Sidebar de filtros visible en listados */
