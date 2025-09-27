@@ -24,10 +24,8 @@
 /* Preview en carrito */
 .o_wsale_cart_item .spw-cart-preview,
 .o_wsale_cart_item .spw-preview{order:10;width:100%;}
-
-/* Evitar puntos/bullets extra en items carrito */
-.o_wsale_cart_items,
-.o_wsale_cart_items li{list-style:none!important;}
+/* Evitar bullets extra encima del carrito */
+.o_wsale_cart_items, .o_wsale_cart_items li{list-style:none!important;}
 
 /* Carrito móvil */
 @media (max-width:576px){
@@ -35,17 +33,17 @@
   .spw-cart-block img{max-width:92px;}
 }
 
-/* Header & sidebar (desktop): solo z-index y jerarquía, sin forzar visibilidad del tema */
+/* Header y sidebar (desktop): solo stacking, sin romper el tema */
 @media (min-width:992px){
   .o_header_standard,
   .o_header_affixed{
     position:relative !important;
     z-index:2000 !important;
   }
-  /* Dejar que Odoo alterne estándar/affixed; evitamos que se tape */
+  /* las secciones full-bleed por debajo del header */
   .s_discovery,.s_cover,.s_hero,.s_parallax{position:relative !important;z-index:1 !important;}
 
-  /* Sidebar de filtros visible */
+  /* Sidebar de filtros visible en listado de productos */
   .o_wsale_layout .o_wsale_sidebar,
   .o_wsale_layout_sidebar{display:block !important;}
 }
