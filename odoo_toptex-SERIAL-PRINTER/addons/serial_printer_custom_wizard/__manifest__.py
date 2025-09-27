@@ -1,24 +1,48 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Serial Printer - Custom Wizard",
-    "version": "18.0.1.0.8",  # sube 1 dígito al actualizar
-    "summary": "Personalización de producto con vista previa y adjuntos al carrito.",
-    "author": "Serial Printer Canarias",
-    "website": "https://serial-printer-canarias-odoo-toptex.odoo.com",
+    "version": "18.0.1.2.0",   # <- súbela en cada update
+    "summary": "Personalización con preview y múltiples imágenes por línea.",
     "category": "Website/Website",
     "license": "LGPL-3",
     "depends": ["website_sale"],
 
-    # SOLO ficheros XML que realmente existen en tu módulo
+    # SOLO las vistas que existen en /views
     "data": [
         "views/customizer_page.xml",
         "views/product_personalize_button.xml",
     ],
 
-    # SOLO si existe el JS EXACTAMENTE en esa ruta
+    # TODOS los CSS/JS que tienes en /static/src/{css,js}
     "assets": {
         "web.assets_frontend": [
+            # CSS
+            "serial_printer_custom_wizard/static/src/css/customizer.css",
+            "serial_printer_custom_wizard/static/src/css/personalizar_preview.css",
+            "serial_printer_custom_wizard/static/src/css/spw.css",
+            "serial_printer_custom_wizard/static/src/css/spw_colors.css",
+
+            # JS (ordenado: utilidades -> botón -> customizer -> carrito -> inyectores)
+            "serial_printer_custom_wizard/static/src/js/spw_public.js",
+            "serial_printer_custom_wizard/static/src/js/spw.js",
+            "serial_printer_custom_wizard/static/src/js/spw_options.js",
+            "serial_printer_custom_wizard/static/src/js/ns300_colors.js",
+
             "serial_printer_custom_wizard/static/src/js/spw_button.js",
+            "serial_printer_custom_wizard/static/src/js/personalize_btn.js",
+            "serial_printer_custom_wizard/static/src/js/add_customize_button.js",
+            "serial_printer_custom_wizard/static/src/js/move_personalize_btn.js",
+            "serial_printer_custom_wizard/static/src/js/spw_force_customize_button.js",
+
+            "serial_printer_custom_wizard/static/src/js/spw_customizer.js",
+            "serial_printer_custom_wizard/static/src/js/customizer.js",
+            "serial_printer_custom_wizard/static/src/js/customizer_enhancements.js",
+            "serial_printer_custom_wizard/static/src/js/customizer_preview.js",
+            "serial_printer_custom_wizard/static/src/js/spw_logo_preview.js",
+            "serial_printer_custom_wizard/static/src/js/personalizacion.js",
+
+            "serial_printer_custom_wizard/static/src/js/spw_cart.js",
+            "serial_printer_custom_wizard/static/src/js/spw_cart_preview.inject.js",
         ],
     },
 
