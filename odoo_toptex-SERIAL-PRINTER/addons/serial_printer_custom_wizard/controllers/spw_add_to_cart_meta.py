@@ -4,21 +4,24 @@ from odoo import http
 from odoo.http import request
 
 _logger = logging.getLogger(__name__)
-
-SPW_LOG_TAG = "[SPW][add_to_cart]"
+TAG = "[SPW][add_to_cart_meta]"
 
 class SpwAddToCartMeta(http.Controller):
+    """Crea SIEMPRE una línea nueva en el carrito para cada personalización.
+    Evitamos _cart_update (que fusiona) y creamos la sale.order.line directamente
+    con el precio de la tarifario del pedido.
+    """
 
-    # --- JSON (fetch con application/json) ---
+    # -------- JSON (fetch application/json) --------
     @http.route('/spw/add_to_cart_meta', type='json', auth='public', website=True, csrf=False)
     def add_to_cart_meta_json(self, variant_id, qty=1, tech='', svg_color='', notes='', spw_token=None, **kw):
         try:
-            return self._do_add(int(variant_id or 0), qty, tech, svg_color, notes, spw_token)
+            return self._create_line(int(variant_id or 0), float(qty or 1), tech, svg_color, notes, spw_token)
         except Exception as e:
-            _logger.exception("%s JSON error: %s", SPW_LOG_TAG, e)
-            return {'ok': False, 'message': 'Error inesperado (JSON).'}
+            _logger.exception("%s JSON error: %s", TAG, e)
+            return {'ok': False, 'message': 'No se pudo añadir (JSON).'}
 
-    # --- Fallback FORM (Content-Type: multipart/form-data) ---
+    # -------- Fallback HTTP (form-data) --------
     @http.route('/spw/add_to_cart_meta_http', type='http', auth='public', website=True, csrf=False)
     def add_to_cart_meta_http(self, **post):
         try:
@@ -28,27 +31,46 @@ class SpwAddToCartMeta(http.Controller):
             svg_color = (post.get('svg_color') or '').strip()
             notes = (post.get('notes') or '').strip()
             spw_token = (post.get('spw_token') or '').strip() or None
-            res = self._do_add(variant_id, qty, tech, svg_color, notes, spw_token)
+            res = self._create_line(variant_id, qty, tech, svg_color, notes, spw_token)
             return request.make_json_response(res)
         except Exception as e:
-            _logger.exception("%s HTTP error: %s", SPW_LOG_TAG, e)
-            return request.make_json_response({'ok': False, 'message': 'Error inesperado (HTTP).'})
+            _logger.exception("%s HTTP error: %s", TAG, e)
+            return request.make_json_response({'ok': False, 'message': 'No se pudo añadir (HTTP).'})
 
     # ---------------- interno ----------------
-    def _do_add(self, variant_id, qty, tech, svg_color, notes, spw_token):
+    def _get_price(self, order, product, qty):
+        """Obtiene precio unitario según tarifario del pedido (compatible)."""
+        pricelist = order.pricelist_id
+        partner = order.partner_id
+        # Odoo 16/17/18: distintos nombres; probamos secuencialmente
+        for attr in ('get_product_price', '_get_product_price', 'price_get'):
+            fn = getattr(pricelist, attr, None)
+            if callable(fn):
+                try:
+                    price = fn(product, qty, partner) if attr != 'price_get' else fn(product.id, qty, partner.id)[pricelist.id]
+                    return float(price or 0.0)
+                except Exception:
+                    pass
+        # Fallback básico: precio de lista público
+        try:
+            return float(product.lst_price or 0.0)
+        except Exception:
+            return 0.0
+
+    def _create_line(self, variant_id, qty, tech, svg_color, notes, spw_token):
         if not variant_id:
             return {'ok': False, 'message': 'Falta la variante.'}
 
-        sudo_env = request.env.sudo()
-        product = sudo_env['product.product'].browse(int(variant_id))
+        env = request.env.sudo()
+        product = env['product.product'].browse(variant_id)
         if not product.exists():
-            return {'ok': False, 'message': 'Variante no encontrada.'}
+            return {'ok': False, 'message': 'La variante no existe.'}
 
         order = request.website.sale_get_order(force_create=True)
         if not order:
             return {'ok': False, 'message': 'No se pudo abrir el pedido.'}
 
-        # Texto de personalización SOLO de este click
+        # Descripción SOLO de esta personalización (usada también por las píldoras)
         extras = []
         if tech:
             extras.append(f"Técnica: {tech}")
@@ -61,49 +83,31 @@ class SpwAddToCartMeta(http.Controller):
 
         line_name = product.display_name
         if extras:
-            line_name = f"{line_name}\n" + " | ".join(extras)
+            line_name += "\n" + " | ".join(extras)
 
-        # LOG de entrada
-        _logger.info(
-            "%s try add: order=%s product=%s qty=%s tech=%s color=%s token=%s",
-            SPW_LOG_TAG, order.id, product.id, qty, tech, svg_color, spw_token
-        )
+        price_unit = self._get_price(order, product, qty)
 
-        # Fuerza CREAR línea nueva (no fusiona con otras de mismo SKU)
-        try:
-            res = order._cart_update(
-                product_id=product.id,
-                add_qty=float(qty or 1),
-                set_qty=None,
-                line_id=None,
-                force_create=True,  # CLAVE para separar personalizaciones
-            )
-        except TypeError:
-            # Por si la firma del método difiere según build, reintento sin named args “extraños”
-            res = order._cart_update(product_id=product.id, add_qty=float(qty or 1), set_qty=None)
-
-        line_id = int(res.get('line_id') or res.get('line') or 0)
-        if not line_id:
-            _logger.warning("%s no line_id in result: %s", SPW_LOG_TAG, res)
-            return {'ok': False, 'message': 'No se pudo crear la línea.'}
-
-        line = sudo_env['sale.order.line'].browse(line_id)
-        if not line.exists():
-            _logger.warning("%s line %s not exists after _cart_update", SPW_LOG_TAG, line_id)
-            return {'ok': False, 'message': 'Línea no disponible.'}
-
-        # Escribir solo la personalización actual en el nombre
-        try:
-            line.write({'name': line_name})
-            try:
-                line._compute_tax_id()
-            except Exception:
-                pass
-        except Exception as e:
-            _logger.exception("%s write name failed line=%s: %s", SPW_LOG_TAG, line_id, e)
+        vals = {
+            'order_id': order.id,
+            'product_id': product.id,
+            'name': line_name,
+            'product_uom_qty': qty,
+            'product_uom': product.uom_id.id,
+            'price_unit': price_unit,
+        }
 
         _logger.info(
-            "%s added OK: order=%s line=%s name_len=%s",
-            SPW_LOG_TAG, order.id, line.id, len(line_name or '')
+            "%s crear línea nueva -> order=%s product=%s qty=%s price=%s tech=%s color=%s token=%s",
+            TAG, order.id, product.id, qty, price_unit, tech, svg_color, spw_token
         )
+
+        line = env['sale.order.line'].create(vals)
+
+        # Impuestos / fposición
+        try:
+            line._compute_tax_id()
+        except Exception:
+            pass
+
+        _logger.info("%s línea creada OK -> line_id=%s", TAG, line.id)
         return {'ok': True, 'line_id': line.id, 'cart_url': '/shop/cart'}
