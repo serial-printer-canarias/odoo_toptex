@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Serial Printer - Custom Wizard",
-    "version": "18.0.1.0.1",
+    "version": "18.0.1.0.7",
     "summary": "Personalización de producto con vista previa de logo.",
     "category": "Website/Website",
     "license": "LGPL-3",
@@ -9,14 +9,10 @@
     "data": [
         "views/customizer_page.xml",
         "views/product_personalize_button.xml",
-        # IMPORTANTE: no cargar QWeb del carrito aquí
     ],
     "assets": {
         "web.assets_frontend": [
-            "serial_printer_custom_wizard/static/src/css/personalizar_preview.css",
             "serial_printer_custom_wizard/static/src/js/spw_button.js",
-            "serial_printer_custom_wizard/static/src/js/spw_cart_preview.inject.js",
-            # Deja el resto de JS desactivados por ahora para no romper la web
         ],
     },
     "installable": True,
