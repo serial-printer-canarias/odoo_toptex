@@ -211,7 +211,7 @@
           const tech=(document.querySelector("input[name='spw_tech']:checked")||{}).value||"";
           const svgColor=(document.querySelector("input[name='spw_svg_color']:checked")||{}).value||"";
           const notes=($val("spw_notes","")||"").trim();
-          const spw_token=uid();
+          const spw_token=uid(); // clave para que el servidor no fusione líneas de un mismo SKU
 
           let png_b64="";
           try{
@@ -221,6 +221,7 @@
             sessionStorage.setItem('spw_last_color', svgColor || '');
           }catch(_){}
 
+          // Primero formulario (lo que ya tenías)
           let r1 = await postForm("/spw/add_to_cart_meta_http", {
             variant_id: variantId,
             qty: String(qty),
@@ -230,6 +231,7 @@
             spw_token: spw_token
           });
           if(!(r1.ok && r1.data && r1.data.line_id)){
+            // Fallback JSON
             r1 = await postJSON("/spw/add_to_cart_meta", {
               variant_id: parseInt(variantId,10),
               qty: qty,
@@ -346,68 +348,67 @@
             return arr.length?arr:['#000000'];
           }catch(_){ return ['#000000']; }
         }
-        function buildPreviewURL(lineId, idx){
-          // URL estable (sin timestamp) para evitar tormenta de peticiones.
-          return '/spw/line_preview/' + encodeURIComponent(lineId) + '.png?i=' + (idx+1);
-        }
 
-        function ensureWrap(line){
-          var id = getLineId(line); if(!id) return null;
-          var wrap = q('.spw-cart-block[data-line="'+id+'"]', line);
-          if(!wrap){
-            wrap = document.createElement('div');
-            wrap.className = 'spw-cart-block';
-            wrap.setAttribute('data-line', id);
-            (infoContainer(line)||line).appendChild(wrap);
-          }
-          return wrap;
+        // cache para no repetir trabajo entre mutaciones
+        var rendered = new Set();
+        var debounceTimer = null;
+
+        function putImg(img, lineId){
+          // una sola URL por línea, con cache-buster
+          img.alt = 'Personalización';
+          img.loading = 'lazy';
+          img.decode && img.decode().catch(function(){});
+          img.onerror = function(){ try{ img.remove(); }catch(_){} };
+          img.src = '/spw/line_preview/' + encodeURIComponent(lineId) + '.png?_=' + Date.now();
         }
 
         function renderLine(line){
           var id = getLineId(line); if(!id) return;
-          var wrap = ensureWrap(line); if(!wrap) return;
+          // evita multiplicados en DOM
+          qa('.spw-cart-block[data-line="'+id+'"]', line).forEach(function(n){ n.remove(); });
 
-          var colors = detectHexes(line);
-          var target = Math.max(colors.length, 1);
+          var wrap = document.createElement('div');
+          wrap.className = 'spw-cart-block';
+          wrap.setAttribute('data-line', id);
 
-          // Añadir solo las imágenes que falten; no borrar ni recrear.
-          for (var i=1; i<=target; i++){
-            if (!wrap.querySelector('img[data-spw="1"][data-i="'+i+'"]')){
-              var im = new Image();
-              im.alt = 'Personalización';
-              im.loading = 'lazy';
-              im.dataset.spw = '1';
-              im.dataset.i = String(i);
-              im.src = buildPreviewURL(id, i-1);
-              wrap.appendChild(im);
-            }
-          }
+          // imagen (una por línea)
+          var im = new Image();
+          wrap.appendChild(im);
+          putImg(im, id);
 
-          // Píldoras: solo si aún no existen.
-          if (!wrap.querySelector('.spw-swatch')){
-            colors.forEach(function(hex){
-              var sw = document.createElement('span');
-              sw.className = 'spw-swatch';
-              sw.title = hex;
-              sw.style.background = hex;
-              wrap.appendChild(sw);
-            });
-          }
+          // píldoras (colores) si aparecen en la descripción
+          var hexes = detectHexes(line);
+          hexes.forEach(function(hx){
+            var sw = document.createElement('span');
+            sw.className = 'spw-swatch';
+            sw.title = hx;
+            sw.style.background = hx;
+            wrap.appendChild(sw);
+          });
+
+          (infoContainer(line)||line).appendChild(wrap);
+          rendered.add(id);
         }
 
         function inject(){
           var lines = findLines();
 
-          // Eliminar bloques huérfanos
+          // limpia bloques huérfanos
           qa('.spw-cart-block').forEach(function(n){
             var lid=n.getAttribute('data-line');
             var alive = lines.some(function(l){ return getLineId(l)===lid; });
             if(!alive) n.remove();
           });
 
-          lines.forEach(renderLine);
+          lines.forEach(function(line){
+            var id=getLineId(line);
+            if(!id) return;
+            // si ya está renderizado y sigue presente, no repetir
+            if (qa('.spw-cart-block[data-line="'+id+'"]', line).length) return;
+            renderLine(line);
+          });
 
-          // Si venimos del customizador, mostrar la última imagen en memoria
+          // si venimos del customizer, inyecta primero lo que haya en memoria (no dispara red)
           var wanted = urlParam('spw_line_id');
           if (wanted) {
             try{
@@ -417,19 +418,18 @@
               if (lastId && lastPng && lastId === wanted) {
                 var line = lines.find(function(l){ return getLineId(l) === wanted; });
                 if (line) {
-                  var wrap = ensureWrap(line);
-                  if (wrap && !wrap.querySelector('img[data-spw-last="1"]')){
-                    var im=new Image();
-                    im.alt='Personalización';
-                    im.loading='eager';
-                    im.dataset.spw='1';
-                    im.dataset.spwLast='1';
-                    im.dataset.i='1';
-                    im.src=lastPng;
-                    wrap.prepend(im);
-                    if(lastColor && !wrap.querySelector('.spw-swatch')){
-                      var sw=document.createElement('span'); sw.className='spw-swatch'; sw.title=lastColor; sw.style.background=lastColor; wrap.appendChild(sw);
-                    }
+                  // sustituye la imagen del bloque existente por la de memoria
+                  var block = q('.spw-cart-block[data-line="'+wanted+'"]', line);
+                  if (block) {
+                    var img = q('img', block) || new Image();
+                    if (!img.parentNode) block.prepend(img);
+                    img.onload = img.onerror = null;
+                    img.src = lastPng;
+                  }
+                  if (lastColor){
+                    var sw = document.createElement('span');
+                    sw.className='spw-swatch'; sw.title=lastColor; sw.style.background=lastColor;
+                    block && block.appendChild(sw);
                   }
                 }
               }
@@ -442,23 +442,21 @@
           }
         }
 
-        // Evitar múltiples observers
-        if (!document.body.dataset.spwCartBound){
-          document.body.dataset.spwCartBound = '1';
+        function scheduleInject(){
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(inject, 150);
+        }
+
+        function boot(){
           inject();
           var root = q('.js_cart_lines') || q('.o_wsale_cart') || q('main') || document.body;
           if(window.MutationObserver && root){
-            var ticking=false;
-            var mo = new MutationObserver(function(){
-              if (ticking) return;
-              ticking = true;
-              requestAnimationFrame(function(){ ticking=false; inject(); });
-            });
+            var mo = new MutationObserver(scheduleInject);
             mo.observe(root, {childList:true, subtree:true});
           }
-          // Reintento único por si el DOM tarda en montar
-          setTimeout(inject, 400);
         }
+
+        if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded", boot); } else { boot(); }
       })();
       ]]></script>
     </xpath>
