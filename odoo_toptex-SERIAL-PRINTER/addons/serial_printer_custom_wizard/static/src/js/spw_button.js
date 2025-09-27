@@ -1,31 +1,33 @@
 (function () {
-  'use strict';
-  function ready(fn){ if(document.readyState !== 'loading'){ fn(); } else { document.addEventListener('DOMContentLoaded', fn); } }
+  "use strict";
 
-  ready(function(){
-    const btn = document.getElementById('spw_personalize_btn');
+  const onProductPage = () => location.pathname.indexOf("/shop/") !== -1;
+
+  function bindOpen() {
+    const btn = document.getElementById("spw_customize_btn");
     if (!btn) return;
 
-    btn.addEventListener('click', function(ev){
+    btn.addEventListener("click", (ev) => {
       ev.preventDefault();
 
-      // 1) Tomar la variante actual desde el <form> (input hidden name=product_id)
-      const form = btn.closest('form') || document.querySelector('form[action*="/shop/cart/update"]') || document.querySelector('form');
-      let variantId = null;
-      if (form) {
-        const hidden = form.querySelector('input[name="product_id"]');
-        if (hidden && hidden.value) variantId = parseInt(hidden.value, 10) || null;
-      }
+      // Odoo mantiene el variant_id seleccionado en el input oculto del form add_to_cart
+      const variantInput = document.querySelector("form#add_to_cart input[name='product_id']");
+      const variantId = variantInput ? variantInput.value : "";
+      const tmplId = btn.dataset.ptmplId || btn.getAttribute("data-ptmpl-id") || "";
 
-      // 2) Tomar el template id del data-atributo del propio botón
-      const tmplId = parseInt(btn.getAttribute('data-product-template-id'), 10) || null;
-      if (!tmplId) { console.error('SPW: falta data-product-template-id en el botón'); return; }
-
-      // 3) Construir URL
-      let url = '/spw/customize/' + tmplId;
-      if (variantId) url += '?variant_id=' + variantId;
-
+      // Redirección al route público del customizer (ya lo tienes en tus controllers)
+      const url = `/spw/customizer?product_id=${encodeURIComponent(tmplId)}&variant_id=${encodeURIComponent(variantId)}`;
       window.location.href = url;
     });
-  });
+  }
+
+  function safeBind() {
+    if (!onProductPage()) return;
+    bindOpen();
+  }
+
+  window.addEventListener("load", safeBind);
+
+  // Por si Odoo recompone el DOM al cambiar variante
+  document.addEventListener("DOMNodeInserted", safeBind);
 })();
