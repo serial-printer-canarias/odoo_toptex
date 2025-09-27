@@ -1,4 +1,4 @@
-/* SP Matrix – Odoo 18: precio, stock, foto y carrito (final click-proof) */
+/* SP Matrix – Odoo 18: precio, stock, foto y carrito (final) */
 (function () {
   'use strict';
 
@@ -194,7 +194,6 @@
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn btn-primary mt-2 sp-add-to-cart';
-    btn.id = 'sp-add-to-cart-btn';
     btn.textContent = 'Añadir selección';
     wrap.appendChild(btn);
 
@@ -202,10 +201,8 @@
 
     await hydrate(wrap, root);
 
-    /* ====== BIND explícito (por si delegación fallara) ====== */
-    const onAdd = (ev) => { ev.preventDefault(); log('click Añadir selección (directo)'); addAllToCart(wrap); };
-    btn.addEventListener('click', onAdd, { capture: true });
-    btn.onclick = onAdd; // refuerzo
+    // bind directo por si Odoo re-renderiza
+    btn.addEventListener('click', (ev)=>{ ev.preventDefault(); addAllToCart(wrap); }, {capture:true});
   }
 
   async function hydrate(container, root) {
@@ -250,7 +247,10 @@
     );
   }
 
+  // ⚠️ JSON: NO enviar csrf_token en el payload (provoca TypeError en algunas versiones)
   async function cartUpdateJSON(url, payload) {
+    const jsonPayload = { ...payload };
+    delete jsonPayload.csrf_token;           // ← clave del fix
     const r = await fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
@@ -258,14 +258,16 @@
         'Accept': 'application/json',
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest',
-        'X-CSRF-Token': payload.csrf_token || ''
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(jsonPayload),
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    // algunas instancias devuelven vacío; si hay JSON con error lo detectamos
     try { const data = await r.json(); if (data && data.error) throw new Error('JSON error'); } catch {}
     return true;
   }
+
+  // FORM clásico: aquí sí se puede/ debe pasar csrf_token
   async function cartUpdateForm(url, payload) {
     const fd = new FormData();
     Object.entries(payload).forEach(([k, v]) => {
@@ -296,8 +298,6 @@
     const ctx    = readCtx(root);
     const csrf   = getCsrf();
 
-    log('ADD start: leyendo celdas…');
-
     let count = 0;
     for (const inp of inputs) {
       const qty = parseFloat(inp.value || '0');
@@ -319,44 +319,35 @@
         combination,
         display: false,
         express: false,
-        csrf_token: csrf || undefined,
+        csrf_token: csrf || undefined,   // solo lo usaremos en FORM
       };
 
-      log('→ intento con', payload);
-
       let ok = false;
+
+      // 1) JSON (sin csrf_token en body)
       for (const u of ['/shop/cart/update_json', '/website_sale/cart/update_json']) {
         try { await cartUpdateJSON(u, payload); log('✓ JSON', u); ok = true; break; }
         catch (e) { warn('✗ JSON', u, e.message); }
       }
+
+      // 2) FORM (con csrf_token)
       if (!ok) {
         for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
           try { await cartUpdateForm(u, payload); log('✓ FORM', u); ok = true; break; }
           catch (e) { warn('✗ FORM', u, e.message); }
         }
       }
+
       if (!ok) warn('NO se pudo añadir', payload);
       else count++;
     }
 
-    if (count > 0) { log('ADD fin, refrescando'); window.location.reload(); }
-    else log('ADD fin, no había líneas válidas (qty>0 con variant_id)');
+    if (count > 0) window.location.reload();
   }
 
-  /* --------- DELEGACIÓN GLOBAL EN CAPTURA --------- */
-  document.addEventListener('click', (ev) => {
-    const btn = ev.target.closest('.sp-add-to-cart');
-    if (!btn) return;
-    const container = btn.closest('.sp-matrix');
-    if (!container) return;
-    log('click Añadir selección (delegado)');
-    ev.preventDefault();
-    addAllToCart(container);
-  }, { passive: false, capture: true });
-
   /* ---------------- boot ---------------- */
-  function start(){ if ($('.o_wsale_product_page')) { log('web.assets_frontend cargado ✅'); buildMatrix(); } }
+  function start(){ if ($('.o_wsale_product_page')) buildMatrix(); }
   (document.readyState === 'loading')
-    ? document.addEventListener('DOMContentLoaded', start, { once: true })
+    ? document.addEventListener('DOMContentLoaded', start, { once:true })
     : start();
 })();
