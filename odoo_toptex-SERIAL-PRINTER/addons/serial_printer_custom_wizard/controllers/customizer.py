@@ -2,64 +2,38 @@
 from odoo import http
 from odoo.http import request
 
-class SpwCustomizer(http.Controller):
+class SPWCustomizer(http.Controller):
 
-    @http.route(['/spw/customizer',
-                 '/spw/customizer/<int:product_id>'],
-                type='http', auth='public', website=True, sitemap=False)
-    def spw_customizer(self, product_id=None, variant_id=None, **kw):
-        """Renderiza la página del personalizador para un producto/variante."""
+    @http.route(['/spw/customizer'], type='http', auth='public', website=True, methods=['GET'])
+    def spw_customizer(self, **kw):
+        """Página del personalizador /spw/customizer?product_id=XX&variant_id=YY"""
+        pid = int(kw.get('product_id') or 0)
+        vid = int(kw.get('variant_id') or 0)
+
         ProductT = request.env['product.template'].sudo()
-        ProductP = request.env['product.product'].sudo()
+        ProductV = request.env['product.product'].sudo()
 
-        template = None
-        variant = None
+        template = ProductT.browse(pid) if pid else None
+        variant = ProductV.browse(vid) if vid else None
 
-        # product_id puede llegar como template o como variant: probamos ambos
-        if product_id:
-            template = ProductT.browse(product_id)
-            if not template.exists():
-                v = ProductP.browse(product_id)
-                if v.exists():
-                    variant = v
-                    template = v.product_tmpl_id
+        if not template and variant:
+            template = variant.product_tmpl_id
 
-        # Permitir ?product_template_id= / ?tmpl_id=
-        if not template:
-            ptid = kw.get('product_template_id') or kw.get('tmpl_id')
-            if ptid:
-                template = ProductT.browse(int(ptid))
+        # Fallbacks seguros
+        if not variant and template:
+            variant = template.product_variant_id
 
-        # Variant explícita por ?variant_id=
-        if variant_id and not variant:
-            v = ProductP.browse(int(variant_id))
-            if v.exists():
-                variant = v
-                template = v.product_tmpl_id
-
-        # Fallback seguro
-        if not template or not template.exists():
-            return request.redirect('/shop')
-
-        # Imagen base (si hay variant usamos la suya; si no, la primera variante o la del template)
-        if variant and variant.exists():
+        # Imagen visible (no se usa para el canvas, solo para UI)
+        img_src = ''
+        if variant and variant.id:
             img_src = '/web/image/product.product/%s/image_1920' % variant.id
-            variant_id_val = variant.id
-        else:
-            pv = template.product_variant_id
-            if pv.exists():
-                img_src = '/web/image/product.product/%s/image_1920' % pv.id
-                variant_id_val = pv.id
-            else:
-                img_src = '/web/image/product.template/%s/image_1920' % template.id
-                variant_id_val = None
+        elif template and template.id:
+            img_src = '/web/image/product.template/%s/image_1920' % template.id
 
         values = {
             'template': template,
-            'variant_id': variant_id_val,
+            'variant_id': variant.id if variant else 0,
             'img_src': img_src,
-            'website': request.website,
         }
-
-        # >>> Forma correcta en Odoo 17/18
+        # IMPORTANTE: request.render (no _render)
         return request.render('serial_printer_custom_wizard.spw_customize_page', values)
