@@ -1,4 +1,4 @@
-/** SPW - Cart preview injector (foto + píldoras, ES5; mínimo y estable) */
+/** SPW - Cart preview injector (foto + píldoras en vertical, ES5 seguro) */
 odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function () {
     'use strict';
 
@@ -20,11 +20,7 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
 
     // ---------- UTILS ----------
     function ts(){ return (new Date()).getTime(); }
-
-    function urlParam(name){
-        try{ return new URL(location.href).searchParams.get(name); }
-        catch(_){ return null; }
-    }
+    function urlParam(name){ try{ return new URL(location.href).searchParams.get(name); }catch(_){ return null; } }
 
     function getLineId(lineEl){
         if(!lineEl) return null;
@@ -36,7 +32,6 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         return v && String(v);
     }
 
-    // lee todos los #RRGGBB que haya en el texto visible de la línea
     function parseHexes(text){
         if(!text) return [];
         var out = [], re = /#([0-9a-fA-F]{6})\b/g, m;
@@ -44,11 +39,12 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         return out;
     }
 
-    function ensureWrap(info){
-        var wrap = info.querySelector('.spw-cart-preview');
+    function ensureWrap(info, lineId){
+        var wrap = info.querySelector('.spw-cart-preview[data-line="'+ lineId +'"]');
         if(!wrap){
             wrap = document.createElement('div');
             wrap.className = 'spw-cart-preview';
+            wrap.setAttribute('data-line', lineId);
             wrap.style.cssText = 'display:flex;align-items:flex-start;gap:12px;margin-top:8px;flex-wrap:wrap';
 
             var imgs = document.createElement('div');
@@ -57,7 +53,8 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
 
             var pills = document.createElement('div');
             pills.className = 'spw-pills';
-            pills.style.cssText = 'display:flex;gap:6px;align-items:center';
+            // <<< PÍLDORAS EN VERTICAL >>>
+            pills.style.cssText = 'display:flex;flex-direction:column;gap:8px;align-items:center';
 
             wrap.appendChild(imgs);
             wrap.appendChild(pills);
@@ -66,29 +63,28 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         return wrap;
     }
 
-    function putImg(dst, src){
+    function pill(hex){
+        var s = document.createElement('span');
+        s.title = hex || '';
+        s.style.cssText = 'width:14px;height:14px;border-radius:9999px;border:1px solid #e5e7eb;display:inline-block;' + (hex ? ('background:'+hex) : '');
+        return s;
+    }
+
+    function imgEl(src){
         var img = new Image();
         img.alt = 'Personalización';
         img.loading = 'lazy';
         img.style.cssText = 'max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px;background:#f8fafc';
         img.src = src;
-        dst.appendChild(img);
+        return img;
     }
 
-    function putPill(dst, hex){
-        var s = document.createElement('span');
-        s.title = hex || '';
-        s.style.cssText = 'width:14px;height:14px;border-radius:9999px;border:1px solid #e5e7eb;display:inline-block;' + (hex ? ('background:'+hex) : '');
-        dst.appendChild(s);
-    }
-
-    // ---------- CORE ----------
     function renderLine(lineEl){
         var id = getLineId(lineEl);
         if(!id) return;
 
         var info = lineEl.querySelector(INFO_SEL) || lineEl;
-        var wrap = ensureWrap(info);
+        var wrap = ensureWrap(info, id);
         var imgs = wrap.querySelector('.spw-imgs');
         var pills = wrap.querySelector('.spw-pills');
 
@@ -96,27 +92,27 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
         imgs.innerHTML = '';
         pills.innerHTML = '';
 
-        // 1) FOTO: URL canónica por línea (rápida y estable)
-        //    Debe existir si el customizer guardó el PNG con /spw/attach_png
+        // 1) FOTO por línea (servida por el backend)
         var url = '/spw/line_preview/' + encodeURIComponent(id) + '.png?_=' + ts();
         var test = new Image();
-        test.onload = function(){ putImg(imgs, url); };
+        test.onload  = function(){ imgs.appendChild(imgEl(url)); };
         test.onerror = function(){
-            // Fallback inmediato si venimos del customizer y aún no está adjuntado en servidor
+            // Fallback: si venimos del customizer y aún no se adjuntó en servidor
             try{
-                var wanted = urlParam('spw_line_id');
-                var lastId = sessionStorage.getItem('spw_last_line_id');
+                var wanted  = urlParam('spw_line_id');
+                var lastId  = sessionStorage.getItem('spw_last_line_id');
                 var lastPng = sessionStorage.getItem('spw_last_png');
-                if (wanted && lastId === id && lastPng){
-                    putImg(imgs, lastPng);
+                if ((wanted && wanted === id) || (lastId && lastId === id)) {
+                    if (lastPng) imgs.appendChild(imgEl(lastPng));
                 }
             }catch(_){}
         };
         test.src = url;
 
-        // 2) PÍLDORAS: se leen del texto de la propia línea (Técnica/Color ... #RRGGBB)
+        // 2) PÍLDORAS (todas las que aparezcan en el texto)
         var hexes = parseHexes(info.textContent || '');
-        for(var i=0;i<hexes.length;i++) putPill(pills, hexes[i]);
+        if (hexes.length === 0) { pills.appendChild(pill(null)); }
+        for(var i=0;i<hexes.length;i++) pills.appendChild(pill(hexes[i]));
     }
 
     function inject(){
@@ -127,8 +123,8 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
 
     function boot(){
         inject();
-        var root = document.querySelector('.js_cart_lines, .o_wsale_cart, main');
-        if(root && 'MutationObserver' in window){
+        var root = document.querySelector('.js_cart_lines, .o_wsale_cart, main') || document.body;
+        if('MutationObserver' in window){
             var t;
             new MutationObserver(function(){ clearTimeout(t); t = setTimeout(inject, 120); })
                 .observe(root, {childList:true, subtree:true});
