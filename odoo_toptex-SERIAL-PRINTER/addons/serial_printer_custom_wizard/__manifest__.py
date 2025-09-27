@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Serial Printer - Custom Wizard",
-    "version": "18.0.1.0.7",
+    "version": "18.0.1.0.0",
     "summary": "Personalización de producto con vista previa de logo.",
     "category": "Website/Website",
     "license": "LGPL-3",
