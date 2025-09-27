@@ -7,9 +7,9 @@ class SPWCustomizerPublic(http.Controller):
     @http.route(['/spw/customizer'], type='http', auth='public', website=True, sitemap=False)
     def spw_customizer(self, product_id=None, variant_id=None, **kw):
         Product = request.env['product.product'].sudo()
-        PTemplate = request.env['product.template'].sudo()
+        Tmpl = request.env['product.template'].sudo()
 
-        variant = tmpl = False
+        tmpl = variant = False
         try:
             if variant_id:
                 v = Product.browse(int(variant_id))
@@ -17,7 +17,7 @@ class SPWCustomizerPublic(http.Controller):
                     variant = v
                     tmpl = v.product_tmpl_id
             if not tmpl and product_id:
-                t = PTemplate.browse(int(product_id))
+                t = Tmpl.browse(int(product_id))
                 if t.exists():
                     tmpl = t
                     if not variant:
@@ -25,11 +25,27 @@ class SPWCustomizerPublic(http.Controller):
         except Exception:
             pass
 
-        values = {'product_tmpl': tmpl, 'variant': variant}
+        # img_src para la imagen visible (usa variante si existe, si no la plantilla)
+        img_src = ""
+        if variant:
+            img_src = "/web/image/product.product/%s/image_1920" % variant.id
+        elif tmpl:
+            # fallback a la primera variante o a la propia plantilla
+            v2 = Product.search([('product_tmpl_id', '=', tmpl.id)], limit=1)
+            if v2:
+                img_src = "/web/image/product.product/%s/image_1920" % v2.id
+            else:
+                img_src = "/web/image/product.template/%s/image_1920" % tmpl.id
 
-        # Render robusto por xml_id; si no existe, 404 limpio
+        values = {
+            "template": tmpl,
+            "variant_id": variant.id if variant else False,
+            "img_src": img_src,
+        }
+
+        # Render de tu plantilla por xml_id
         try:
-            view = request.env.ref('serial_printer_custom_wizard.customizer_page', raise_if_not_found=True)
+            view = request.env.ref('serial_printer_custom_wizard.spw_customize_page', raise_if_not_found=True)
             return view._render(values)
         except Exception:
             return request.render('website.404')
