@@ -27,16 +27,29 @@ class SpwAddToCart(http.Controller):
             if not line or not line.exists():
                 return {'ok': False, 'message': 'No se pudo crear la línea'}
 
-            # guarda metadatos visibles en la descripción
-            line.sudo().write({
-                'spw_tech': tech or '',
-                'spw_svg_color': (svg_color or '').upper(),
-                'spw_notes': notes or '',
-            })
+            # Escribe metadatos *solo si existen* los campos; si no, añade al nombre
+            write_vals = {}
+            for fname, val in [('spw_tech', tech or ''), ('spw_svg_color', (svg_color or '').upper()), ('spw_notes', notes or '')]:
+                if fname in line._fields:
+                    write_vals[fname] = val
+            if write_vals:
+                line.sudo().write(write_vals)
+            else:
+                # fallback: pinta técnica/color/notas en la descripción visible
+                extra = []
+                if tech:       extra.append(f"Técnica: {tech}")
+                if svg_color:  extra.append(f"Color SVG: {(svg_color or '').upper()}")
+                if notes:      extra.append(f"Notas: {notes}")
+                if extra:
+                    new_name = (line.name or '')
+                    if extra[0] not in new_name:
+                        new_name = (new_name or '').rstrip() + "\n" + " | ".join(extra)
+                    line.sudo().write({'name': new_name})
+
+            # si tu herencia tiene el helper, úsalo
             try:
                 line._apply_spw_meta_to_name()
             except Exception:
-                # si no está el método heredado, no pasa nada
                 pass
 
             return {'ok': True, 'line_id': line.id, 'cart_url': '/shop/cart'}
@@ -55,7 +68,6 @@ class SpwAddToCart(http.Controller):
         return request.make_response(json.dumps(data), headers=[('Content-Type','application/json')])
 
     def _next_seq_for_line(self, line_id):
-        """Busca adjuntos existentes 'spw_preview_<line>_<seq>.png' y devuelve el siguiente seq."""
         Attachment = request.env['ir.attachment'].sudo()
         atts = Attachment.search([
             ('res_model', '=', 'sale.order.line'),
@@ -80,7 +92,6 @@ class SpwAddToCart(http.Controller):
             line = request.env['sale.order.line'].sudo().browse(int(line_id))
             if not line.exists():
                 return {'ok': False, 'message': 'Línea no encontrada'}
-
             seq = self._next_seq_for_line(line.id)
             att = request.env['ir.attachment'].sudo().create({
                 'name': f'spw_preview_{line.id}_{seq}.png',
@@ -101,7 +112,6 @@ class SpwAddToCart(http.Controller):
 
     @http.route('/spw/line_preview/<int:line_id>.png', type='http', auth='public', website=True, sitemap=False)
     def line_preview(self, line_id, **kw):
-        """Compat: devuelve la ÚLTIMA preview de la línea, o un pixel si aún no hay."""
         Attachment = request.env['ir.attachment'].sudo()
         att = Attachment.search([
             ('res_model', '=', 'sale.order.line'),
@@ -115,7 +125,6 @@ class SpwAddToCart(http.Controller):
 
     @http.route('/spw/line_previews/<int:line_id>.json', type='http', auth='public', website=True, sitemap=False)
     def line_previews_json(self, line_id, **kw):
-        """Devuelve TODAS las previews de la línea en orden ascendente."""
         Attachment = request.env['ir.attachment'].sudo()
         atts = Attachment.search([
             ('res_model', '=', 'sale.order.line'),
@@ -132,6 +141,8 @@ class SpwAddToCart(http.Controller):
         if not png_b64:
             return request.not_found()
         data = base64.b64decode(png_b64)
-        headers = [('Content-Type','image/png'),
-                   ('Content-Disposition','attachment; filename="personalizacion.png"')]
+        headers = [
+            ('Content-Type', 'image/png'),
+            ('Content-Disposition', 'attachment; filename="personalizacion.png"'),
+        ]
         return request.make_response(data, headers=headers)
