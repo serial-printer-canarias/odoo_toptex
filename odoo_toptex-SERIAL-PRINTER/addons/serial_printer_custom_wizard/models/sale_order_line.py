@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-from odoo import models, fields
+from odoo import fields, models
 
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
 
-    spw_tech = fields.Char(string="Técnica")
-    spw_svg_color = fields.Char(string="Color SVG")
-    spw_notes = fields.Text(string="Notas personalización")
+    spw_meta    = fields.Text(string='SPW Meta')
+    spw_color   = fields.Char(string='SPW Color')
+    spw_preview = fields.Binary(string='SPW Preview', attachment=True)
