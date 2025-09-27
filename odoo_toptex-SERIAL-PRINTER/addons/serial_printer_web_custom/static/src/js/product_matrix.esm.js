@@ -1,13 +1,12 @@
-/* SP Matrix – Odoo 18: precio, stock, foto y carrito (robusto) */
+/* SP Matrix – Odoo 18: precio, stock, foto y carrito (final) */
 (function () {
   'use strict';
 
   const log  = (...a) => console.log('[SP]', ...a);
   const warn = (...a) => console.warn('[SP]', ...a);
+  const $ = (sel, ctx=document) => ctx.querySelector(sel);
 
   /* ---------------- helpers ---------------- */
-  function $(sel, ctx=document){ return ctx.querySelector(sel); }
-
   function getRoot() {
     return $('.o_wsale_product_page .js_product')
         || $('.js_product')
@@ -70,7 +69,7 @@
     return { color, size };
   }
 
-  /* ---------------- JSON-RPC robusto ---------------- */
+  /* ---------------- JSON-RPC (get_combination_info) ---------------- */
   async function rpc(url, params) {
     const res = await fetch(url, {
       method: 'POST',
@@ -82,25 +81,12 @@
       },
       body: JSON.stringify({ jsonrpc:'2.0', method:'call', params, id: Date.now() }),
     });
-    const ct = res.headers.get('content-type') || '';
-    if (!res.ok) {
-      const txt = await res.text().catch(()=> '');
-      throw Object.assign(new Error(`HTTP ${res.status}`), { httpStatus: res.status, body: txt, url });
-    }
-    if (!/application\/json/i.test(ct)) {
-      const txt = await res.text().catch(()=> '');
-      throw Object.assign(new Error('Respuesta NO JSON'), { body: txt, url });
-    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (data?.error) {
-      const e = data.error;
-      const msg = (e.data && e.data.message) || e.message || 'RPC error';
-      throw Object.assign(new Error(msg), { odoo: e, url });
-    }
+    if (data?.error) throw new Error(data.error.message || 'RPC error');
     return data.result;
   }
 
-  /* ---------------- combo/ctx ---------------- */
   function readCtx(root) {
     const tmplId = parseInt(
       root.querySelector('[data-product-template-id]')?.dataset.productTemplateId
@@ -128,46 +114,24 @@
   async function getCombo(ptavIds, root) {
     const ctx = readCtx(root);
     const payload = buildPayload(ptavIds, ctx);
-    const urls = ['/website_sale/get_combination_info', '/shop/get_combination_info'];
-    for (const u of urls) {
-      try {
-        const r = await rpc(u, payload);
-        if (r) return r;
-      } catch (e) {
-        if (e.httpStatus === 404) { continue; }
-        warn('combo fallo', u, e.message);
-      }
+    for (const u of ['/website_sale/get_combination_info', '/shop/get_combination_info']) {
+      try { const r = await rpc(u, payload); if (r) return r; }
+      catch (e) { warn('combo fallo', u, e.message); }
     }
     return null;
   }
 
-  /* ---- extractores tolerantes ---- */
-  function getVariantId(info) {
-    return parseInt(
-      info?.product_id ?? info?.variant_id ?? info?.id ?? info?.product?.id ?? 0, 10
-    ) || 0;
+  /* ---- extractores ---- */
+  const getVariantId = info => parseInt(info?.product_id ?? info?.variant_id ?? info?.id ?? info?.product?.id ?? 0, 10) || 0;
+  function getPrice(info){
+    const v=[info?.price,info?.list_price,info?.website_price,info?.price_reduce,info?.price_with_tax,info?.price_without_discount].find(x=>typeof x==='number');
+    return (typeof v==='number')?v:null;
   }
-  function getPrice(info) {
-    const v = [info?.price, info?.list_price, info?.website_price, info?.price_reduce,
-               info?.price_with_tax, info?.price_without_discount]
-              .find(x => typeof x === 'number');
-    return (typeof v === 'number') ? v : null;
+  function getStock(info){
+    const v=[info?.stock_quantity,info?.virtual_available,info?.qty_available,info?.free_qty,info?.available_quantity,info?.stock,info?.stock_qty].find(x=>typeof x==='number');
+    if(typeof v==='number')return v; if(info?.is_out_of_stock===true)return 0; return null;
   }
-  function getStock(info) {
-    const v = [info?.stock_quantity, info?.virtual_available, info?.qty_available,
-               info?.free_qty, info?.available_quantity, info?.stock, info?.stock_qty]
-              .find(x => typeof x === 'number');
-    if (typeof v === 'number') return v;
-    if (info?.is_out_of_stock === true) return 0;
-    return null;
-  }
-  function fmtPrice(v) {
-    try {
-      const lang = document.documentElement.lang || 'es-ES';
-      const curr = $('[data-website-currency-code]')?.dataset.websiteCurrencyCode || 'EUR';
-      return new Intl.NumberFormat(lang, { style:'currency', currency:curr }).format(v);
-    } catch { return (Math.round(v * 100) / 100).toFixed(2); }
-  }
+  function fmtPrice(v){ try{const lang=document.documentElement.lang||'es-ES'; const curr=$('[data-website-currency-code]')?.dataset.websiteCurrencyCode||'EUR'; return new Intl.NumberFormat(lang,{style:'currency',currency:curr}).format(v);}catch{ return (Math.round(v*100)/100).toFixed(2); } }
 
   /* ---------------- UI ---------------- */
   async function buildMatrix() {
@@ -189,7 +153,6 @@
     size.options.forEach(s => { const th=document.createElement('th'); th.textContent = s.name; trh.appendChild(th); });
     thead.appendChild(trh);
 
-    // Ancho mínimo dinámico según nº de tallas
     const cols = size.options.length;
     if (cols >= 10)      table.style.minWidth = '1340px';
     else if (cols >= 8)  table.style.minWidth = '1160px';
@@ -228,6 +191,7 @@
     table.append(thead, tbody);
     wrap.appendChild(table);
 
+    // botón (evento lo manejamos por delegación global)
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn btn-primary mt-2 sp-add-to-cart';
@@ -237,7 +201,6 @@
     anchor.appendChild(wrap);
 
     await hydrate(wrap, root);
-    btn.addEventListener('click', () => addAllToCart(wrap));
   }
 
   async function hydrate(container, root) {
@@ -250,10 +213,7 @@
         const sizePtav  = parseInt(td.dataset.sizePtav || td.dataset.sizeId || '0', 10);
         const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
 
-        let info = null;
-        try {
-          info = await getCombo(combo, root);
-        } catch (e) { warn('combo error', e.message); }
+        const info = await getCombo(combo, root).catch(e => (warn('combo error', e.message), null));
         if (!info) { td.classList.add('sp-unavailable'); continue; }
 
         const variantId = getVariantId(info);
@@ -270,15 +230,12 @@
           img.src = `/web/image/product.product/${variantId || 0}/image_256`;
           img.onerror = () => { img.src = `/web/image/product.template/${readCtx(root).tmplId}/image_256`; };
         }
-
-        if (!variantId && price == null && stock == null) td.classList.add('sp-unavailable');
       }
     }
     await Promise.all(new Array(6).fill(0).map(worker));
   }
 
-  /* ---------------- carrito (hiper-robusto) ---------------- */
-
+  /* ---------------- carrito ---------------- */
   function getCsrf() {
     return (
       document.querySelector('meta[name="csrf-token"]')?.content ||
@@ -304,15 +261,14 @@
     try {
       const data = await r.json();
       if (data && data.error) throw new Error('JSON error');
-    } catch (_) {}
+    } catch { /* muchas instancias devuelven vacío */ }
     return true;
   }
-
   async function cartUpdateForm(url, payload) {
     const fd = new FormData();
-    Object.entries(payload).forEach(([k,v]) => {
-      if (v === undefined || v === null) return;
-      if (Array.isArray(v)) v.forEach(val => fd.append(k, String(val)));
+    Object.entries(payload).forEach(([k, v]) => {
+      if (v == null) return;
+      if (Array.isArray(v)) v.forEach(x => fd.append(k, String(x)));
       else fd.append(k, String(v));
     });
     const r = await fetch(url, { method: 'POST', credentials: 'same-origin', body: fd });
@@ -328,90 +284,70 @@
     const sizePtav  = parseInt(td?.dataset.sizePtav || td?.dataset.sizeId || '0', 10);
     const colorPtav = parseInt(tr?.dataset.colorPtav || tr?.dataset.colorId || '0', 10);
     const combo = (sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav]).filter(n => n > 0);
-    const info = await getCombo(combo, root);
-    vid = getVariantId(info || {});
-    return vid || 0;
+    const info = await getCombo(combo, root).catch(() => null);
+    return getVariantId(info || {});
   }
 
-  function addAllToCart(container) {
+  async function addAllToCart(container) {
     const inputs = container.querySelectorAll('.sp-qty');
     const root   = getRoot();
     const ctx    = readCtx(root);
     const csrf   = getCsrf();
 
-    (async () => {
-      let any = false;
+    let count = 0;
 
-      for (const inp of inputs) {
-        const qty = parseFloat(inp.value || '0');
-        if (!(qty > 0)) continue;
+    for (const inp of inputs) {
+      const qty = parseFloat(inp.value || '0');
+      if (!(qty > 0)) continue;
 
-        // asegura variant_id
-        const variantId = await ensureVariantIdFromCell(inp, root);
-        if (!variantId) { warn('sin variantId para celda', inp); continue; }
-        any = true;
+      const product_id = await ensureVariantIdFromCell(inp, root);
+      if (!product_id) { warn('Sin variant_id para celda', inp); continue; }
 
-        // reconstruye combinación por si el endpoint la exige
-        const td = inp.closest('td');
-        const tr = inp.closest('tr');
-        const sizePtav  = parseInt(td?.dataset.sizePtav || td?.dataset.sizeId || '0', 10);
-        const colorPtav = parseInt(tr?.dataset.colorPtav || tr?.dataset.colorId || '0', 10);
-        const combination = (sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav]).filter(n => n > 0);
+      const td = inp.closest('td');
+      const tr = inp.closest('tr');
+      const sizePtav  = parseInt(td?.dataset.sizePtav || td?.dataset.sizeId || '0', 10);
+      const colorPtav = parseInt(tr?.dataset.colorPtav || tr?.dataset.colorId || '0', 10);
+      const combination = (sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav]).filter(n => n > 0);
 
-        const payload = {
-          product_id: variantId,
-          add_qty: qty,
-          set_qty: undefined,                   // algunos módulos usan set_qty; lo dejamos undefined
-          product_template_id: ctx.tmplId || undefined,
-          combination,
-          no_variant_attribute_values: [],
-          product_custom_attribute_values: [],
-          display: false,
-          express: false,
-          csrf_token: csrf || undefined,
-        };
+      const payload = {
+        product_id,
+        add_qty: qty,
+        product_template_id: ctx.tmplId || undefined,
+        combination,
+        display: false,
+        express: false,
+        csrf_token: csrf || undefined,
+      };
 
-        let ok = false;
+      let ok = false;
 
-        // 1) JSON
-        for (const u of ['/shop/cart/update_json', '/website_sale/cart/update_json']) {
-          try { await cartUpdateJSON(u, payload); log('añadido JSON', u, payload); ok = true; break; }
-          catch (e) { warn('fallo JSON', u, e.message); }
-        }
-
-        // 2) FORM (añadimos también set_qty como respaldo)
-        if (!ok) {
-          const formPayload = { ...payload, set_qty: undefined };
-          for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
-            try { await cartUpdateForm(u, formPayload); log('añadido FORM', u, formPayload); ok = true; break; }
-            catch (e) { warn('fallo FORM', u, e.message); }
-          }
-        }
-
-        // 3) GET (mínimo imprescindible)
-        if (!ok) {
-          const qs = new URLSearchParams({
-            product_id: String(payload.product_id),
-            add_qty: String(payload.add_qty),
-            express: 'false',
-          });
-          if (csrf) qs.set('csrf_token', csrf);
-          if (ctx.tmplId) qs.set('product_template_id', String(ctx.tmplId));
-          const url = '/shop/cart/update?' + qs.toString();
-          try {
-            const r = await fetch(url, { method: 'GET', credentials: 'same-origin', redirect: 'follow' });
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            log('añadido GET', url);
-            ok = true;
-          } catch (e) { warn('fallo GET', e.message); }
-        }
-
-        if (!ok) warn('NO se pudo añadir', payload);
+      for (const u of ['/shop/cart/update_json', '/website_sale/cart/update_json']) {
+        try { await cartUpdateJSON(u, payload); log('Añadido JSON →', u, payload); ok = true; break; }
+        catch (e) { warn('Fallo JSON', u, e.message); }
       }
+      if (!ok) {
+        for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
+          try { await cartUpdateForm(u, payload); log('Añadido FORM →', u, payload); ok = true; break; }
+          catch (e) { warn('Fallo FORM', u, e.message); }
+        }
+      }
+      if (!ok) warn('NO se pudo añadir', payload);
+      else count++;
+    }
 
-      if (any) window.location.reload();
-    })();
+    if (count > 0) window.location.reload();
+    else log('No había líneas válidas (qty>0 con variant_id)');
   }
+
+  /* --------- EVENTO DELEGADO (a prueba de re-render) --------- */
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.sp-add-to-cart');
+    if (!btn) return;
+    const container = btn.closest('.sp-matrix');
+    if (!container) return;
+    ev.preventDefault();
+    addAllToCart(container);
+  }, { passive: false });
 
   /* ---------------- boot ---------------- */
   function start(){ if ($('.o_wsale_product_page')) buildMatrix(); }
