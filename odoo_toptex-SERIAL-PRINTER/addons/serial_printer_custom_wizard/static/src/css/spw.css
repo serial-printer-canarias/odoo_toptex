@@ -48,3 +48,31 @@
   .o_wsale_layout .o_wsale_sidebar,
   .o_wsale_layout_sidebar{display:block !important;}
 }
+
+/* === NAV GUARD DEFINITIVO (solo escritorio) === */
+@media (min-width: 992px) {
+  /* Header siempre visible, sin fade/translate ni overlays */
+  body.o_header_overlay header.o_header_standard,
+  body.o_header_fade_out header.o_header_standard,
+  body.o_header_fadeout header.o_header_standard,
+  header.o_header_standard,
+  .o_header_standard {
+    position: relative !important;
+    z-index: 9999 !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    pointer-events: auto !important;
+  }
+  /* Asegurar estructura del menú */
+  header.o_header_standard .o_main_nav,
+  header.o_header_standard .navbar,
+  header.o_header_standard #top_menu {
+    display: flex !important;
+  }
+  /* Héroes por debajo del header */
+  .s_discovery, .s_cover, .s_hero, .s_parallax {
+    position: relative !important;
+    z-index: 1 !important;
+  }
+}
