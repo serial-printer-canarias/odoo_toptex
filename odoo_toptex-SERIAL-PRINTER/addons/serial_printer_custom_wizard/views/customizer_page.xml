@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+
+  <!-- =================== PÁGINA DEL PERSONALIZADOR =================== -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
@@ -132,7 +134,7 @@
         </div>
       </div>
 
-      <!-- ====== JS inline mínimo ====== -->
+      <!-- ====== JS inline (botón y PNG) ====== -->
       <script type="text/javascript"><![CDATA[
       (function(){
         "use strict";
@@ -211,14 +213,15 @@
           const notes=($val("spw_notes","")||"").trim();
           const spw_token=uid();
 
-          // PNG (opcional)
           let png_b64="";
           try{
             const du=await renderPNGDataURL();
             png_b64 = du ? du.split("base64,")[1] : "";
+            sessionStorage.setItem('spw_last_png', du || '');
+            sessionStorage.setItem('spw_last_color', svgColor || '');
           }catch(_){}
 
-          // Usar primero el endpoint HTTP ya existente
+          // Primero formulario (lo que ya tenías)
           let r1 = await postForm("/spw/add_to_cart_meta_http", {
             variant_id: variantId,
             qty: String(qty),
@@ -227,9 +230,8 @@
             notes: notes,
             spw_token: spw_token
           });
-
-          // Fallback JSON si el servidor lo espera así
           if(!(r1.ok && r1.data && r1.data.line_id)){
+            // Fallback JSON
             r1 = await postJSON("/spw/add_to_cart_meta", {
               variant_id: parseInt(variantId,10),
               qty: qty,
@@ -243,14 +245,13 @@
             alert("No se pudo añadir.");
             return;
           }
-
           const lineId=r1.data.line_id;
+          sessionStorage.setItem('spw_last_line_id', String(lineId));
 
           if(png_b64){
-            const r2 = await postJSON("/spw/attach_png", { line_id: lineId, png_b64: png_b64 });
+            const r2=await postJSON("/spw/attach_png", { line_id: lineId, png_b64: png_b64 });
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: lineId, png_b64: png_b64 }); }
           }
-
           window.location.href="/shop/cart?spw_line_id="+encodeURIComponent(lineId);
         }
 
@@ -273,7 +274,6 @@
             document.getElementById("spw_rotation").value=0;
             applyTransform();
           };
-
           const add=$("#spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
           const dl=$("#spw_download_png"); if(dl){
             dl.addEventListener("click", async function(){
@@ -286,10 +286,167 @@
           }
           applyTransform();
         }
-
         if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded", init); } else { init(); }
       })();
       ]]></script>
     </t>
   </template>
+
+  <!-- =================== INYECCIÓN EN website.layout (CARRITO) =================== -->
+  <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
+    <xpath expr="//body" position="inside">
+      <style>
+        .spw-cart-block{margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+        .spw-cart-block img{max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px}
+        .spw-swatch{width:14px;height:14px;border-radius:999px;border:1px solid #e5e7eb;display:inline-block}
+      </style>
+      <script type="text/javascript"><![CDATA[
+      (function(){
+        "use strict";
+        if (!/\/shop\/cart/.test(location.pathname)) return;
+
+        function q(s,r){return (r||document).querySelector(s);}
+        function qa(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));}
+
+        function urlParam(name){
+          try{ return new URL(location.href).searchParams.get(name); }catch(_){ return null; }
+        }
+        function parseLineIdFromHref(node){
+          try{
+            var a = (node.closest && node.closest('a[href*="line_id="]')) || (node.querySelector && node.querySelector('a[href*="line_id="]'));
+            if(!a) return null;
+            var u = new URL(a.getAttribute('href'), location.origin);
+            return u.searchParams.get('line_id');
+          }catch(_){ return null; }
+        }
+        function getLineId(line){
+          if(!line) return null;
+          var v = line.getAttribute('data-line-id')
+            || ((q('input[name="line_id"]', line)||{}).value)
+            || parseLineIdFromHref(line)
+            || null;
+          return v ? String(v) : null;
+        }
+        function findLines(){
+          var sel = 'tr.js_cart_line, .o_wsale_cart_item, .card.js_cart_item, .o_cart_line';
+          return qa(sel).filter(function(n){ return !!getLineId(n); });
+        }
+        function infoContainer(line){
+          return q('.o_wsale_product_information', line)
+              || q('.o_cart_product_info', line)
+              || q('td.o_wsale_cart_description', line)
+              || q('.media-body', line)
+              || line;
+        }
+        function detectHexes(line){
+          try{
+            var cont = infoContainer(line);
+            if(!cont) return [];
+            var txt = (cont.textContent||'');
+            var re = /#([0-9a-fA-F]{6})\b/g, m, arr=[];
+            while((m=re.exec(txt))){ arr.push('#'+m[1].toUpperCase()); }
+            return arr.length?arr:['#000000'];
+          }catch(_){ return ['#000000']; }
+        }
+        function previewCandidates(lineId, idx){
+          var n = idx+1;
+          var base = '/spw/line_preview/' + encodeURIComponent(lineId);
+          var out = [];
+          out.push(base + '-' + n + '.png?_=' + Date.now());
+          out.push(base + '.png?i=' + n + '&_=' + Date.now());
+          out.push(base + '?i=' + n + '&_=' + Date.now());
+          return out;
+        }
+        function tryLoad(img, urls){
+          var k=0;
+          function next(){
+            if(k>=urls.length){ if(img.parentNode) img.parentNode.removeChild(img); return; }
+            img.onerror=next; img.onload=null; img.src=urls[k++];
+          }
+          next();
+        }
+        function insertPreview(line, imgs, hexes){
+          var id = getLineId(line); if(!id) return;
+          qa('.spw-cart-block[data-line="'+id+'"]', line).forEach(function(n){ n.remove(); });
+
+          var wrap = document.createElement('div');
+          wrap.className = 'spw-cart-block';
+          wrap.setAttribute('data-line', id);
+
+          for(var i=0;i<imgs.length;i++){
+            var im = new Image();
+            im.alt = 'Personalización';
+            im.loading = 'lazy';
+            wrap.appendChild(im);
+            tryLoad(im, imgs[i]);
+          }
+
+          for(var j=0;j<hexes.length;j++){
+            var sw = document.createElement('span');
+            sw.className = 'spw-swatch';
+            sw.title = hexes[j];
+            sw.style.background = hexes[j];
+            wrap.appendChild(sw);
+          }
+
+          (infoContainer(line)||line).appendChild(wrap);
+        }
+
+        function inject(){
+          var lines = findLines();
+          // limpieza global
+          qa('.spw-cart-block').forEach(function(n){
+            var lid=n.getAttribute('data-line');
+            var alive = lines.some(function(l){ return getLineId(l)===lid; });
+            if(!alive) n.remove();
+          });
+
+          // imágenes por línea (soporta múltiples personalizaciones)
+          lines.forEach(function(line){
+            var id=getLineId(line); if(!id) return;
+            var hexes = detectHexes(line);
+            var imgs = [];
+            for(var i=0;i<hexes.length;i++){ imgs.push(previewCandidates(id,i)); }
+            insertPreview(line, imgs, hexes);
+          });
+
+          // si venimos del customizador, mostrar primero la imagen en memoria
+          var wanted = urlParam('spw_line_id');
+          if (wanted) {
+            try{
+              var lastId = sessionStorage.getItem('spw_last_line_id');
+              var lastPng = sessionStorage.getItem('spw_last_png');
+              var lastColor = sessionStorage.getItem('spw_last_color');
+              if (lastId && lastPng && lastId === wanted) {
+                var line = lines.find(function(l){ return getLineId(l) === wanted; });
+                if (line) {
+                  insertPreview(line, [[lastPng]], lastColor ? [lastColor] : detectHexes(line));
+                }
+              }
+            }catch(_){}
+            try{
+              sessionStorage.removeItem('spw_last_line_id');
+              sessionStorage.removeItem('spw_last_png');
+              sessionStorage.removeItem('spw_last_color');
+            }catch(_){}
+          }
+        }
+
+        function boot(){
+          inject();
+          var root = q('.js_cart_lines') || q('.o_wsale_cart') || q('main') || document.body;
+          if(window.MutationObserver && root){
+            var mo = new MutationObserver(function(){ requestAnimationFrame(inject); });
+            mo.observe(root, {childList:true, subtree:true});
+          }
+          setTimeout(inject, 400);
+          setTimeout(inject, 1200);
+        }
+
+        if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded", boot); } else { boot(); }
+      })();
+      ]]></script>
+    </xpath>
+  </template>
+
 </odoo>
