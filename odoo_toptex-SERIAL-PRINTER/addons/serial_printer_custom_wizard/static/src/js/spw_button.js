@@ -15,10 +15,7 @@
   }
 
   const onReady = () => bind();
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", onReady);
-  } else {
-    onReady();
-  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", onReady);
+  else onReady();
   document.addEventListener("DOMNodeInserted", onReady);
 })();
