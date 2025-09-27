@@ -13,11 +13,16 @@
         <div class="row g-4">
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
+              <!-- Base same-origin para exportar PNG sin CORS -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
+
+              <!-- Visible -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
+
+              <!-- Overlay logo -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
           </div>
@@ -127,7 +132,7 @@
         </div>
       </div>
 
-      <!-- JS inline (mínimo, con logs) -->
+      <!-- ====== JS inline (mínimo, mantiene flujo que ya funcionaba) ====== -->
       <script type="text/javascript"><![CDATA[
       (function(){
         "use strict";
@@ -136,66 +141,148 @@
         function uid(){return 'spw_'+Math.random().toString(36).slice(2,10)+'_'+Date.now().toString(36);}
         async function loadImage(src){return new Promise(function(res,rej){var i=new Image();i.onload=function(){res(i)};i.onerror=rej;i.src=src;});}
         function readAsDataURL(f){return new Promise(function(res,rej){var r=new FileReader();r.onload=function(){res(r.result)};r.onerror=rej;r.readAsDataURL(f);});}
-        async function postJSON(url,p){try{var r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","X-Requested-With":"XMLHttpRequest"},credentials:"same-origin",body:JSON.stringify(p)});var t=await r.text();var d=null;try{d=JSON.parse(t);}catch(_){ }return{ok:r.ok&&!!d,data:d}}catch(e){return{ok:false}}}
+        async function postJSON(url,p){
+          try{
+            const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","X-Requested-With":"XMLHttpRequest"},credentials:"same-origin",body:JSON.stringify(p)});
+            const t=await r.text(); let d=null; try{ d=JSON.parse(t);}catch(_){}
+            return {ok:r.ok && !!d, data:d || {}};
+          }catch(e){return {ok:false,data:{},err:String(e)};}
+        }
+        async function postForm(url,p){
+          try{
+            const fd=new FormData(); Object.keys(p||{}).forEach(k=>fd.append(k,p[k]));
+            const r=await fetch(url,{method:"POST",body:fd,credentials:"same-origin"});
+            const t=await r.text(); let d=null; try{ d=JSON.parse(t);}catch(_){}
+            return {ok:r.ok, data:d||{}};
+          }catch(e){return {ok:false,data:{},err:String(e)};}
+        }
 
         function applyTransform(){
           var logo=$("#spw_logo_preview"), base=$("#spw_product_img"); if(!logo||!base) return;
-          var size=parseInt($val("spw_size","100"),10), x=parseInt($val("spw_pos_x","0"),10), y=parseInt($val("spw_pos_y","10"),10), rot=parseInt($val("spw_rotation","0"),10);
-          var bw=base.clientWidth, bh=base.clientHeight, left=bw*(0.5+x/100), top=bh*(0.6+y/100);
-          logo.style.position="absolute"; logo.style.left=left+"px"; logo.style.top=top+"px";
-          logo.style.transform="translate(-50%,-50%) rotate("+rot+"deg)"; logo.style.width=size+"px";
-          logo.classList.remove("d-none"); logo.style.opacity="1";
+          var size=parseInt($val("spw_size","100"),10),
+              x=parseInt($val("spw_pos_x","0"),10),
+              y=parseInt($val("spw_pos_y","10"),10),
+              rot=parseInt($val("spw_rotation","0"),10);
+          var bw=base.clientWidth, bh=base.clientHeight;
+          var left=bw*(0.5+x/100), top=bh*(0.6+y/100);
+          logo.style.position="absolute";
+          logo.style.left=left+"px";
+          logo.style.top=top+"px";
+          logo.style.transform="translate(-50%,-50%) rotate("+rot+"deg)";
+          logo.style.width=size+"px";
+          logo.classList.remove("d-none");
+          logo.style.opacity="1";
         }
 
         async function renderPNGDataURL(){
           var internal=$("#spw-base-img");
           var baseSrc=(internal&&internal.getAttribute("src"))||$val("spw_img_src","")||($("#spw_product_img")||{}).getAttribute("src");
           var baseIm=await loadImage(baseSrc);
-          var c=document.createElement("canvas"),ctx=c.getContext("2d");
-          c.width=baseIm.naturalWidth||baseIm.width; c.height=baseIm.naturalHeight||baseIm.height; ctx.drawImage(baseIm,0,0,c.width,c.height);
-          var logo=$("#spw_logo_preview"); if(logo&&logo.src){
-            var baseEl=$("#spw_product_img"), bw=baseEl.clientWidth, bh=baseEl.clientHeight, br=baseEl.getBoundingClientRect(), lr=logo.getBoundingClientRect();
-            var cx=((lr.left+lr.width/2)-br.left)/bw*c.width, cy=((lr.top+lr.height/2)-br.top)/bh*c.height, wnorm=lr.width/bw, drawW=wnorm*c.width;
-            var li=await loadImage(logo.src), ratio=(li.naturalHeight||li.height)/(li.naturalWidth||li.width), drawH=drawW*ratio, rot=(parseInt($val("spw_rotation","0"),10)*Math.PI)/180;
-            ctx.save(); ctx.translate(cx,cy); ctx.rotate(rot); ctx.drawImage(li,-drawW/2,-drawH/2,drawW,drawH); ctx.restore();
+          var c=document.createElement("canvas"), ctx=c.getContext("2d");
+          c.width=baseIm.naturalWidth||baseIm.width; c.height=baseIm.naturalHeight||baseIm.height;
+          ctx.drawImage(baseIm,0,0,c.width,c.height);
+
+          var logo=$("#spw_logo_preview");
+          if(logo && logo.src){
+            var baseEl=$("#spw_product_img"),
+                bw=baseEl.clientWidth, bh=baseEl.clientHeight,
+                br=baseEl.getBoundingClientRect(), lr=logo.getBoundingClientRect();
+            var cx=((lr.left+lr.width/2)-br.left)/bw*c.width;
+            var cy=((lr.top+lr.height/2)-br.top)/bh*c.height;
+            var wnorm=lr.width/bw, drawW=wnorm*c.width;
+            var li=await loadImage(logo.src);
+            var ratio=(li.naturalHeight||li.height)/(li.naturalWidth||li.width);
+            var drawH=drawW*ratio;
+            var rot=(parseInt($val("spw_rotation","0"),10)*Math.PI)/180;
+            ctx.save(); ctx.translate(cx,cy); ctx.rotate(rot);
+            ctx.drawImage(li,-drawW/2,-drawH/2,drawW,drawH);
+            ctx.restore();
           }
           return c.toDataURL("image/png");
         }
 
         async function addToCart(){
-          var variantId=($val("spw_variant_id","")||"").trim(); if(!variantId){alert("Falta la variante");return;}
-          var qty=parseFloat($val("spw_qty","1")||1)||1, tech=(document.querySelector("input[name='spw_tech']:checked")||{}).value||"", color=(document.querySelector("input[name='spw_svg_color']:checked")||{}).value||"", notes=($val("spw_notes","")||"").trim();
-          var token=uid();
-          console.log("[SPW] token", token);
+          const variantId=($val("spw_variant_id","")||"").trim();
+          if(!variantId){ alert("Falta la variante del producto."); return; }
+          const qty=parseFloat($val("spw_qty","1")||1)||1;
+          const tech=(document.querySelector("input[name='spw_tech']:checked")||{}).value||"";
+          const svgColor=(document.querySelector("input[name='spw_svg_color']:checked")||{}).value||"";
+          const notes=($val("spw_notes","")||"").trim();
+          const spw_token=uid();
+          console.log("[SPW] addToCart -> token:", spw_token);
 
-          // 1) Línea nueva con token (evita merge)
-          var r1=await postJSON("/shop/cart/update_json",{product_id:parseInt(variantId,10),add_qty:qty,spw_token:token,display:false});
-          if(!(r1.ok && r1.data && r1.data.line_id)){alert("No se pudo añadir");return;}
-          var lineId=r1.data.line_id;
-          console.log("[SPW] line_id", lineId);
-
-          // 2) Meta explícita en ESA línea
-          await postJSON("/spw/add_to_cart_meta",{line_id:lineId,variant_id:parseInt(variantId,10),qty:0,tech:tech,svg_color:color,notes:notes,spw_token:token});
-
-          // 3) PNG -> línea
+          // Generar PNG (no bloqueante si falla)
+          let png_b64="";
           try{
-            var du=await renderPNGDataURL(); var b64=du?du.split("base64,")[1]:"";
-            if(b64){ await postJSON("/spw/attach_png",{line_id:lineId,png_b64:b64}); }
+            const du=await renderPNGDataURL();
+            png_b64 = du ? du.split("base64,")[1] : "";
           }catch(_){}
 
-          window.location.href="/shop/cart?spw_line_id="+encodeURIComponent(lineId);
+          // 1) Añadir línea vía TU endpoint existente (el que ya funcionaba)
+          let r1 = await postJSON("/spw/add_to_cart_meta", {
+            variant_id: parseInt(variantId,10),
+            qty: qty,
+            tech: tech,
+            svg_color: svgColor,
+            notes: notes,
+            spw_token: spw_token
+          });
+          if(!r1.ok){
+            // Fallback HTTP (también existente en tu módulo)
+            r1 = await postForm("/spw/add_to_cart_meta_http", {
+              variant_id: variantId,
+              qty: qty,
+              tech: tech,
+              svg_color: svgColor,
+              notes: notes,
+              spw_token: spw_token
+            });
+          }
+          if(!(r1.ok && r1.data && r1.data.line_id)){
+            console.error("[SPW] add_to_cart_meta fallo:", r1);
+            alert("No se pudo añadir.");
+            return;
+          }
+          const lineId = r1.data.line_id;
+          console.log("[SPW] NUEVA line_id:", lineId);
+
+          // 2) Adjuntar PNG (si se generó)
+          if(png_b64){
+            const r2 = await postJSON("/spw/attach_png", { line_id: lineId, png_b64: png_b64 });
+            if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: lineId, png_b64: png_b64 }); }
+          }
+
+          // 3) Redirigir al carrito y resaltar la línea recién creada
+          window.location.href = "/shop/cart?spw_line_id=" + encodeURIComponent(lineId);
         }
 
         function init(){
-          var inp=$("#spw_logo_input"), logo=$("#spw_logo_preview");
-          if(inp){ inp.addEventListener("change", async function(e){var f=e.target.files&&e.target.files[0]; if(!f) return; var du=await readAsDataURL(f); logo.src=du; applyTransform();}); }
-          ["spw_size","spw_pos_x","spw_pos_y","spw_rotation"].forEach(function(id){var el=document.getElementById(id); if(el) el.addEventListener("input", applyTransform);});
-          window.spwReset=function(){document.getElementById("spw_size").value=100;document.getElementById("spw_pos_x").value=0;document.getElementById("spw_pos_y").value=10;document.getElementById("spw_rotation").value=0;applyTransform();};
-          var add=document.getElementById("spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
-          var dl=document.getElementById("spw_download_png"); if(dl){ dl.addEventListener("click", async function(){try{var du=await renderPNGDataURL(); var a=document.createElement("a"); a.href=du; a.download="personalizacion.png"; document.body.appendChild(a); a.click(); a.remove();}catch(_){alert("No se pudo generar el PNG");}}); }
+          const inp=$("#spw_logo_input"), logo=$("#spw_logo_preview");
+          if(inp){
+            inp.addEventListener("change", async function(e){
+              const f=e.target.files && e.target.files[0]; if(!f) return;
+              const du=await readAsDataURL(f);
+              logo.src=du; applyTransform();
+            });
+          }
+          ["spw_size","spw_pos_x","spw_pos_y","spw_rotation"].forEach(function(id){
+            const el=document.getElementById(id); if(el) el.addEventListener("input", applyTransform);
+          });
+          window.spwReset=function(){ $("#spw_size").value=100; $("#spw_pos_x").value=0; $("#spw_pos_y").value=10; $("#spw_rotation").value=0; applyTransform(); };
+
+          const add=$("#spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
+          const dl=$("#spw_download_png"); if(dl){
+            dl.addEventListener("click", async function(){
+              try{
+                const du=await renderPNGDataURL();
+                const a=document.createElement("a"); a.href=du; a.download="personalizacion.png";
+                document.body.appendChild(a); a.click(); a.remove();
+              }catch(_){ alert("No se pudo generar el PNG."); }
+            });
+          }
           applyTransform();
         }
-        if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",init);}else{init();}
+        if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded", init); } else { init(); }
       })();
       ]]></script>
     </t>
