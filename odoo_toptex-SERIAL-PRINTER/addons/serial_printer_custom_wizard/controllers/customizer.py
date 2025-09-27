@@ -1,47 +1,42 @@
 # -*- coding: utf-8 -*-
 from odoo import http
 from odoo.http import request
-import base64
 
-class SPWCustomizer(http.Controller):
+class SpwCustomizer(http.Controller):
 
-    @http.route(['/spw/customizer'], type='http', auth='public', website=True, methods=['GET'])
-    def spw_customizer(self, **kw):
-        pid = int(kw.get('product_id') or 0)
-        vid = int(kw.get('variant_id') or 0)
+    @http.route('/spw/customizer', type='http', auth='public', website=True)
+    def spw_customizer(self, product_id=None, variant_id=None, **kw):
+        """Carga la página del personalizador garantizando un variant_id válido."""
+        try:
+            pid = int(product_id or 0)
+        except Exception:
+            pid = 0
+        if not pid:
+            return request.not_found()
 
-        PT = request.env['product.template'].sudo()
-        PP = request.env['product.product'].sudo()
+        tmpl = request.env['product.template'].sudo().browse(pid)
+        if not tmpl or not tmpl.exists():
+            return request.not_found()
 
-        template = PT.browse(pid) if pid else None
-        variant = PP.browse(vid) if vid else None
+        # Fallback robusto de variante
+        def_variant_id = None
+        try:
+            def_variant_id = int(variant_id) if variant_id else None
+        except Exception:
+            def_variant_id = None
 
-        if not template and variant:
-            template = variant.product_tmpl_id
-        if not variant and template:
-            variant = template.product_variant_id
-
-        img_src = ''
-        if variant and variant.id:
-            img_src = '/web/image/product.product/%s/image_1920' % variant.id
-        elif template and template.id:
-            img_src = '/web/image/product.template/%s/image_1920' % template.id
+        if not def_variant_id:
+            # 1) variante "principal" del template
+            if tmpl.product_variant_id:
+                def_variant_id = tmpl.product_variant_id.id
+            # 2) primera variante disponible
+            elif tmpl.product_variant_ids:
+                def_variant_id = tmpl.product_variant_ids[:1].id
 
         values = {
-            'template': template,
-            'variant_id': variant.id if variant else 0,
-            'img_src': img_src,
+            'template': tmpl,
+            'variant_id': def_variant_id or 0,
+            # Usamos imagen variant same-origin (segura para canvas)
+            'img_src': '/web/image/product.product/%s/image_1920' % (def_variant_id or (tmpl.product_variant_id and tmpl.product_variant_id.id) or 0),
         }
         return request.render('serial_printer_custom_wizard.spw_customize_page', values)
-
-    # Descarga segura por POST (evita bloqueos de data:)
-    @http.route(['/spw/download_png'], type='http', auth='public', website=True, methods=['POST'], csrf=False)
-    def spw_download_png(self, **post):
-        png_b64 = (post.get('png_b64') or '').strip()
-        data = base64.b64decode(png_b64) if png_b64 else b''
-        headers = [
-            ('Content-Type', 'image/png'),
-            ('Content-Disposition', 'attachment; filename="personalizacion.png"'),
-            ('Cache-Control', 'no-store, no-cache, must-revalidate'),
-        ]
-        return request.make_response(data, headers=headers)
