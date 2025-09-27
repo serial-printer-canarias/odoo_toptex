@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+  <template id="spw_layout_cart_preview_inject"
+            inherit_id="website.layout"
+            name="SPW - Cart Preview Inject">
+    <xpath expr="//body" position="inside">
+      <style>
+        .spw-cart-block{margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+        .spw-cart-block img{max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px}
+        .spw-swatch{width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;display:inline-block}
+      </style>
+      <script type="text/javascript"><![CDATA[
+      (function(){
+        "use strict";
+        var path = location.pathname || '';
+        if (!/\/shop\/cart|\/shop\/payment|\/shop\/confirm/.test(path)) return;
+
+        function q(s,r){return (r||document).querySelector(s);}
+        function qa(s,r){return Array.from((r||document).querySelectorAll(s));}
+
+        function parseLineIdFromHref(node){
+          try{
+            var a = node.closest('a[href*="line_id="]') || node.querySelector('a[href*="line_id="]');
+            if(!a) return null;
+            var u = new URL(a.getAttribute('href'), location.origin);
+            return u.searchParams.get('line_id');
+          }catch(_){ return null; }
+        }
+        function getLineId(line){
+          if(!line) return null;
+          var v = line.getAttribute('data-line-id')
+                    || ((q('input[name="line_id"]', line)||{}).value)
+                    || parseLineIdFromHref(line) || null;
+          return v ? String(v) : null;
+        }
+        function findLines(){
+          var sel = 'tr.js_cart_line, .o_wsale_cart_item, .card.js_cart_item, .o_cart_line';
+          return qa(sel).filter(function(n){ return !!getLineId(n); });
+        }
+        function infoContainer(line){
+          return q('.o_wsale_product_information', line)
+              || q('.o_cart_product_info', line)
+              || q('td.o_wsale_cart_description', line)
+              || q('.media-body', line)
+              || line;
+        }
+        function detectHex(line){
+          try{
+            var cont = infoContainer(line);
+            var m = (cont && cont.textContent || '').match(/#([0-9a-fA-F]{6})\b/);
+            return m ? ('#'+m[1].toUpperCase()) : null;
+          }catch(_){ return null; }
+        }
+        function insertPreview(line, pngSrc, hex){
+          var id = getLineId(line); if(!id) return;
+          qa('.spw-cart-block[data-line="'+id+'"]', line).forEach(function(n){ n.remove(); });
+          var wrap = document.createElement('div');
+          wrap.className = 'spw-cart-block';
+          wrap.setAttribute('data-line', id);
+          var img = new Image(); img.alt='Personalización'; img.loading='lazy'; img.src = pngSrc; wrap.appendChild(img);
+          if (hex && /^#[0-9A-F]{6}$/.test(hex)) {
+            var sw = document.createElement('span'); sw.className='spw-swatch'; sw.title=hex; sw.style.background=hex; wrap.appendChild(sw);
+          }
+          (infoContainer(line)||line).appendChild(wrap);
+        }
+        function inject(){
+          var lines = findLines();
+          qa('.spw-cart-block').forEach(function(n){
+            var lid = n.getAttribute('data-line');
+            var alive = lines.some(function(l){ return getLineId(l) === lid; });
+            if(!alive) n.remove();
+          });
+          lines.forEach(function(line){
+            var id = getLineId(line); if(!id) return;
+            var src = '/spw/line_preview/' + encodeURIComponent(id) + '.png?_=' + Date.now();
+            insertPreview(line, src, detectHex(line));
+          });
+        }
+        function boot(){
+          inject();
+          var root = q('.js_cart_lines') || q('.o_wsale_cart') || q('main') || document.body;
+          if (window.MutationObserver && root){
+            var mo = new MutationObserver(function(){ requestAnimationFrame(inject); });
+            mo.observe(root, {childList:true, subtree:true});
+          }
+          setTimeout(inject, 500); setTimeout(inject, 1500);
+        }
+        if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', boot); } else { boot(); }
+      })();
+      ]]></script>
+    </xpath>
+  </template>
+</odoo>
