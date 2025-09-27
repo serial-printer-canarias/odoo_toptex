@@ -1,22 +1,37 @@
 # -*- coding: utf-8 -*-
-import base64
 from odoo import http
-from odoo.http import request, content_disposition
+from odoo.http import request
 
-class SpwCustomizer(http.Controller):
+class SPWCustomizer(http.Controller):
 
-    @http.route('/spw/download_png', type='http', auth='public', website=True, methods=['POST'])
-    def spw_download_png(self, png_b64=None, **kw):
-        """Recibe PNG base64 y devuelve archivo descargable (iOS compatible)."""
-        if not png_b64:
-            return request.not_found()
+    @http.route(['/spw/customizer'], type='http', auth='public', website=True, sitemap=False)
+    def customizer(self, product_id=None, variant_id=None, **kw):
+        """Vista pública del customizer.
+        Si no llega variant_id, elegimos una variante del template.
+        """
+        Product = request.env['product.product'].sudo()
+        PTemplate = request.env['product.template'].sudo()
+
+        variant = False
+        tmpl = False
+
+        # Resolver template y variante de forma segura
         try:
-            data = base64.b64decode(png_b64)
+            if variant_id:
+                variant = Product.browse(int(variant_id))
+                if variant and variant.exists():
+                    tmpl = variant.product_tmpl_id
+            if not tmpl and product_id:
+                tmpl = PTemplate.browse(int(product_id))
+                if tmpl and tmpl.exists() and not variant:
+                    # Coger una variante visible
+                    variant = Product.search([('product_tmpl_id', '=', tmpl.id)], limit=1)
         except Exception:
-            return request.not_found()
-        headers = [
-            ('Content-Type', 'image/png'),
-            ('Content-Length', str(len(data))),
-            ('Content-Disposition', content_disposition('personalizacion.png')),
-        ]
-        return request.make_response(data, headers)
+            pass
+
+        values = {
+            'product_tmpl': tmpl,
+            'variant': variant,
+        }
+        # Renderiza tu plantilla del wizard
+        return request.render('serial_printer_custom_wizard.customizer_page', values)
