@@ -6,7 +6,7 @@
     if (!btn) return;
     btn.addEventListener("click", (ev) => {
       ev.preventDefault();
-      const variantInput = document.querySelector("form#add_to_cart input[name='product_id']");
+      const variantInput = document.querySelector("form input[name='product_id']");
       const variantId = variantInput ? variantInput.value : "";
       const tmplId = btn.dataset.ptmplId || btn.getAttribute("data-ptmpl-id") || "";
       const url = `/spw/customizer?product_id=${encodeURIComponent(tmplId)}&variant_id=${encodeURIComponent(variantId)}`;
