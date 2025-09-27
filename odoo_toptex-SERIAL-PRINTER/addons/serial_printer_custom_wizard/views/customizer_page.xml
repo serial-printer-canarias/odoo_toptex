@@ -296,12 +296,9 @@
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <style>
-        /* Contenedor ordenado: imágenes + columna de píldoras (vertical) */
-        .spw-cart-preview{margin-top:8px;display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}
-        .spw-cart-preview .spw-imgs{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start}
-        .spw-cart-preview .spw-pills{display:flex;flex-direction:column;gap:6px;align-items:center}
-        .spw-cart-preview img{max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px;background:#f8fafc}
-        .spw-swatch{width:14px;height:14px;border-radius:9999px;border:1px solid #e5e7eb;display:inline-block}
+        .spw-cart-block{margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+        .spw-cart-block img{max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px}
+        .spw-swatch{width:14px;height:14px;border-radius:999px;border:1px solid #e5e7eb;display:inline-block}
       </style>
       <script type="text/javascript"><![CDATA[
       (function(){
@@ -310,19 +307,28 @@
 
         function q(s,r){return (r||document).querySelector(s);}
         function qa(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));}
-        function ts(){ return Date.now(); }
 
+        function urlParam(name){
+          try{ return new URL(location.href).searchParams.get(name); }catch(_){ return null; }
+        }
+        function parseLineIdFromHref(node){
+          try{
+            var a = (node.closest && node.closest('a[href*="line_id="]')) || (node.querySelector && node.querySelector('a[href*="line_id="]'));
+            if(!a) return null;
+            var u = new URL(a.getAttribute('href'), location.origin);
+            return u.searchParams.get('line_id');
+          }catch(_){ return null; }
+        }
         function getLineId(line){
           if(!line) return null;
-          var c = line.getAttribute('data-line-id') ? line :
-            (line.querySelector && (line.querySelector('[data-line-id]') ||
-             line.querySelector('input[name="line_id"]') ||
-             line.querySelector('button[data-line-id], a[data-line-id]')));
-          var v = (c && (c.getAttribute && (c.getAttribute('data-line-id') || c.getAttribute('data-id')) || c.value)) || null;
+          var v = line.getAttribute('data-line-id')
+            || ((q('input[name="line_id"]', line)||{}).value)
+            || parseLineIdFromHref(line)
+            || null;
           return v ? String(v) : null;
         }
         function findLines(){
-          var sel = 'tr.js_cart_line, .o_wsale_cart_item, .card.js_cart_item, .o_cart_line, .o_cart_product';
+          var sel = 'tr.js_cart_line, .o_wsale_cart_item, .card.js_cart_item, .o_cart_line';
           return qa(sel).filter(function(n){ return !!getLineId(n); });
         }
         function infoContainer(line){
@@ -332,115 +338,120 @@
               || q('.media-body', line)
               || line;
         }
-        function parseHexes(text){
-          if(!text) return [];
-          var out=[], re=/#([0-9a-fA-F]{6})\b/g, m, seen={};
-          while((m=re.exec(text))){ var hx=('#'+m[1]).toUpperCase(); if(!seen[hx]){ seen[hx]=1; out.push(hx); } }
-          return out;
+        function detectHexes(line){
+          try{
+            var cont = infoContainer(line);
+            if(!cont) return [];
+            var txt = (cont.textContent||'');
+            var re = /#([0-9a-fA-F]{6})\b/g, m, arr=[];
+            while((m=re.exec(txt))){ arr.push('#'+m[1].toUpperCase()); }
+            return arr.length?arr:['#000000'];
+          }catch(_){ return ['#000000']; }
+        }
+        function buildPreviewURL(lineId, idx){
+          // una sola variante de URL para no saturar la red
+          return '/spw/line_preview/' + encodeURIComponent(lineId) + '.png?i=' + (idx+1) + '&_=' + Date.now();
         }
 
-        function ensureWrap(info, lineId){
-          var wrap = info.querySelector('.spw-cart-preview[data-line="'+ lineId +'"]');
+        function ensureWrap(line){
+          var id = getLineId(line); if(!id) return null;
+          var wrap = q('.spw-cart-block[data-line="'+id+'"]', line);
           if(!wrap){
             wrap = document.createElement('div');
-            wrap.className = 'spw-cart-preview';
-            wrap.setAttribute('data-line', lineId);
-
-            var imgs = document.createElement('div');
-            imgs.className = 'spw-imgs';
-
-            var pills = document.createElement('div');
-            pills.className = 'spw-pills';
-
-            wrap.appendChild(imgs);
-            wrap.appendChild(pills);
-            info.appendChild(wrap);
+            wrap.className = 'spw-cart-block';
+            wrap.setAttribute('data-line', id);
+            (infoContainer(line)||line).appendChild(wrap);
           }
           return wrap;
         }
 
-        function putImg(dst, src){
-          var img = new Image();
-          img.alt = 'Personalización';
-          img.loading = 'lazy';
-          img.src = src;
-          dst.appendChild(img);
-        }
-        function putPill(dst, hex){
-          var s = document.createElement('span');
-          s.className = 'spw-swatch';
-          s.title = hex || '';
-          if (hex) s.style.background = hex;
-          dst.appendChild(s);
-        }
-
         function renderLine(line){
           var id = getLineId(line); if(!id) return;
-          var info = infoContainer(line);
-          var wrap = ensureWrap(info, id);
-          var imgs = wrap.querySelector('.spw-imgs');
-          var pills = wrap.querySelector('.spw-pills');
+          var wrap = ensureWrap(line); if(!wrap) return;
 
-          // limpiar (evita duplicados)
-          imgs.innerHTML = '';
-          pills.innerHTML = '';
+          var colors = detectHexes(line);
+          var wanted = Math.max(colors.length, 1);
 
-          // 1) FOTO canónica por línea (rápida). Fallback: sessionStorage si venimos del customizer
-          var url = '/spw/line_preview/' + encodeURIComponent(id) + '.png?_=' + ts();
-          var probe = new Image();
-          probe.onload  = function(){ putImg(imgs, url); };
-          probe.onerror = function(){
-            try{
-              var params   = new URL(location.href).searchParams;
-              var wanted   = params.get('spw_line_id');
-              var lastId   = sessionStorage.getItem('spw_last_line_id');
-              var lastPng  = sessionStorage.getItem('spw_last_png');
-              if ((wanted && wanted === id) || (lastId && lastId === id)) {
-                if (lastPng) putImg(imgs, lastPng);
-              }
-            }catch(_){}
-          };
-          probe.src = url;
+          // Si ya tenemos exactamente wanted imágenes cargadas, no hacemos nada
+          var imgs = qa('img', wrap);
+          if (imgs.length === wanted && imgs.every(function(im){ return im.dataset.loaded === '1'; })) return;
 
-          // 2) PÍLDORAS en vertical (todas las que existan en el texto de la línea)
-          var hexes = parseHexes((info.textContent||''));
-          if (!hexes.length) { putPill(pills, null); }
-          for (var i=0;i<hexes.length;i++) putPill(pills, hexes[i]);
+          // Limpieza y creación exacta de N imágenes
+          wrap.innerHTML = '';
+          for(var i=0;i<wanted;i++){
+            var im = new Image();
+            im.alt = 'Personalización';
+            im.loading = 'lazy';
+            im.dataset.loaded = '0';
+            im.onload = function(){ this.dataset.loaded = '1'; };
+            im.onerror = function(){ this.remove(); };
+            im.src = buildPreviewURL(id, i);
+            wrap.appendChild(im);
+          }
 
-          // limpiar sessionStorage si corresponde a esta línea (solo una vez)
-          try{
-            var wanted = new URL(location.href).searchParams.get('spw_line_id');
-            if (wanted && wanted === id){
-              sessionStorage.removeItem('spw_last_png');
-              sessionStorage.removeItem('spw_last_color');
-              sessionStorage.removeItem('spw_last_line_id');
-            }
-          }catch(_){}
+          // Píldoras de color
+          colors.forEach(function(hex){
+            var sw = document.createElement('span');
+            sw.className = 'spw-swatch';
+            sw.title = hex;
+            sw.style.background = hex;
+            wrap.appendChild(sw);
+          });
         }
 
         function inject(){
           var lines = findLines();
 
-          // limpiar wrappers huérfanos
-          qa('.spw-cart-preview').forEach(function(n){
-            var lid = n.getAttribute('data-line');
-            var alive = lines.some(function(l){ return getLineId(l) === lid; });
+          // Limpieza global de bloques huérfanos
+          qa('.spw-cart-block').forEach(function(n){
+            var lid=n.getAttribute('data-line');
+            var alive = lines.some(function(l){ return getLineId(l)===lid; });
             if(!alive) n.remove();
           });
 
-          for (var i=0;i<lines.length;i++) renderLine(lines[i]);
+          lines.forEach(renderLine);
+
+          // Si venimos del customizador, usar la imagen en memoria para esa línea
+          var wanted = urlParam('spw_line_id');
+          if (wanted) {
+            try{
+              var lastId = sessionStorage.getItem('spw_last_line_id');
+              var lastPng = sessionStorage.getItem('spw_last_png');
+              var lastColor = sessionStorage.getItem('spw_last_color');
+              if (lastId && lastPng && lastId === wanted) {
+                var line = lines.find(function(l){ return getLineId(l) === wanted; });
+                if (line) {
+                  var wrap = ensureWrap(line);
+                  if (wrap){
+                    wrap.innerHTML='';
+                    var im=new Image(); im.alt='Personalización'; im.loading='eager'; im.dataset.loaded='1'; im.src=lastPng; wrap.appendChild(im);
+                    if(lastColor){
+                      var sw=document.createElement('span'); sw.className='spw-swatch'; sw.title=lastColor; sw.style.background=lastColor; wrap.appendChild(sw);
+                    }
+                  }
+                }
+              }
+            }catch(_){}
+            try{
+              sessionStorage.removeItem('spw_last_line_id');
+              sessionStorage.removeItem('spw_last_png');
+              sessionStorage.removeItem('spw_last_color');
+            }catch(_){}
+          }
         }
+
+        // Debounce del observador para evitar inyecciones en bucle
+        var pending=false;
+        function schedule(){ if(pending) return; pending=true; requestAnimationFrame(function(){ pending=false; inject(); }); }
 
         function boot(){
           inject();
           var root = q('.js_cart_lines') || q('.o_wsale_cart') || q('main') || document.body;
           if(window.MutationObserver && root){
-            var t;
-            new MutationObserver(function(){ clearTimeout(t); t=setTimeout(inject,120); })
-              .observe(root, {childList:true, subtree:true});
+            var mo = new MutationObserver(function(){ schedule(); });
+            mo.observe(root, {childList:true, subtree:true});
           }
           setTimeout(inject, 400);
-          setTimeout(inject, 1200);
         }
 
         if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded", boot); } else { boot(); }
