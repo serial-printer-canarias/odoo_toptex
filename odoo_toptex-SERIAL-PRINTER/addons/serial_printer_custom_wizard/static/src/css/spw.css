@@ -1,6 +1,6 @@
 /* addons/serial_printer_custom_wizard/static/src/css/spw.css */
 
-/* ---------- Canvas / preview ---------- */
+/* Canvas / preview */
 .spw-stage{position:relative;overflow:hidden;min-height:360px;}
 .spw-stage .spw-base{display:block;width:100%;height:auto;border-radius:8px;}
 .spw-logo-preview{position:absolute;left:50%;top:60%;transform:translate(-50%,-50%);max-width:90%;height:auto;z-index:5;pointer-events:none;opacity:0;transition:transform .1s linear;}
@@ -9,7 +9,7 @@
 #spw_canvas{position:relative;}
 #spw_logo_preview{position:absolute;left:50%;top:60%;transform:translate(-50%,-50%);pointer-events:none;z-index:5;opacity:1;max-width:80%;max-height:80%;}
 
-/* ---------- Swatches de color (SVG) ---------- */
+/* Swatches color */
 .spw-color-row{display:flex;gap:.75rem;flex-wrap:wrap;align-items:center}
 .spw-color-swatch{width:38px;height:38px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;border:2px solid #e5e7eb;cursor:pointer;position:relative}
 .spw-color-swatch input{position:absolute;opacity:0;pointer-events:none}
@@ -21,40 +21,31 @@
 .spw-color-swatch.is-green .spw-color-ring{background:#2A9D8F}
 .spw-color-swatch input:checked + .spw-color-ring{outline:3px solid #3b82f6;outline-offset:2px}
 
-/* ---------- Preview en línea del carrito ---------- */
+/* Preview en carrito */
 .o_wsale_cart_item .spw-cart-preview,
 .o_wsale_cart_item .spw-preview{order:10;width:100%;}
 
-/* ---------- Carrito móvil (preview) ---------- */
+/* Evitar puntos/bullets extra en items carrito */
+.o_wsale_cart_items,
+.o_wsale_cart_items li{list-style:none!important;}
+
+/* Carrito móvil */
 @media (max-width:576px){
   .spw-cart-block{gap:6px;}
   .spw-cart-block img{max-width:92px;}
 }
 
-/* ---------- Header & Sidebar (desktop) ---------- */
+/* Header & sidebar (desktop): solo z-index y jerarquía, sin forzar visibilidad del tema */
 @media (min-width:992px){
-  /* Mantener ambos headers visibles y en capa alta */
   .o_header_standard,
   .o_header_affixed{
     position:relative !important;
     z-index:2000 !important;
-    visibility:visible !important;
-    opacity:1 !important;
-    height:auto !important;
   }
-  /* Mostrar sólo uno según scroll (lógica de Odoo) */
-  .o_header_standard{display:block !important;}
-  .o_header_affixed{display:none !important;}
-  body.o_header_is_scrolled .o_header_standard{display:none !important;}
-  body.o_header_is_scrolled .o_header_affixed{display:block !important;}
+  /* Dejar que Odoo alterne estándar/affixed; evitamos que se tape */
+  .s_discovery,.s_cover,.s_hero,.s_parallax{position:relative !important;z-index:1 !important;}
 
-  /* Sidebar de filtros en listados */
+  /* Sidebar de filtros visible */
   .o_wsale_layout .o_wsale_sidebar,
   .o_wsale_layout_sidebar{display:block !important;}
-}
-
-/* ---------- Evitar que héroes tapen el header ---------- */
-.s_discovery,.s_cover,.s_hero,.s_parallax{
-  position:relative !important;
-  z-index:1 !important;
 }
