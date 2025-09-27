@@ -1,82 +1,100 @@
-# addons/serial_printer_custom_wizard/controllers/spw_add_to_cart.py
 # -*- coding: utf-8 -*-
+import base64
 from odoo import http
-from odoo.http import request
-from datetime import datetime
+from odoo.http import request, Response
 
-class SPWAddToCart(http.Controller):
+def _get_last_line(order, product_id):
+    lines = order.order_line.filtered(lambda l: l.product_id.id == product_id)
+    return lines.sorted(lambda l: (l.create_date, l.id))[-1] if lines else False
 
-    @http.route('/spw/add_to_cart', type='json', auth='public', csrf=False, website=True)
-    def spw_add_to_cart(self, **kw):
-        """
-        Espera JSON:
-          variant_id | template_id, qty,
-          tech, svg_color, notes,
-          size, pos_x, pos_y, rotation,
-          image_dataurl (data:image/png;base64,...)
+class SpwCartApi(http.Controller):
 
-        Añade línea al carrito con 'qty' y deja la personalización
-        documentada (y link público al PNG generado).
-        """
+    # ---------- AÑADIR AL CARRITO (JSON) ----------
+    @http.route('/spw/add_to_cart_meta', type='json', auth='public', website=True, csrf=False, sitemap=False)
+    def add_to_cart_meta(self, variant_id, qty=1, tech="", svg_color="", notes=""):
+        variant = request.env['product.product'].sudo().browse(int(variant_id))
+        if not variant.exists():
+            return {'ok': False, 'message': 'Variante no encontrada.'}
+
+        order = request.website.sale_get_order(force_create=1)
+        order._cart_update(product_id=variant.id, add_qty=float(qty))
+
+        line = _get_last_line(order, variant.id)
+        if not line:
+            return {'ok': False, 'message': 'No se pudo localizar la línea recién creada.'}
+
+        # Meta de personalización en la línea
+        line.sudo().write({
+            'spw_tech': tech or False,
+            'spw_svg_color': (svg_color or '').upper() or False,
+            'name': (line.name or '') + (('\nTécnica: %s | Color SVG: %s' % (tech, (svg_color or '').upper())) if (tech or svg_color) else ''),
+            'spw_notes': notes or False,
+        })
+
+        return {
+            'ok': True,
+            'line_id': line.id,
+            'cart_url': '/shop/cart',
+        }
+
+    # ---------- AÑADIR AL CARRITO (HTTP fallback) ----------
+    @http.route('/spw/add_to_cart_meta_http', type='http', auth='public', website=True, csrf=False, sitemap=False)
+    def add_to_cart_meta_http(self, **post):
         try:
-            data = request.jsonrequest or {}
-            variant_id = int(data.get('variant_id') or 0)
-            template_id = int(data.get('template_id') or 0)
-            qty = int(data.get('qty') or 1)
+            data = {
+                'variant_id': int(post.get('variant_id') or 0),
+                'qty': float(post.get('qty') or 1),
+                'tech': post.get('tech') or '',
+                'svg_color': post.get('svg_color') or '',
+                'notes': post.get('notes') or '',
+            }
+        except Exception:
+            return Response('{"ok": false, "message":"Parámetros incorrectos"}', status=400, content_type='application/json')
 
-            tech      = (data.get('tech') or '').strip()
-            svg_color = (data.get('svg_color') or '').strip()
-            notes     = (data.get('notes') or '').strip()
+        res = self.add_to_cart_meta(**data)
+        status = 200 if res.get('ok') else 400
+        return Response(request.env['ir.qweb']._render_template(
+            'web.json', {'json_value': res}), status=status, content_type='application/json')
 
-            size     = data.get('size')
-            pos_x    = data.get('pos_x')
-            pos_y    = data.get('pos_y')
-            rotation = data.get('rotation')
+    # ---------- ADJUNTAR PNG A LA LÍNEA (JSON) ----------
+    @http.route('/spw/attach_png', type='json', auth='public', website=True, csrf=False, sitemap=False)
+    def attach_png(self, line_id, png_b64):
+        line = request.env['sale.order.line'].sudo().browse(int(line_id))
+        if not line.exists():
+            return {'ok': False, 'message': 'Línea no encontrada.'}
 
-            img = (data.get('image_dataurl') or '')
-            attach_link = ''
+        png = base64.b64decode(png_b64)
+        request.env['ir.attachment'].sudo().create({
+            'name': 'spw_preview_%s.png' % line.id,
+            'res_model': 'sale.order.line',
+            'res_id': line.id,
+            'type': 'binary',
+            'datas': base64.b64encode(png),
+            'mimetype': 'image/png',
+        })
+        return {'ok': True}
 
-            # Guardar PNG si nos llegó
-            if img.startswith('data:image'):
-                b64 = img.split(',', 1)[-1]
-                att = request.env['ir.attachment'].sudo().create({
-                    'name': f'personalizacion_{datetime.utcnow().strftime("%Y%m%d_%H%M%S")}.png',
-                    'type': 'binary',
-                    'datas': b64,
-                    'mimetype': 'image/png',
-                    'public': True,
-                })
-                attach_link = f'/web/content/{att.id}?download=1'
+    # ---------- ADJUNTAR PNG (HTTP fallback) ----------
+    @http.route('/spw/attach_png_http', type='http', auth='public', website=True, csrf=False, sitemap=False)
+    def attach_png_http(self, **post):
+        line_id = int(post.get('line_id') or 0)
+        png_b64 = post.get('png_b64') or ''
+        res = self.attach_png(line_id=line_id, png_b64=png_b64)
+        status = 200 if res.get('ok') else 400
+        return Response(request.env['ir.qweb']._render_template(
+            'web.json', {'json_value': res}), status=status, content_type='application/json')
 
-            # Resolver variante a partir de template si hace falta
-            product_id = variant_id
-            if not product_id and template_id:
-                tmpl = request.env['product.template'].sudo().browse(template_id)
-                if tmpl.exists():
-                    product = tmpl._get_first_possible_variant() or tmpl.product_variant_id
-                    product_id = product.id
-
-            if not product_id:
-                return {'ok': False, 'error': 'No se pudo resolver el producto.'}
-
-            order = request.website.sale_get_order(force_create=True)
-            res = order._cart_update(product_id=product_id, add_qty=qty)
-            line_id = res.get('line_id')
-            line = request.env['sale.order.line'].sudo().browse(line_id) if line_id else False
-
-            if line and line.exists():
-                lines = []
-                lines.append((line.name or line.product_id.display_name).strip())
-                lines.append('[Personalización]')
-                if tech:      lines.append(f'• Técnica: {tech}')
-                if svg_color: lines.append(f'• Color SVG: {svg_color}')
-                lines.append(f'• Tamaño: {size}  PosX: {pos_x}  PosY: {pos_y}  Rot: {rotation}')
-                if notes:     lines.append(f'• Notas: {notes}')
-                if attach_link:
-                    lines.append(f'• PNG: {attach_link}')
-                line.name = "\n".join(lines)
-
-            return {'ok': True}
-        except Exception as e:
-            request.env.cr.rollback()
-            return {'ok': False, 'error': str(e)}
+    # ---------- SERVIR PREVIEW EN CARRITO ----------
+    @http.route('/spw/line_preview/<int:line_id>.png', type='http', auth='public', website=True, csrf=False, sitemap=False)
+    def line_preview(self, line_id, **kw):
+        Att = request.env['ir.attachment'].sudo()
+        att = Att.search([
+            ('res_model', '=', 'sale.order.line'),
+            ('res_id', '=', int(line_id)),
+            ('mimetype', '=', 'image/png'),
+        ], order='id desc', limit=1)
+        if not att:
+            # PNG transparente 1x1
+            transparent = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAuMB9U8m1n0AAAAASUVORK5CYII=')
+            return Response(transparent, headers=[('Content-Type', 'image/png')])
+        return Response(base64.b64decode(att.datas), headers=[('Content-Type', 'image/png')])
