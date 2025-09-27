@@ -13,16 +13,11 @@
         <div class="row g-4">
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
-              <!-- Base same-origin para exportar PNG sin CORS -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
-
-              <!-- Visible -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
-
-              <!-- Overlay logo -->
               <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
             </div>
           </div>
@@ -32,14 +27,12 @@
               <div class="card-body">
                 <h5 class="card-title mb-3">Personalización</h5>
 
-                <!-- Subir logo -->
                 <div class="mb-3">
                   <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
                   <input id="spw_logo_input" class="form-control" type="file"
                          accept=".png,.jpg,.jpeg,.svg,.PNG,.JPG,.JPEG,.SVG"/>
                 </div>
 
-                <!-- Técnica -->
                 <div class="mb-3">
                   <label class="form-label">Técnica</label>
                   <div class="d-flex gap-3 flex-wrap">
@@ -58,7 +51,6 @@
                   </div>
                 </div>
 
-                <!-- Color SVG -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
                   <div class="spw-color-row">
@@ -85,7 +77,6 @@
                   </div>
                 </div>
 
-                <!-- Controles -->
                 <div class="mb-3">
                   <label for="spw_size" class="form-label">Tamaño</label>
                   <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
@@ -103,7 +94,6 @@
                   <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
                 </div>
 
-                <!-- Cantidad / Observaciones -->
                 <div class="mb-3">
                   <label for="spw_qty" class="form-label">Cantidad</label>
                   <input id="spw_qty" class="form-control" type="number" min="1" value="1"/>
@@ -113,10 +103,9 @@
                   <textarea id="spw_notes" class="form-control" rows="3"></textarea>
                 </div>
 
-                <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
+                     onclick="window.spwReset && window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -132,7 +121,6 @@
         </div>
       </div>
 
-      <!-- ====== JS inline (mínimo, mantiene flujo que ya funcionaba) ====== -->
       <script type="text/javascript"><![CDATA[
       (function(){
         "use strict";
@@ -141,11 +129,12 @@
         function uid(){return 'spw_'+Math.random().toString(36).slice(2,10)+'_'+Date.now().toString(36);}
         async function loadImage(src){return new Promise(function(res,rej){var i=new Image();i.onload=function(){res(i)};i.onerror=rej;i.src=src;});}
         function readAsDataURL(f){return new Promise(function(res,rej){var r=new FileReader();r.onload=function(){res(r.result)};r.onerror=rej;r.readAsDataURL(f);});}
+
         async function postJSON(url,p){
           try{
             const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","X-Requested-With":"XMLHttpRequest"},credentials:"same-origin",body:JSON.stringify(p)});
             const t=await r.text(); let d=null; try{ d=JSON.parse(t);}catch(_){}
-            return {ok:r.ok && !!d, data:d || {}};
+            return {ok:r.ok && !!d, data:d||{}};
           }catch(e){return {ok:false,data:{},err:String(e)};}
         }
         async function postForm(url,p){
@@ -204,33 +193,33 @@
         async function addToCart(){
           const variantId=($val("spw_variant_id","")||"").trim();
           if(!variantId){ alert("Falta la variante del producto."); return; }
-          const qty=parseFloat($val("spw_qty","1")||1)||1;
+          const qty=parseInt($val("spw_qty","1")||"1",10)||1;
           const tech=(document.querySelector("input[name='spw_tech']:checked")||{}).value||"";
           const svgColor=(document.querySelector("input[name='spw_svg_color']:checked")||{}).value||"";
           const notes=($val("spw_notes","")||"").trim();
           const spw_token=uid();
-          console.log("[SPW] addToCart -> token:", spw_token);
 
-          // Generar PNG (no bloqueante si falla)
+          // PNG (opcional)
           let png_b64="";
           try{
             const du=await renderPNGDataURL();
             png_b64 = du ? du.split("base64,")[1] : "";
           }catch(_){}
 
-          // 1) Añadir línea vía TU endpoint existente (el que ya funcionaba)
-          let r1 = await postJSON("/spw/add_to_cart_meta", {
-            variant_id: parseInt(variantId,10),
-            qty: qty,
+          // *** MINIMO CAMBIO PARA EVITAR EL FALLO: usar SIEMPRE el endpoint HTTP que ya tenías funcionando ***
+          let r1 = await postForm("/spw/add_to_cart_meta_http", {
+            variant_id: variantId,
+            qty: String(qty),
             tech: tech,
             svg_color: svgColor,
             notes: notes,
             spw_token: spw_token
           });
-          if(!r1.ok){
-            // Fallback HTTP (también existente en tu módulo)
-            r1 = await postForm("/spw/add_to_cart_meta_http", {
-              variant_id: variantId,
+
+          // Fallback JSON por si vuestro endpoint espera JSON:
+          if(!(r1.ok && r1.data && r1.data.line_id)){
+            r1 = await postJSON("/spw/add_to_cart_meta", {
+              variant_id: parseInt(variantId,10),
               qty: qty,
               tech: tech,
               svg_color: svgColor,
@@ -238,21 +227,19 @@
               spw_token: spw_token
             });
           }
+
           if(!(r1.ok && r1.data && r1.data.line_id)){
-            console.error("[SPW] add_to_cart_meta fallo:", r1);
             alert("No se pudo añadir.");
             return;
           }
-          const lineId = r1.data.line_id;
-          console.log("[SPW] NUEVA line_id:", lineId);
 
-          // 2) Adjuntar PNG (si se generó)
+          const lineId = r1.data.line_id;
+
           if(png_b64){
             const r2 = await postJSON("/spw/attach_png", { line_id: lineId, png_b64: png_b64 });
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: lineId, png_b64: png_b64 }); }
           }
 
-          // 3) Redirigir al carrito y resaltar la línea recién creada
           window.location.href = "/shop/cart?spw_line_id=" + encodeURIComponent(lineId);
         }
 
@@ -268,7 +255,13 @@
           ["spw_size","spw_pos_x","spw_pos_y","spw_rotation"].forEach(function(id){
             const el=document.getElementById(id); if(el) el.addEventListener("input", applyTransform);
           });
-          window.spwReset=function(){ $("#spw_size").value=100; $("#spw_pos_x").value=0; $("#spw_pos_y").value=10; $("#spw_rotation").value=0; applyTransform(); };
+          window.spwReset=function(){
+            document.getElementById("spw_size").value=100;
+            document.getElementById("spw_pos_x").value=0;
+            document.getElementById("spw_pos_y").value=10;
+            document.getElementById("spw_rotation").value=0;
+            applyTransform();
+          };
 
           const add=$("#spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
           const dl=$("#spw_download_png"); if(dl){
@@ -282,6 +275,7 @@
           }
           applyTransform();
         }
+
         if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded", init); } else { init(); }
       })();
       ]]></script>
