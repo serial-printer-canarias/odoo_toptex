@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+  <!-- Inyecta preview PNG y píldora de color en cada línea del carrito -->
+  <template id="spw_cart_line_preview"
+            inherit_id="website_sale.cart_lines"
+            name="SPW Cart line: preview + color">
+    <!-- Cubrimos layouts de carrito clásicos y cards -->
+    <xpath expr="//td[contains(@class,'o_wsale_cart_description')] | //div[contains(@class,'o_cart_product_info')] | //div[contains(@class,'o_wsale_product_information')]" position="inside">
+      <t t-if="line and (line.spw_png_attachment_id or line.spw_svg_color)">
+        <div class="spw-cart-block" style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <!-- Miniatura de la personalización -->
+          <t t-if="line.spw_png_attachment_id">
+            <img t-att-src="'/web/image/%s' % line.spw_png_attachment_id.id"
+                 alt="Personalización"
+                 loading="lazy"
+                 style="max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px;"/>
+          </t>
+          <!-- Píldora de color -->
+          <t t-if="line.spw_svg_color">
+            <span t-att-title="line.spw_svg_color"
+                  style="display:inline-block;width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;"
+                  t-att-style="'background:%s;display:inline-block;width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;' % line.spw_svg_color"/>
+          </t>
+        </div>
+      </t>
+    </xpath>
+  </template>
+</odoo>
