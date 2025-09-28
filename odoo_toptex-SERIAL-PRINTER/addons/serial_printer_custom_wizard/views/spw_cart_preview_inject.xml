@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Registra el JS del inyector en assets frontend sin tocar plantillas -->
   <template id="spw_cart_preview_assets"
             name="SPW Cart Preview Assets"
-            inherit_id="web.assets_frontend"
+            inherit_id="website.assets_frontend"
             priority="60">
     <xpath expr="." position="inside">
       <script type="text/javascript"
