@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Parche seguro: evita ParseError en update sin modificar el front -->
+    <!-- Vista “no-op” ultra segura: hereda directamente cart_lines y ancla al root -->
     <template id="spw_cart_line_preview_safe"
               name="SPW Cart line: preview + color (fieldless)"
-              inherit_id="website_sale.cart"
+              inherit_id="website_sale.cart_lines"
               priority="60">
-        <!-- Ancla robusta y estable en todas las plantillas del carrito -->
-        <xpath expr="//div[@id='wsale_cart']" position="inside">
-            <!-- no-op; solo para que la herencia sea válida y el update no falle -->
+        <!-- El selector '.' es el root del template heredado: siempre existe -->
+        <xpath expr="." position="inside">
             <t t-set="__spw_placeholder">1</t>
         </xpath>
     </template>
