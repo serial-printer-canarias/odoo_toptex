@@ -1,28 +1,47 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <!-- Inyecta preview PNG y píldora de color en cada línea del carrito -->
-  <template id="spw_cart_line_preview"
+
+  <!-- Cart lines: inserta miniatura de personalización + píldora de color
+       sin depender de campos en sale.order.line.  -->
+  <template id="spw_cart_line_preview_safe"
             inherit_id="website_sale.cart_lines"
-            name="SPW Cart line: preview + color">
-    <!-- Cubrimos layouts de carrito clásicos y cards -->
+            name="SPW Cart line: preview + color (fieldless)">
+    <!-- Cubre los distintos contenedores usados por los temas -->
     <xpath expr="//td[contains(@class,'o_wsale_cart_description')] | //div[contains(@class,'o_cart_product_info')] | //div[contains(@class,'o_wsale_product_information')]" position="inside">
-      <t t-if="line and (line.spw_png_attachment_id or line.spw_svg_color)">
+
+      <!-- 1) Buscar el último adjunto de imagen de esta línea (PNG/JPG/SVG rasterizado) -->
+      <t t-set="att"
+         t-value="request.env['ir.attachment'].sudo().search([
+            ('res_model','=','sale.order.line'),
+            ('res_id','=',line.id),
+            ('mimetype','ilike','image/%')
+         ], order='id desc', limit=1)"/>
+
+      <!-- 2) Extraer un #RRGGBB del texto visible de la línea (sin usar 're') -->
+      <t t-set="desc" t-value="(line.name or '')"/>
+      <t t-set="pos" t-value="desc.rfind('#')"/>
+      <t t-set="hex"
+         t-value="(('#' + desc[pos+1:pos+7]).upper()
+                   if (pos != -1 and len(desc) >= pos+7 and
+                       all(c in '0123456789ABCDEF' for c in (desc[pos+1:pos+7]).upper()))
+                   else False)"/>
+
+      <t t-if="att or hex">
         <div class="spw-cart-block" style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <!-- Miniatura de la personalización -->
-          <t t-if="line.spw_png_attachment_id">
-            <img t-att-src="'/web/image/%s' % line.spw_png_attachment_id.id"
+          <t t-if="att">
+            <img t-att-src="'/web/image/%s' % att.id"
                  alt="Personalización"
                  loading="lazy"
                  style="max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px;"/>
           </t>
-          <!-- Píldora de color -->
-          <t t-if="line.spw_svg_color">
-            <span t-att-title="line.spw_svg_color"
-                  style="display:inline-block;width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;"
-                  t-att-style="'background:%s;display:inline-block;width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;' % line.spw_svg_color"/>
+          <t t-if="hex">
+            <span t-att-title="hex"
+                  t-att-style="'background:%s;display:inline-block;width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;'" />
           </t>
         </div>
       </t>
+
     </xpath>
   </template>
+
 </odoo>
