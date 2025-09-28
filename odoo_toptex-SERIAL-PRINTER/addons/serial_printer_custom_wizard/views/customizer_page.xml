@@ -4,7 +4,7 @@
   <!-- ===================== 1) SPW - Página del Personalizador ===================== -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
-      <!-- FIX: evitar error de Web Editor -->
+      <!-- FIX WebEditor -->
       <t t-set="pageName" t-value="'spw_customize_page'"/>
       <t t-set="main_object" t-value="website"/>
 
@@ -43,7 +43,7 @@
                   <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
                   <input id="spw_logo_input" class="form-control" type="file"
                          accept=".png,.jpg,.jpeg,.svg,.PNG,.JPG,.JPEG,.SVG"/>
-                  <small class="text-muted">Máx. 10&nbsp;MB.</small>
+                  <small class="text-muted">Máx. 10&#160;MB.</small>
                 </div>
 
                 <!-- Técnica -->
@@ -148,7 +148,7 @@
         </div>
       </div>
 
-      <!-- ===== JS inline (en CDATA; seguro) ===== -->
+      <!-- ===== JS inline (CDATA) ===== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -162,7 +162,7 @@
             var im=new Image();
             im.onload=function(){ resolve(im); };
             im.onerror=function(e){ reject(e); };
-            im.crossOrigin = 'anonymous';
+            im.crossOrigin='anonymous';
             im.src=src;
           });
         }
@@ -361,7 +361,6 @@
   <!-- ===================== 2) Inyección en website.layout: preview en carrito ===================== -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
-      <!-- Estilos del bloque del carrito -->
       <style id="spw-cart-style">
         .spw-cart-block{margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
         .spw-cart-block img{max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px}
@@ -398,7 +397,6 @@
           var sel = 'tr.js_cart_line, .o_wsale_cart_item, .card.js_cart_item, .o_cart_line';
           return qa(sel).filter(function(n){ return !!getLineId(n); });
         }
-        // contenedor "descripción" donde inyectar
         function infoContainer(line){
           return q('.o_wsale_product_information', line)
               || q('.o_cart_product_info', line)
@@ -406,7 +404,6 @@
               || q('.media-body', line)
               || line;
         }
-        // lee #RRGGBB del texto visible de la línea
         function detectHex(line){
           try{
             var cont = infoContainer(line);
@@ -418,7 +415,6 @@
 
         function insertPreview(line, pngSrc, hex){
           var id = getLineId(line); if(!id) return;
-          // limpiar duplicados
           qa('.spw-cart-block[data-line="'+id+'"]', line).forEach(function(n){ n.remove(); });
 
           var wrap = document.createElement('div');
@@ -445,7 +441,7 @@
 
         function inject(){
           var lines = findLines();
-          // Limpieza global de bloques huérfanos
+
           qa('.spw-cart-block').forEach(function(n){
             var lid = n.getAttribute('data-line');
             var alive = lines.some(function(l){ return getLineId(l) === lid; });
@@ -455,13 +451,11 @@
           lines.forEach(function(line){
             var id = getLineId(line);
             if(!id) return;
-            // servidor (estable)
             var src = '/spw/line_preview/' + encodeURIComponent(id) + '.png?_=' + Date.now();
             var hex = detectHex(line);
             insertPreview(line, src, hex);
           });
 
-          // Si venimos del customizador con ?spw_line_id, sustituimos por la dataURL inmediata
           var wanted = urlParam('spw_line_id');
           if (wanted) {
             try{
