@@ -1,31 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-  <!-- SPW: Miniatura de personalización + píldora de color en cada línea del carrito -->
+  <!-- SPW: miniatura PNG + píldora de color en la línea del carrito -->
   <template id="spw_cart_line_preview"
             name="SPW Cart line: preview + color"
-            inherit_id="website_sale.cart_line"  <!-- ⚠️ XMLID correcto en tu versión -->
+            inherit_id="website_sale.cart_line"
             priority="70">
 
-    <!-- Insertamos dentro del bloque de información del producto -->
+    <!-- Insertar dentro del bloque de info del producto -->
     <xpath expr="//div[contains(@class,'o_cart_product_info') or contains(@class,'o_wsale_product_information')]"
            position="inside">
 
-      <!-- Solo si los campos existen en sale.order.line -->
+      <!-- Sólo si los campos existen en sale.order.line -->
       <t t-if="line and (('spw_png_attachment_id' in line._fields) or ('spw_svg_color' in line._fields))">
         <div class="spw-cart-custom d-flex align-items-center gap-2 mt-2">
 
-          <!-- Miniatura PNG almacenada en ir.attachment -->
+          <!-- Miniatura PNG -->
           <img t-if="'spw_png_attachment_id' in line._fields and line.spw_png_attachment_id"
                t-att-src="'/web/image/%s' % (line.spw_png_attachment_id.id)"
                alt="Personalización"
                style="width:64px;height:64px;object-fit:contain;border:1px solid #e8e8e8;border-radius:6px;"/>
 
-          <!-- Píldora con el color SVG elegido -->
+          <!-- Píldora de color -->
           <t t-if="'spw_svg_color' in line._fields and line.spw_svg_color">
             <span t-att-title="line.spw_svg_color"
-                  style="display:inline-block;width:18px;height:18px;border-radius:9999px;border:1px solid rgba(0,0,0,.15);"
-                  t-att-style="'background:%s;'" t-attf-style="background:{{ line.spw_svg_color }};"></span>
+                  t-att-style="'background:%s;' % line.spw_svg_color"
+                  style="display:inline-block;width:18px;height:18px;border-radius:9999px;border:1px solid rgba(0,0,0,.15);"></span>
           </t>
 
         </div>
