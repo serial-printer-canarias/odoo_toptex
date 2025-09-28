@@ -7,11 +7,9 @@
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
       <t t-set="pageName" t-value="'spw_customize_page'"/>
-      <!-- MUY IMPORTANTE: dar un main_object válido para evitar el error de web.assets -->
       <t t-set="main_object" t-value="template"/>
 
       <div class="container my-5 spw-customizer">
-        <!-- IDs necesarios para el JS -->
         <input type="hidden" id="spw_template_id" t-att-value="template.id"/>
         <input type="hidden" id="spw_variant_id"
                t-att-value="variant_id or (template.product_variant_id and template.product_variant_id.id) or ''"/>
@@ -21,7 +19,7 @@
           <!-- Lienzo / Previsualización -->
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative; overflow:hidden;">
-              <!-- Imagen SAME-ORIGIN para render canvas (evita CORS/tainted) -->
+              <!-- Imagen SAME-ORIGIN para canvas -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
@@ -46,7 +44,7 @@
                   <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
                   <input id="spw_logo_input" class="form-control" type="file"
                          accept=".png,.jpg,.jpeg,.svg,.PNG,.JPG,.JPEG,.SVG"/>
-                  <small class="text-muted">Máx. 10&nbsp;MB.</small>
+                  <small class="text-muted">Máx. 10&#160;MB.</small>
                 </div>
 
                 <!-- Técnica -->
@@ -174,7 +172,6 @@
             var im = new Image();
             im.onload = function(){ resolve(im); };
             im.onerror = function(e){ reject(e); };
-            // SAME-ORIGIN para canvas
             im.crossOrigin = "anonymous";
             im.src = src;
           });
@@ -202,7 +199,6 @@
           var bw = base.clientWidth || base.naturalWidth || 0;
           var bh = base.clientHeight || base.naturalHeight || 0;
 
-          // Pivotes centrados con offset razonable
           var leftPx = bw*(0.5 + posX/100);
           var topPx  = bh*(0.6 + posY/100);
 
@@ -292,11 +288,8 @@
           var svgColor=( (document.querySelector("input[name='spw_svg_color']:checked")||{}).value )||"";
           var notes=($val("spw_notes","")||"").trim();
 
-          if(!variantId){
-            alert("Falta la variante del producto."); return;
-          }
+          if(!variantId){ alert("Falta la variante del producto."); return; }
 
-          // 1) Render PNG y guardar en sessionStorage para la redirección al carrito
           var pngB64="";
           try{
             var du = await renderPNGDataURL();
@@ -304,9 +297,8 @@
             sessionStorage.setItem('spw_last_png', du || '');
             sessionStorage.setItem('spw_last_color', svgColor || '');
             pngB64 = du ? du.split('base64,')[1] : "";
-          }catch(_){ /* seguimos sin bloquear */ }
+          }catch(_){}
 
-          // 2) Llamada principal -> fallback http
           var r1 = await postJSON("/spw/add_to_cart_meta", {
             variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
           });
@@ -315,14 +307,10 @@
               variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
             });
           }
-          if(!r1.ok){
-            alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito.");
-            return;
-          }
+          if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
           try { if (r1.data && r1.data.line_id) sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id)); } catch(_){}
 
-          // 3) Adjuntar PNG (sin bloquear la redirección)
           if(pngB64){
             try{
               var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
@@ -390,23 +378,18 @@
           applyTransform();
         }
 
-        if(document.readyState==="loading"){
-          document.addEventListener("DOMContentLoaded", init);
-        } else {
-          init();
-        }
+        if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded", init); }
+        else { init(); }
       })();
       ]]></script>
     </t>
   </template>
-
 
   <!-- ==========================================================
        INYECCIÓN EN website.layout: PREVIEW + PÍLDORAS EN CARRITO
        ========================================================== -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
-      <!-- Estilos del bloque del carrito -->
       <style id="spw-cart-style">
         .spw-cart-block{margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
         .spw-cart-block img{max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px}
@@ -416,7 +399,6 @@
       <script type="text/javascript"><![CDATA[
       (function(){
         "use strict";
-        // Cart y Checkout
         if (!/\/shop\/(cart|checkout)/.test(location.pathname)) return;
 
         function q(s,r){return (r||document).querySelector(s);}
@@ -445,7 +427,6 @@
         }
 
         function findLines(){
-          // cubre community/enterprise/temas
           var sel = 'tr.js_cart_line, .o_wsale_cart_item, .card.js_cart_item, .o_cart_line, .o_checkout_line';
           return qa(sel).filter(function(n){ return !!getLineId(n); });
         }
@@ -469,7 +450,6 @@
 
         function insertPreview(line, pngSrc, hex){
           var id = getLineId(line); if(!id) return;
-          // eliminar duplicados
           qa('.spw-cart-block[data-line="'+id+'"]', line).forEach(function(n){ n.remove(); });
 
           var wrap = document.createElement('div');
@@ -497,14 +477,12 @@
         function inject(){
           var lines = findLines();
 
-          // limpiar huérfanos globales
           qa('.spw-cart-block').forEach(function(n){
             var lid = n.getAttribute('data-line');
             var alive = lines.some(function(l){ return getLineId(l) === lid; });
             if(!alive) n.remove();
           });
 
-          // servidor (estable)
           lines.forEach(function(line){
             var id = getLineId(line);
             if(!id) return;
@@ -513,7 +491,6 @@
             insertPreview(line, src, hex);
           });
 
-          // fast-path al volver del customizer
           var wanted = urlParam('spw_line_id');
           if (wanted) {
             try{
