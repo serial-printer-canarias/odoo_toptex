@@ -13,68 +13,42 @@ def _to_int(v, dflt=0):
         return dflt
 
 
-HEX_RE = re.compile(r'Color\s*SVG\s*:\s*#([0-9a-fA-F]{3,8})')
-
-
-def _strip_b64_header(data_uri_or_b64: str) -> str:
-    """Quita 'data:image/png;base64,' si viene como DataURL."""
-    if not data_uri_or_b64:
-        return ''
-    if ',' in data_uri_or_b64 and ';base64' in data_uri_or_b64:
-        return data_uri_or_b64.split(',', 1)[1]
-    return data_uri_or_b64
-
-
-def _count_personalizations_in_text(text: str) -> int:
-    """Cuenta cuántas personalizaciones hay mirando 'Color SVG: #xxxxxx'."""
-    if not text:
+def _count_blocks(name_text: str) -> int:
+    """Cuenta bloques '— Personalización N —' en el name de la línea."""
+    if not name_text:
         return 0
-    return len(HEX_RE.findall(text))
-
-
-def _next_seq_for_line(line) -> int:
-    """Calcula el siguiente índice (seq) de personalización para la línea."""
-    # 1) Intenta por el texto (lo que ve el cliente y usa el inyectador)
-    n_from_text = _count_personalizations_in_text(line.name or '')
-
-    # 2) Cuenta adjuntos ya guardados con nuestro prefijo
-    ats = request.env['ir.attachment'].sudo().search_count([
-        ('res_model', '=', 'sale.order.line'),
-        ('res_id', '=', line.id),
-        ('mimetype', '=', 'image/png'),
-        ('name', 'like', 'spw_line_%'),
-    ])
-
-    # El siguiente índice es el mayor de ambos + 1, para no solaparnos
-    return max(n_from_text, ats) + 1
+    return len(re.findall(r'—\s*Personalización\s*\d+\s*—', name_text))
 
 
 class SpwCartController(http.Controller):
-
     # =========================================================
-    # 1) Crear/actualizar línea y AÑADIR un bloque de metadatos
+    # 1) Crear/actualizar línea y añadir BLOQUE de personalización
     # =========================================================
     @http.route(['/spw/add_to_cart_meta'], type='json', auth='public', methods=['POST'], csrf=False)
     def spw_add_to_cart_meta(self, **kw):
-        """Crea/actualiza una línea y AÑADE la personalización como nuevo bloque.
-        Devuelve { ok, line_id, seq, cart_url }.
+        """
+        Crea/actualiza la línea y AÑADE un bloque nuevo al 'name' con:
+        — Personalización N — / Técnica / Color SVG / Observaciones
+
+        Devuelve line_id, seq (N) y la URL del carrito.
         """
         vals = request.jsonrequest or {}
         variant_id = _to_int(vals.get('variant_id'))
         qty        = _to_int(vals.get('qty', 1), 1)
         tech       = (vals.get('tech') or '').strip()
-        svg_color  = (vals.get('svg_color') or '').strip()   # ej '#D62828'
+        svg_color  = (vals.get('svg_color') or '').strip()
         notes      = (vals.get('notes') or '').strip()
 
         if not variant_id or qty <= 0:
             return {'ok': False, 'message': _('Bad payload')}
 
+        # Pedido y producto
         order = request.website.sale_get_order(force_create=True)
         product = request.env['product.product'].sudo().browse(variant_id).exists()
         if not product:
             return {'ok': False, 'message': _('Product not found')}
 
-        # _cart_update crea/actualiza línea del mismo SKU (sumará qty)
+        # _cart_update: puede reutilizar la línea del mismo SKU (está bien)
         res = order._cart_update(product_id=product.id, add_qty=qty)
         line_id = res.get('line_id')
         if not line_id:
@@ -82,51 +56,49 @@ class SpwCartController(http.Controller):
 
         line = request.env['sale.order.line'].sudo().browse(line_id)
 
-        # Próximo índice de personalización para esta línea
-        seq = _next_seq_for_line(line)
+        # Siguiente índice N (cuenta bloques ya presentes)
+        current_name = (line.name or '').strip()
+        next_seq = _count_blocks(current_name) + 1
 
-        # Construimos un bloque legible (el inyectador detecta Color SVG)
-        block_lines = []
-        block_lines.append(f"— Personalización {seq} —")
+        # Construir bloque nuevo
+        block_lines = [f"— Personalización {next_seq} —"]
         if tech:
             block_lines.append(f"Técnica: {tech}")
         if svg_color:
             block_lines.append(f"Color SVG: {svg_color}")
         if notes:
-            block_lines.append(f"Obs: {notes}")
-        block_text = "\n".join(block_lines)
+            block_lines.append(f"Observaciones: {notes}")
 
-        # Evitar duplicar si ya existe exactamente ese bloque (idempotencia)
-        current_name = (line.name or '').strip()
-        if block_text not in current_name:
-            new_name = (current_name + ("\n\n" if current_name else "") + block_text).strip()
-            line.sudo().write({'name': new_name})
+        new_name = (current_name + ("\n" if current_name else "") + "\n".join(block_lines)).strip()
+        line.sudo().write({
+            'name': new_name,
+            # Guardamos también metadatos "últimos" por si se usan en informes
+            'spw_tech': tech or False,
+            'spw_svg_color': svg_color or False,
+            'spw_notes': notes or False,
+        })
 
-        # Guarda también en campos propios (si los tienes para backoffice)
-        to_write = {}
-        if tech:
-            to_write['spw_tech'] = tech
-        if svg_color:
-            to_write['spw_svg_color'] = svg_color
-        if notes:
-            to_write['spw_notes'] = notes
-        if to_write:
-            line.sudo().write(to_write)
+        return {
+            'ok': True,
+            'line_id': line.id,
+            'seq': next_seq,
+            'cart_url': '/shop/cart',
+            'preview_url': f'/spw/line_preview/{line.id}-{next_seq}.png',
+        }
 
-        return {'ok': True, 'line_id': line.id, 'seq': seq, 'cart_url': '/shop/cart'}
-
-    # =====================================
-    # 2) Adjuntar PNG a la línea (con índice)
-    # =====================================
+    # =========================================================
+    # 2) Adjuntar PNG de una personalización concreta (seq)
+    # =========================================================
     @http.route(['/spw/attach_png'], type='json', auth='public', methods=['POST'], csrf=False)
     def spw_attach_png(self, **kw):
-        """Adjunta un PNG (base64) a la línea con un índice 'seq' (1..n).
-        Si no se envía 'seq', lo calcula automáticamente.
+        """
+        Adjunta un PNG (base64) para la línea y el índice 'seq' indicado.
+        Si no se pasa seq, usa el siguiente disponible.
         """
         data = request.jsonrequest or {}
         line_id = _to_int(data.get('line_id'))
-        png_b64 = _strip_b64_header((data.get('png_b64') or '').strip())
-        seq     = _to_int(data.get('seq') or data.get('i') or data.get('idx'))
+        png_b64 = (data.get('png_b64') or '').strip()
+        seq     = _to_int(data.get('seq'), 0)
 
         if not line_id or not png_b64:
             return {'ok': False, 'message': _('Missing data')}
@@ -135,30 +107,47 @@ class SpwCartController(http.Controller):
         if not line:
             return {'ok': False, 'message': _('Line not found')}
 
+        # Si no viene seq, calculamos el siguiente según adjuntos existentes
+        Att = request.env['ir.attachment'].sudo()
+        pattern = f"spw_line_{line.id}_"
+        existing = Att.search([
+            ('res_model', '=', 'sale.order.line'),
+            ('res_id', '=', line.id),
+            ('mimetype', '=', 'image/png'),
+            ('name', 'ilike', pattern + '%'),
+        ])
         if not seq:
-            seq = _next_seq_for_line(line)
+            # siguiente libre = max + 1
+            max_seq = 0
+            for att in existing:
+                m = re.search(rf"spw_line_{line.id}_(\d+)\.png$", att.name or '')
+                if m:
+                    max_seq = max(max_seq, int(m.group(1)))
+            seq = max_seq + 1
 
-        att_name = f"spw_line_{line.id}_{int(seq)}.png"
+        # Si ya existía el de ese seq, lo sustituimos
+        for att in existing:
+            if re.fullmatch(rf"spw_line_{line.id}_{seq}\.png", att.name or ''):
+                att.unlink()
+                break
+
+        att_name = f"spw_line_{line.id}_{seq}.png"
         att_vals = {
             'name': att_name,
             'res_model': 'sale.order.line',
             'res_id': line.id,
             'type': 'binary',
             'mimetype': 'image/png',
-            'datas': png_b64,  # ya base64 puro
+            'datas': png_b64,  # ya viene base64
         }
-        att = request.env['ir.attachment'].sudo().create(att_vals)
+        att = Att.create(att_vals)
 
-        # Mantén un campo "último adjunto" para compatibilidad
-        if not getattr(line, 'spw_png_attachment_id', False):
-            line.sudo().write({'spw_png_attachment_id': att.id})
-        else:
-            # opcional: actualiza siempre al último
-            line.sudo().write({'spw_png_attachment_id': att.id})
+        # Many2one opcional (conserva el último subido)
+        line.sudo().write({'spw_png_attachment_id': att.id})
 
         return {'ok': True, 'attachment_id': att.id, 'seq': seq}
 
-    # Fallback by form POST (JSON → http)
+    # Fallbacks HTTP (por si fetch JSON falla en algún navegador)
     @http.route(['/spw/attach_png_http'], type='http', auth='public', methods=['POST'], csrf=False)
     def spw_attach_png_http(self, **post):
         try:
@@ -175,57 +164,32 @@ class SpwCartController(http.Controller):
         except Exception as e:
             return request.make_json_response({'ok': False, 'message': str(e)})
 
-    # ============================================
-    # 3) Servir la previsualización por línea/índice
-    # ============================================
-    @http.route([
-        '/spw/line_preview/<int:line_id>.png',
-        '/spw/line_preview/<int:line_id>-<int:seq>.png',
-        '/spw/line_preview/<int:line_id>',
-    ], type='http', auth='public', methods=['GET'], csrf=False)
-    def spw_line_preview(self, line_id, seq=None, **kw):
-        """Devuelve el PNG de la personalización 'seq' de esa línea.
-        - Si viene ?i=<n> o path -<n> usa ese índice.
-        - Si no hay índice, devuelve el último PNG; si no hay, 1x1 transparente.
-        """
+    # =========================================================
+    # 3) Servir previsualizaciones por índice
+    # =========================================================
+    @http.route(['/spw/line_preview/<int:line_id>-<int:seq>.png'], type='http', auth='public', methods=['GET'], csrf=False)
+    def spw_line_preview_seq(self, line_id, seq, **kw):
+        """Devuelve el PNG de la línea + índice. 1x1 si no existe."""
         line = request.env['sale.order.line'].sudo().browse(line_id).exists()
         if not line:
             return request.not_found()
 
-        # índice vía query (?i=) si no vino en la ruta
-        if seq is None:
-            seq = _to_int(kw.get('i') or kw.get('idx'))
-
-        Attachment = request.env['ir.attachment'].sudo()
-
-        att = None
-        if seq:
-            # Busca exactamente el índice pedido
-            att = Attachment.search([
-                ('res_model', '=', 'sale.order.line'),
-                ('res_id', '=', line.id),
-                ('mimetype', '=', 'image/png'),
-                ('name', '=', f'spw_line_{line.id}_{int(seq)}.png'),
-            ], limit=1)
+        name = f"spw_line_{line.id}_{seq}.png"
+        att = request.env['ir.attachment'].sudo().search([
+            ('res_model', '=', 'sale.order.line'),
+            ('res_id', '=', line.id),
+            ('mimetype', '=', 'image/png'),
+            ('name', '=', name),
+        ], limit=1)
 
         if not att:
-            # Toma el más reciente nuestro
-            att = Attachment.search([
-                ('res_model', '=', 'sale.order.line'),
-                ('res_id', '=', line.id),
-                ('mimetype', '=', 'image/png'),
-                ('name', 'like', f'spw_line_{line.id}_%'),
-            ], order='id desc', limit=1)
-
-        if not att:
-            # PNG transparente 1x1
             tiny = b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAEklEQVR42mP8/5+hHgAHggJ/2k7O6wAAAABJRU5ErkJggg==")
             return request.make_response(tiny, headers=[('Content-Type', 'image/png')])
 
         data = b64decode(att.datas)
-        headers = [
-            ('Content-Type', 'image/png'),
-            # Evitar cache agresivo para que se vea al instante
-            ('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0'),
-        ]
-        return request.make_response(data, headers=headers)
+        return request.make_response(data, headers=[('Content-Type', 'image/png')])
+
+    # Compatibilidad: si piden sin índice, devolvemos la #1
+    @http.route(['/spw/line_preview/<int:line_id>.png'], type='http', auth='public', methods=['GET'], csrf=False)
+    def spw_line_preview_legacy(self, line_id, **kw):
+        return self.spw_line_preview_seq(line_id, 1, **kw)
