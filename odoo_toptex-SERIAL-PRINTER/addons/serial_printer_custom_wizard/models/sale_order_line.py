@@ -1,40 +1,23 @@
 # -*- coding: utf-8 -*-
-import re
-from odoo import models, fields
+from odoo import api, fields, models
 
-META_RE = re.compile(r'^\s*(Técnica:|Tecnica:|SVG:|Color SVG:).*$',
-                     flags=re.IGNORECASE | re.MULTILINE)
 
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
 
-    spw_tech = fields.Char('SPW Technique')
-    spw_svg_color = fields.Char('SPW SVG Color')
-    spw_notes = fields.Text('SPW Notes')
-    spw_preview_attachment_id = fields.Many2one('ir.attachment', string='SPW Preview')
+    spw_tech = fields.Char(string="SPW Técnica")
+    spw_svg_color = fields.Char(string="SPW Color SVG")
+    spw_notes = fields.Text(string="SPW Observaciones")
+    spw_png_attachment_id = fields.Many2one('ir.attachment', string="SPW PNG adjunto", ondelete='set null')
 
-    def _apply_spw_meta_to_name(self):
+    # Opcional: evitar duplicar líneas de técnica/color al cambiar nombre
+    @api.onchange('spw_tech', 'spw_svg_color')
+    def _onchange_spw_meta_to_description(self):
         for line in self:
-            name = line.name or ''
-            name = META_RE.sub('', name).rstrip()
-            parts = []
+            base = (line.name or '').splitlines()
+            base_clean = [x for x in base if x and not x.startswith('Técnica:') and not x.startswith('Color SVG:')]
             if line.spw_tech:
-                parts.append('Técnica: %s' % line.spw_tech)
+                base_clean.append(f"Técnica: {line.spw_tech}")
             if line.spw_svg_color:
-                parts.append('Color SVG: %s' % line.spw_svg_color.upper())
-            if parts:
-                if name:
-                    name += '\n'
-                name += ' | '.join(parts)
-            line.name = name
-
-    def write(self, vals):
-        res = super().write(vals)
-        if {'spw_tech','spw_svg_color'} & set(vals.keys()):
-            self._apply_spw_meta_to_name()
-        return res
-
-    def create(self, vals_list):
-        records = super().create(vals_list)
-        records._apply_spw_meta_to_name()
-        return records
+                base_clean.append(f"Color SVG: {line.spw_svg_color}")
+            line.name = "\n".join(base_clean)
