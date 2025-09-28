@@ -1,20 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Parche defensivo: evita ParseError si cambia el DOM del carrito.
-         No modifica nada visual (no-op), solo asegura que el xpath siempre
-         encuentra algo dentro del bucle de líneas del carrito. -->
+    <!-- Parche seguro: evita ParseError en update sin modificar el front -->
     <template id="spw_cart_line_preview_safe"
               name="SPW Cart line: preview + color (fieldless)"
-              inherit_id="website_sale.cart_lines"
+              inherit_id="website_sale.cart"
               priority="60">
-
-        <!-- Ancla robusta: el bucle de líneas del carrito en varias versiones -->
-        <xpath expr="//t[@t-as='line' and
-                        (@t-foreach='website_sale_order.order_line'
-                         or @t-foreach='order.order_line'
-                         or contains(@t-foreach,'order_line'))]"
-               position="inside">
-            <!-- no-op para que la herencia sea válida -->
+        <!-- Ancla robusta y estable en todas las plantillas del carrito -->
+        <xpath expr="//div[@id='wsale_cart']" position="inside">
+            <!-- no-op; solo para que la herencia sea válida y el update no falle -->
             <t t-set="__spw_placeholder">1</t>
         </xpath>
     </template>
