@@ -1,38 +1,39 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- ===================== 1) SPW - Página del Personalizador ===================== -->
+  <!-- =================== PÁGINA DEL PERSONALIZADOR =================== -->
   <template id="spw_customize_page" name="SPW - Customizer Page">
     <t t-call="website.layout">
-      <!-- FIX WebEditor -->
+      <!-- Evita errores del WebEditor -->
       <t t-set="pageName" t-value="'spw_customize_page'"/>
-      <t t-set="main_object" t-value="website"/>
+      <t t-set="main_object" t-value="request.website"/>
 
       <div class="container my-5 spw-customizer">
-        <!-- Datos del contexto -->
+        <!-- Contexto -->
         <input type="hidden" id="spw_template_id" t-att-value="template.id"/>
         <input type="hidden" id="spw_variant_id" t-att-value="variant_id or ''"/>
         <input type="hidden" id="spw_img_src" t-att-value="img_src"/>
 
         <div class="row g-4">
-          <!-- Lienzo -->
+          <!-- Lado izquierdo: lienzo -->
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative;">
-              <!-- Base same-origin (para exportar sin CORS) -->
+              <!-- Imagen same-origin para exportar a PNG sin CORS -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
 
-              <!-- Imagen visible -->
+              <!-- Imagen visible del producto -->
               <img id="spw_product_img" class="spw-base img-fluid rounded"
                    t-att-src="img_src" alt="Producto"/>
 
               <!-- Overlay del logo -->
-              <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"/>
+              <img id="spw_logo_preview" class="spw-logo-preview d-none" alt="Logo preview"
+                   style="position:absolute;opacity:0;left:50%;top:60%;transform:translate(-50%,-50%);width:100px;"/>
             </div>
           </div>
 
-          <!-- Controles -->
+          <!-- Lado derecho: controles -->
           <div class="col-12 col-lg-5">
             <div class="card h-100">
               <div class="card-body">
@@ -43,7 +44,7 @@
                   <label class="form-label">Subir logo (PNG/JPG/SVG)</label>
                   <input id="spw_logo_input" class="form-control" type="file"
                          accept=".png,.jpg,.jpeg,.svg,.PNG,.JPG,.JPEG,.SVG"/>
-                  <small class="text-muted">Máx. 10&#160;MB.</small>
+                  <small class="text-muted">Tamaño máx. 10&nbsp;MB.</small>
                 </div>
 
                 <!-- Técnica -->
@@ -68,37 +69,43 @@
                 <!-- Color SVG -->
                 <div class="mb-3">
                   <label class="form-label">Color (SVG)</label>
-                  <div class="spw-color-row d-flex align-items-center gap-2 flex-wrap">
-                    <label class="spw-color-swatch is-black" title="#000000" style="display:inline-flex;align-items:center;gap:.35rem;">
+                  <style>
+                    .spw-color-row{display:flex;gap:10px;flex-wrap:wrap}
+                    .spw-color-swatch{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+                    .spw-color-swatch input{display:none}
+                    .spw-color-ring{width:18px;height:18px;border-radius:999px;border:1px solid #e5e7eb;display:inline-block}
+                    .spw-color-swatch.is-black .spw-color-ring{background:#000}
+                    .spw-color-swatch.is-white .spw-color-ring{background:#fff}
+                    .spw-color-swatch.is-red   .spw-color-ring{background:#D62828}
+                    .spw-color-swatch.is-blue  .spw-color-ring{background:#2060FF}
+                    .spw-color-swatch.is-green .spw-color-ring{background:#2A9D8F}
+                  </style>
+                  <div class="spw-color-row">
+                    <label class="spw-color-swatch is-black">
                       <input type="radio" name="spw_svg_color" value="#000000" checked="checked"/>
-                      <span class="spw-color-ring" style="width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;background:#000000;display:inline-block;"></span>
-                      <span>#000000</span>
+                      <span class="spw-color-ring"></span>
                     </label>
-                    <label class="spw-color-swatch is-white" title="#FFFFFF" style="display:inline-flex;align-items:center;gap:.35rem;">
+                    <label class="spw-color-swatch is-white">
                       <input type="radio" name="spw_svg_color" value="#FFFFFF"/>
-                      <span class="spw-color-ring" style="width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;background:#FFFFFF;display:inline-block;"></span>
-                      <span>#FFFFFF</span>
+                      <span class="spw-color-ring"></span>
                     </label>
-                    <label class="spw-color-swatch is-red" title="#D62828" style="display:inline-flex;align-items:center;gap:.35rem;">
+                    <label class="spw-color-swatch is-red">
                       <input type="radio" name="spw_svg_color" value="#D62828"/>
-                      <span class="spw-color-ring" style="width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;background:#D62828;display:inline-block;"></span>
-                      <span>#D62828</span>
+                      <span class="spw-color-ring"></span>
                     </label>
-                    <label class="spw-color-swatch is-blue" title="#2060FF" style="display:inline-flex;align-items:center;gap:.35rem;">
+                    <label class="spw-color-swatch is-blue">
                       <input type="radio" name="spw_svg_color" value="#2060FF"/>
-                      <span class="spw-color-ring" style="width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;background:#2060FF;display:inline-block;"></span>
-                      <span>#2060FF</span>
+                      <span class="spw-color-ring"></span>
                     </label>
-                    <label class="spw-color-swatch is-green" title="#2A9D8F" style="display:inline-flex;align-items:center;gap:.35rem;">
+                    <label class="spw-color-swatch is-green">
                       <input type="radio" name="spw_svg_color" value="#2A9D8F"/>
-                      <span class="spw-color-ring" style="width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;background:#2A9D8F;display:inline-block;"></span>
-                      <span>#2A9D8F</span>
+                      <span class="spw-color-ring"></span>
                     </label>
                   </div>
-                  <div class="spw-help mt-1">Se aplica solo a logos SVG.</div>
+                  <div class="text-muted mt-1" style="font-size:.9rem">Se aplica solo a logos SVG.</div>
                 </div>
 
-                <!-- Transformaciones -->
+                <!-- Controles -->
                 <div class="mb-3">
                   <label for="spw_size" class="form-label">Tamaño</label>
                   <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
@@ -116,19 +123,20 @@
                   <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
                 </div>
 
-                <!-- Cantidad y notas -->
+                <!-- Cantidad / Observaciones -->
                 <div class="mb-3">
                   <label for="spw_qty" class="form-label">Cantidad</label>
                   <input id="spw_qty" class="form-control" type="number" min="1" value="1"/>
                 </div>
                 <div class="mb-3">
                   <label for="spw_notes" class="form-label">Observaciones</label>
-                  <textarea id="spw_notes" class="form-control" rows="3" placeholder="Indica instrucciones para el taller..."></textarea>
+                  <textarea id="spw_notes" class="form-control" rows="3"
+                            placeholder="Indica instrucciones para el taller..."></textarea>
                 </div>
 
                 <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                  <a class="btn btn-outline-secondary" href="javascript:void(0)" onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
+                  <a id="spw_reset" class="btn btn-outline-secondary" href="javascript:void(0)">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -148,7 +156,7 @@
         </div>
       </div>
 
-      <!-- ===== JS inline (CDATA) ===== -->
+      <!-- =================== JS de la página =================== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -160,9 +168,9 @@
         async function loadImage(src){
           return new Promise(function(resolve, reject){
             var im=new Image();
+            im.crossOrigin = 'anonymous';
             im.onload=function(){ resolve(im); };
             im.onerror=function(e){ reject(e); };
-            im.crossOrigin='anonymous';
             im.src=src;
           });
         }
@@ -190,7 +198,6 @@
           var leftPx = bw*(0.5 + posX/100);
           var topPx  = bh*(0.6 + posY/100);
 
-          logo.style.position="absolute";
           logo.style.left = leftPx + "px";
           logo.style.top  = topPx  + "px";
           logo.style.transform = "translate(-50%, -50%) rotate("+rot+"deg)";
@@ -296,7 +303,7 @@
 
           try { if (r1.data && r1.data.line_id) sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id)); } catch(_){}
 
-          // 2) PNG JSON -> fallback HTTP (no bloquea la redirección)
+          // 2) PNG JSON -> fallback HTTP (no bloquea redirección)
           if(pngB64){
             var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
             if(!r2.ok){ await postForm("/spw/attach_png_http", { line_id: r1.data.line_id, png_b64: pngB64 }); }
@@ -307,17 +314,23 @@
           window.location.href = withParam;
         }
 
-        // Descarga PNG segura
+        // Descarga PNG segura (POST -> /spw/download_png)
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL();
-            var a = document.createElement("a");
-            a.href = dataUrl; a.download = "personalizacion.png";
-            if (typeof a.download === "undefined") {
-              window.location.href = dataUrl;
-            } else {
-              document.body.appendChild(a); a.click(); a.remove();
-            }
+            var b64 = (dataUrl && dataUrl.split('base64,')[1]) || '';
+            var form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '/spw/download_png';
+            form.target = '_blank';
+            var inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = 'png_b64';
+            inp.value = b64;
+            form.appendChild(inp);
+            document.body.appendChild(form);
+            form.submit();
+            form.remove();
           }catch(_){ alert("No se pudo generar el PNG."); }
         }
 
@@ -338,13 +351,17 @@
           ["spw_size","spw_pos_x","spw_pos_y","spw_rotation"].forEach(function(id){
             var el=document.getElementById(id); if(el) el.addEventListener("input", applyTransform);
           });
-          window.spwReset=function(){
-            document.getElementById("spw_size").value=100;
-            document.getElementById("spw_pos_x").value=0;
-            document.getElementById("spw_pos_y").value=10;
-            document.getElementById("spw_rotation").value=0;
-            applyTransform();
-          };
+
+          var resetBtn = $("#spw_reset");
+          if(resetBtn){
+            resetBtn.addEventListener("click", function(){
+              $("#spw_size").value=100;
+              $("#spw_pos_x").value=0;
+              $("#spw_pos_y").value=10;
+              $("#spw_rotation").value=0;
+              applyTransform();
+            });
+          }
 
           var dl=document.getElementById("spw_download_png"); if(dl){ dl.addEventListener("click", function(){ downloadPNGiOSSafe(); }); }
           var add=document.getElementById("spw_add_to_cart"); if(add){ add.addEventListener("click", addToCart); }
@@ -358,7 +375,7 @@
     </t>
   </template>
 
-  <!-- ===================== 2) Inyección en website.layout: preview en carrito ===================== -->
+  <!-- ============ INYECCIÓN EN website.layout: preview + píldoras en carrito ============ -->
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <style id="spw-cart-style">
@@ -407,8 +424,8 @@
         function detectHex(line){
           try{
             var cont = infoContainer(line);
-            if(!cont) return null;
-            var m = (cont.textContent||'').match(/#([0-9a-fA-F]{6})\b/);
+            var text = (cont && cont.textContent) || line.textContent || '';
+            var m = text.match(/#([0-9a-fA-F]{6})\b/);
             return m ? ('#'+m[1].toUpperCase()) : null;
           }catch(_){ return null; }
         }
@@ -441,7 +458,6 @@
 
         function inject(){
           var lines = findLines();
-
           qa('.spw-cart-block').forEach(function(n){
             var lid = n.getAttribute('data-line');
             var alive = lines.some(function(l){ return getLineId(l) === lid; });
