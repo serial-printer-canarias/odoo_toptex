@@ -1,181 +1,111 @@
-/** SPW – Cart preview injector (1 imagen + 1 píldora por línea, sin romper update) */
 odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function () {
     'use strict';
 
-    // ---------------- ready ----------------
-    function onReady(cb) {
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', cb, { once: true });
-        } else {
-            cb();
-        }
+    const LINE_SEL = '.o_cart_product, .js_cart_lines tr, .o_wsale_cart_item, .cart_line';
+    const INFO_SEL = '.o_wsale_product_information, .o_wsale_cart_description, .o_wsale_cart_item_description, .product-name, .oe_subdescription';
+    const ts = () => Date.now();
+
+    function onReady(cb){ document.readyState==='loading' ? document.addEventListener('DOMContentLoaded', cb, {once:true}) : cb(); }
+    function addQuery(url, params){ const u=new URL(url, window.location.origin); Object.entries(params||{}).forEach(([k,v])=>u.searchParams.set(k,v)); return u.pathname+(u.search||''); }
+
+    function getLineId(lineEl){
+        const c = lineEl.getAttribute('data-line-id') ? lineEl :
+            lineEl.querySelector('[data-line-id]') ||
+            lineEl.querySelector('input[name="line_id"]') ||
+            lineEl.querySelector('button[data-line-id], a[data-line-id]');
+        return (c && (c.getAttribute?.('data-line-id') || c.getAttribute?.('data-id') || c.value)) || null;
     }
 
-    // ---------------- selectores robustos ----------------
-    // Contenedores de línea típicos en website_sale / temas
-    const LINE_SEL =
-        [
-            '.o_cart_product',              // core
-            '.o_wsale_cart_item',           // core (cards)
-            '.js_cart_lines tr',            // tabla clásica
-            '.cart_line'                    // temas
-        ].join(',');
-
-    // Sitio donde inyectar (descripción/info del producto por línea)
-    const INFO_SEL =
-        [
-            '.o_wsale_product_information',
-            '.o_wsale_cart_description',
-            '.o_wsale_cart_item_description',
-            '.product-name',
-            '.oe_subdescription'
-        ].join(',');
-
-    // ---------------- utils ----------------
-    const exts = ['png', 'webp', 'jpg', 'jpeg'];
-
-    function ts() { return Date.now(); }
-
-    function addQuery(url, params) {
-        const u = new URL(url, window.location.origin);
-        Object.entries(params || {}).forEach(([k, v]) => u.searchParams.set(k, v));
-        return u.pathname + (u.search ? u.search : '');
+    function parsePersonalizations(text){
+        if (!text) return [];
+        const out = [];
+        const re = /Color\s*SVG\s*:\s*(#[0-9a-fA-F]{3,8})/g; // toma #RRGGBB
+        let m, i = 0;
+        while((m = re.exec(text))) out.push({ idx: i++, hex: m[1] });
+        return out.length ? out : [{ idx: 0, hex: null }];
     }
 
-    // ⚠️ Sólo se usará cuando renderizamos “sin” un nodo de línea (caso muy raro)
-    function urlLineId() {
-        try {
-            const m = location.search.match(/[?&]spw_line_id=(\d+)/);
-            return m ? m[1] : null;
-        } catch (_) {
-            return null;
-        }
+    function candidates(lineId, idx){
+        const n = idx+1, base = `/spw/line_preview/${lineId}`;
+        const exts = ['png','webp','jpg','jpeg'];
+        const bases = [`${base}-${n}`, `${base}/${n}`, `${base}_${n}`];
+        const urls = [];
+        for (const b of bases) for (const ext of exts) urls.push(addQuery(`${b}.${ext}`, { v: ts() }));
+        for (const ext of exts) urls.push(addQuery(`${base}.${ext}`, { i: n, v: ts() }));
+        urls.push(addQuery(base, { i: n, v: ts() }));
+        for (const ext of exts) urls.push(addQuery(`${base}.${ext}`, { i: n, fb: 1, v: ts() }));
+        return [...new Set(urls)];
     }
 
-    // Obtener el ID real de la línea en DOM (sin fallback a URL si tengo nodo)
-    function getLineId(lineEl) {
-        if (!lineEl) return urlLineId(); // solo si no hay nodo
-        const c = lineEl.hasAttribute && lineEl.hasAttribute('data-line-id') ? lineEl :
-            lineEl.querySelector?.('[data-line-id]') ||
-            lineEl.querySelector?.('input[name="line_id"]') ||
-            lineEl.querySelector?.('button[data-line-id], a[data-line-id]');
-        const val = (c && (c.getAttribute?.('data-line-id') || c.getAttribute?.('data-id') || c.value)) || null;
-        return (val && /^\d+$/.test(String(val))) ? String(val) : null;
-    }
-
-    // Primera coincidencia de color tipo #RRGGBB/#RGB en el texto visible de la línea
-    function firstColor(text) {
-        const m = /#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b/.exec(text || '');
-        return m ? m[0] : null;
-    }
-
-    // Crear contenedor idempotente para la preview en la línea
-    function ensureWrap(info) {
+    function ensureWrap(info){
         let wrap = info.querySelector('.spw-cart-preview');
-        if (!wrap) {
+        if (!wrap){
             wrap = document.createElement('div');
             wrap.className = 'spw-cart-preview';
-            wrap.style.cssText = 'display:flex;align-items:flex-start;gap:12px;margin-top:8px;flex-wrap:wrap';
-
-            const imgs = document.createElement('div');
-            imgs.className = 'spw-imgs';
-            imgs.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start';
-
-            const pills = document.createElement('div');
-            pills.className = 'spw-pills';
-            pills.style.cssText = 'display:flex;flex-direction:column;gap:8px;align-items:center';
-
-            wrap.appendChild(imgs);
-            wrap.appendChild(pills);
+            wrap.style.cssText = 'display:flex;gap:12px;flex-wrap:wrap;margin-top:8px';
             info.appendChild(wrap);
         }
         return wrap;
     }
 
-    // Cargar la primera URL válida; si fallan todas, quitar la imagen
-    function tryLoad(img, lineId) {
-        const candidates = exts.map(ext => addQuery(`/spw/line_preview/${lineId}.${ext}`, { v: ts() }));
-        let i = 0;
-        function next() {
-            if (i >= candidates.length) { img.remove(); return; }
-            const url = candidates[i++];
-            img.onerror = next;
-            img.onload = null;
-            img.src = url;
+    function tryLoad(img, list){
+        let k = 0;
+        function next(){
+            if (k >= list.length){ img.remove(); return; }
+            const url = list[k++]; img.onerror = next; img.onload = null; img.src = url;
         }
         next();
     }
 
-    // Render de UNA línea (1 imagen + 1 píldora)
-    function renderLine(lineEl) {
-        const info = lineEl.querySelector?.(INFO_SEL) || lineEl;
-        if (!info) return;
-
+    function renderLine(lineEl){
+        const info = lineEl.querySelector(INFO_SEL) || lineEl;
         const lineId = getLineId(lineEl);
-        if (!lineId) return; // sin id real, no pintamos (evita mezclar entre filas)
-
-        // idempotencia: no re-renderizar si ya está hecho para ese id
-        if (lineEl.dataset.spwRenderedFor === lineId) return;
+        if (!info || !lineId) return;
 
         const wrap = ensureWrap(info);
-        const imgsWrap = wrap.querySelector('.spw-imgs');
-        const pillsWrap = wrap.querySelector('.spw-pills');
+        wrap.innerHTML = ''; // refresco limpio
 
-        imgsWrap.innerHTML = '';
-        pillsWrap.innerHTML = '';
+        const persos = parsePersonalizations(info.textContent || '');
+        persos.forEach(({ idx, hex }) => {
+            const card = document.createElement('div');
+            card.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px';
 
-        // Píldora
-        const hex = firstColor(info.textContent || '');
-        const pill = document.createElement('span');
-        pill.title = hex || '—';
-        pill.style.cssText = 'width:14px;height:14px;border-radius:9999px;border:1px solid #e5e7eb;display:inline-block';
-        if (hex) pill.style.background = hex;
-        pillsWrap.appendChild(pill);
+            const img = new Image();
+            img.alt = 'Personalización';
+            img.loading = 'lazy';
+            img.style.cssText = 'width:120px;max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff';
+            card.appendChild(img);
 
-        // Imagen
-        const img = new Image();
-        img.alt = 'Personalización';
-        img.loading = 'lazy';
-        img.style.cssText = 'max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px';
-        imgsWrap.appendChild(img);
-        tryLoad(img, lineId);
+            const cap = document.createElement('div');
+            cap.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;color:#6b7280';
+            const pill = document.createElement('span');
+            pill.style.cssText = 'width:12px;height:12px;border-radius:9999px;border:1px solid rgba(0,0,0,.15);display:inline-block;background:'+(hex||'transparent');
+            cap.appendChild(pill);
+            const txt = document.createElement('span');
+            txt.textContent = hex || '—';
+            cap.appendChild(txt);
+            card.appendChild(cap);
 
-        lineEl.dataset.spwRenderedFor = lineId;
+            wrap.appendChild(card);
+            tryLoad(img, candidates(lineId, idx));
+        });
     }
 
-    function initialInject() {
+    function boot(){
+        const root = document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines');
+        if (!root) return;
         document.querySelectorAll(LINE_SEL).forEach(renderLine);
-    }
-
-    function observeMutations() {
-        const root =
-            document.querySelector('#o_cart') ||
-            document.querySelector('.o_wsale_cart_summary') ||
-            document.querySelector('.js_cart_lines') ||
-            document.body;
-
-        const mo = new MutationObserver(ms => {
-            for (const m of ms) {
+        new MutationObserver(ms => {
+            for (const m of ms){
                 m.addedNodes && m.addedNodes.forEach(n => {
-                    if (n instanceof HTMLElement) {
-                        if (n.matches?.(LINE_SEL)) {
-                            renderLine(n);
-                        } else {
-                            n.querySelectorAll?.(LINE_SEL).forEach(renderLine);
-                        }
+                    if (n instanceof HTMLElement){
+                        if (n.matches?.(LINE_SEL)) renderLine(n);
+                        else n.querySelectorAll?.(LINE_SEL).forEach(renderLine);
                     }
                 });
             }
-        });
-        mo.observe(root, { childList: true, subtree: true });
-    }
-
-    function boot() {
-        // Sólo en páginas de carrito
-        if (!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines')) return;
-        initialInject();
-        observeMutations();
-        console.log('[SPW] injector activo: 1 imagen + 1 píldora por línea, sin fallback URL.');
+        }).observe(root, { childList:true, subtree:true });
+        console.log('[SPW] previews del carrito listos');
     }
 
     onReady(boot);
