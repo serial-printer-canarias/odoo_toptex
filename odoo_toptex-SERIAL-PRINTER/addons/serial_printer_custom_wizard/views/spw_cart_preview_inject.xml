@@ -1,12 +1,159 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <template id="spw_cart_preview_assets"
-            name="SPW Cart Preview Assets"
-            inherit_id="website.assets_frontend"
+  <!-- Inyección inline en el layout de la web (no se heredan bundles de assets) -->
+  <template id="spw_cart_preview_inline"
+            name="SPW Cart preview inline (safe)"
+            inherit_id="website.layout"
             priority="60">
-    <xpath expr="." position="inside">
-      <script type="text/javascript"
-              src="/serial_printer_custom_wizard/static/src/js/spw_cart_preview_inject.js"/>
+    <xpath expr="//body" position="inside">
+      <script type="text/javascript"><![CDATA[
+      (function(){
+        'use strict';
+
+        function onReady(cb){
+          if(document.readyState==='loading'){
+            document.addEventListener('DOMContentLoaded', cb, {once:true});
+          } else cb();
+        }
+
+        // Solo actuamos en el carrito
+        function onCart(){ return /\/shop\/cart/.test(location.pathname); }
+
+        // Selectores robustos de líneas y de la columna de info
+        var LINE_SEL = [
+          '.o_cart_product',
+          '.o_wsale_cart_item',
+          '.js_cart_lines tr',
+          '.cart_line'
+        ].join(',');
+        var INFO_SEL = [
+          '.o_wsale_product_information',
+          '.o_wsale_cart_description',
+          '.o_wsale_cart_item_description',
+          '.product-name',
+          '.oe_subdescription'
+        ].join(',');
+
+        var exts = ['png','webp','jpg','jpeg'];
+        function ts(){ return Date.now(); }
+        function addQuery(url, params){
+          var u = new URL(url, location.origin);
+          Object.keys(params||{}).forEach(function(k){ u.searchParams.set(k, params[k]); });
+          return u.pathname + (u.search?u.search:'');
+        }
+
+        // Obtenemos SIEMPRE el id real de la línea; evita duplicados por mismo SKU
+        function getLineId(line){
+          if(!line) return null;
+          var c = (line.hasAttribute && line.hasAttribute('data-line-id')) ? line :
+                  line.querySelector('[data-line-id]') ||
+                  line.querySelector('input[name="line_id"]') ||
+                  line.querySelector('button[data-line-id], a[data-line-id]');
+          var val = (c && (c.getAttribute && (c.getAttribute('data-line-id')||c.getAttribute('data-id')))) || (c && c.value) || null;
+          return (val && /^\d+$/.test(String(val))) ? String(val) : null;
+        }
+
+        // Color: 1ª coincidencia tipo #RRGGBB/#RGB/#RRGGBBAA en el texto de la línea
+        function firstColor(text){
+          var m = (text||'').match(/#[0-9a-fA-F]{3,8}\b/);
+          return m ? m[0] : null;
+        }
+
+        function ensureWrap(info){
+          var wrap = info.querySelector('.spw-cart-preview');
+          if(!wrap){
+            wrap = document.createElement('div');
+            wrap.className='spw-cart-preview';
+            wrap.style.cssText='display:flex;align-items:flex-start;gap:12px;margin-top:8px;flex-wrap:wrap';
+
+            var imgs=document.createElement('div');
+            imgs.className='spw-imgs';
+            imgs.style.cssText='display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start';
+
+            var pills=document.createElement('div');
+            pills.className='spw-pills';
+            pills.style.cssText='display:flex;flex-direction:column;gap:8px;align-items:center';
+
+            wrap.appendChild(imgs);
+            wrap.appendChild(pills);
+            info.appendChild(wrap);
+          }
+          return wrap;
+        }
+
+        // Intenta /spw/line_preview/<lineId>.{png|webp|jpg|jpeg}
+        function tryLoad(img, lineId){
+          var list = exts.map(function(ext){ return addQuery('/spw/line_preview/'+lineId+'.'+ext, {v:ts()}); });
+          var i=0;
+          function next(){
+            if(i>=list.length){ img.remove(); return; }
+            var url=list[i++]; img.onerror=next; img.onload=null; img.src=url;
+          }
+          next();
+        }
+
+        function renderLine(line){
+          var info = (line.querySelector && line.querySelector(INFO_SEL)) || line;
+          if(!info) return;
+
+          var lineId = getLineId(line);
+          if(!lineId) return; // sin id real no pintamos (evita mezclar)
+
+          if(line.dataset.spwRenderedFor === lineId) return; // idempotente
+
+          var wrap = ensureWrap(info);
+          var imgs = wrap.querySelector('.spw-imgs');
+          var pills = wrap.querySelector('.spw-pills');
+          imgs.innerHTML=''; pills.innerHTML='';
+
+          // Píldora
+          var hex = firstColor(info.textContent||'');
+          var pill = document.createElement('span');
+          pill.title = hex || '—';
+          pill.style.cssText='width:14px;height:14px;border-radius:9999px;border:1px solid #e5e7eb;display:inline-block';
+          if(hex) pill.style.background = hex;
+          pills.appendChild(pill);
+
+          // Imagen
+          var img = new Image();
+          img.alt='Personalización';
+          img.loading='lazy';
+          img.style.cssText='max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px';
+          imgs.appendChild(img);
+          tryLoad(img, lineId);
+
+          line.dataset.spwRenderedFor = lineId;
+        }
+
+        function initial(){ document.querySelectorAll(LINE_SEL).forEach(renderLine); }
+
+        function observe(){
+          var root = document.querySelector('#o_cart') ||
+                     document.querySelector('.o_wsale_cart_summary') ||
+                     document.querySelector('.js_cart_lines') ||
+                     document.body;
+          var mo = new MutationObserver(function(ms){
+            ms.forEach(function(m){
+              (m.addedNodes||[]).forEach(function(n){
+                if(n.nodeType===1){
+                  if(n.matches && n.matches(LINE_SEL)) renderLine(n);
+                  else n.querySelectorAll && n.querySelectorAll(LINE_SEL).forEach(renderLine);
+                }
+              });
+            });
+          });
+          mo.observe(root, {childList:true, subtree:true});
+        }
+
+        function boot(){
+          if(!onCart()) return;
+          initial(); observe();
+          console.log('[SPW] cart preview inline listo');
+        }
+
+        onReady(boot);
+      })();
+      ]]></script>
     </xpath>
   </template>
 </odoo>
