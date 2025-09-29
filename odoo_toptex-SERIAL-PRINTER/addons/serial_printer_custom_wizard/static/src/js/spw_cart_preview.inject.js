@@ -1,162 +1,146 @@
-/** SPW – Cart preview: foto + píldora + texto por personalización (no repite) */
+/** SPW – Cart preview (multi imagen + píldora + texto por bloque) */
 odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function () {
   'use strict';
 
-  /* -------------------- helpers -------------------- */
-  const onReady = (cb) => {
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', cb, { once: true });
-    else cb();
-  };
+  // ---------- ready ----------
+  function onReady(cb){ document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', cb, {once:true}) : cb(); }
 
-  const LINE_SEL = '.o_cart_product, .js_cart_lines tr, .o_wsale_cart_item, .cart_line';
+  // ---------- selectores (muy permisivos para todos los temas) ----------
+  const LINE_SEL = '.o_cart_product, .o_wsale_cart_item, .js_cart_lines tr, .cart_line';
   const INFO_SEL = '.o_wsale_product_information, .o_wsale_cart_description, .o_wsale_cart_item_description, .product-name, .oe_subdescription';
 
+  // ---------- utils ----------
   const ts = () => Date.now();
 
-  function getLineId(lineEl) {
-    const c = lineEl.getAttribute('data-line-id') ? lineEl :
-      lineEl.querySelector('[data-line-id]') ||
-      lineEl.querySelector('input[name="line_id"]') ||
-      lineEl.querySelector('button[data-line-id], a[data-line-id]');
+  function getLineId(root){
+    if(!root) return null;
+    const c = root.getAttribute('data-line-id') ? root :
+      root.querySelector('[data-line-id]') ||
+      root.querySelector('input[name="line_id"]') ||
+      root.querySelector('button[data-line-id],a[data-line-id]');
     return (c && (c.getAttribute?.('data-line-id') || c.getAttribute?.('data-id') || c.value)) || null;
   }
 
-  /** Divide el name en bloques: — Personalización N — ... (hasta la siguiente) */
-  function parseBlocks(text) {
-    if (!text) return [];
-    const blocks = [];
-    const re = /—\s*Personalización\s*(\d+)\s*—([\s\S]*?)(?=(?:—\s*Personalización\s*\d+\s*—)|$)/gi;
+  // Extrae bloques en el formato “— Personalización N — …”
+  function parseBlocks(text){
+    const out = [];
+    if(!text) return out;
+    const re = /—\s*Personalización\s*(\d+)\s*—([\s\S]*?)(?=—\s*Personalización\s*\d+\s*—|$)/g;
     let m;
-    while ((m = re.exec(text))) {
-      const seq = parseInt(m[1], 10) || blocks.length + 1;
-      const body = (m[2] || '').trim();
-
-      const tech  = (body.match(/T[ée]cnica\s*:\s*(.+)/i)?.[1] || '').trim();
-      const color = (body.match(/Color\s*SVG\s*:\s*(#[0-9a-fA-F]{3,8})/i)?.[1] || '').trim();
-      const notes = (body.match(/Obs(?:ervaciones)?\s*:\s*([\s\S]+)/i)?.[1] || '').trim();
-
-      blocks.push({ seq, tech, color, notes });
+    while((m = re.exec(text))){
+      const seq = parseInt(m[1],10);
+      const body = m[2] || '';
+      const tech  = (body.match(/Técnica:\s*([^\n]+)/i) || [])[1]?.trim() || '';
+      const color = (body.match(/Color\s*SVG:\s*(#[0-9a-fA-F]{3,8})/i) || [])[1]?.trim() || '';
+      const notes = (body.match(/Observaciones:\s*([\s\S]+)/i) || [])[1]?.trim() || '';
+      out.push({seq, tech, color, notes});
     }
-    // si no encontró bloques formales, intenta un único bloque color/obs sueltos
-    if (!blocks.length) {
-      const color = (text.match(/Color\s*SVG\s*:\s*(#[0-9a-fA-F]{3,8})/i)?.[1] || '').trim();
-      const tech  = (text.match(/T[ée]cnica\s*:\s*(.+)/i)?.[1] || '').trim();
-      const notes = (text.match(/Obs(?:ervaciones)?\s*:\s*([\s\S]+)/i)?.[1] || '').trim();
-      if (color || tech || notes) blocks.push({ seq: 1, color, tech, notes });
+    // Compatibilidad: si no hay bloques, intenta un único color suelto
+    if(!out.length){
+      const color = (text.match(/Color\s*SVG:\s*(#[0-9a-fA-F]{3,8})/i) || [])[1];
+      const tech  = (text.match(/Técnica:\s*([^\n]+)/i) || [])[1];
+      const notes = (text.match(/Observaciones:\s*([\s\S]+)/i) || [])[1];
+      if(color || tech || notes){ out.push({seq:1, tech:tech||'', color:color||'', notes:notes||''}); }
     }
-    // orden por seq
-    blocks.sort((a, b) => a.seq - b.seq);
-    return blocks;
+    // Ordena por N por si el texto llegó mezclado
+    out.sort((a,b)=>a.seq-b.seq);
+    return out;
   }
 
-  function ensureWrap(info) {
+  function ensureWrap(info){
     let wrap = info.querySelector('.spw-cart-preview');
-    if (!wrap) {
+    if(!wrap){
       wrap = document.createElement('div');
       wrap.className = 'spw-cart-preview';
-      wrap.style.cssText = 'display:flex;flex-direction:column;gap:10px;margin-top:8px';
+      wrap.style.cssText = 'display:flex;flex-direction:column;gap:10px;margin-top:10px';
       info.appendChild(wrap);
-    } else {
-      wrap.innerHTML = '';
     }
     return wrap;
   }
 
-  function renderBlock(wrap, lineId, blk) {
+  function renderBlock(container, lineId, blk){
     const row = document.createElement('div');
-    row.className = 'spw-item';
+    row.className = 'spw-row';
     row.style.cssText = 'display:flex;gap:10px;align-items:flex-start';
 
-    // imagen por índice fijo (no fallback → no repite)
+    // IMG de esa personalización (solo url indexada)
     const img = new Image();
-    img.alt = 'Personalización';
+    img.alt = `Personalización ${blk.seq}`;
     img.loading = 'lazy';
-    img.style.cssText = 'width:120px;max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff';
+    img.style.cssText = 'width:120px;height:auto;border:1px solid #e5e7eb;border-radius:8px;background:#fff';
+    img.onerror = ()=> row.remove(); // si no hay PNG N, quitamos el bloque
     img.src = `/spw/line_preview/${lineId}-${blk.seq}.png?v=${ts()}`;
-    img.onerror = () => { img.style.display = 'none'; }; // si no hay PNG, queda solo el texto
 
-    // meta (píldora + textos)
-    const meta = document.createElement('div');
-    meta.style.cssText = 'display:flex;flex-direction:column;gap:6px;line-height:1.15';
+    // Texto + píldora
+    const text = document.createElement('div');
+    text.style.cssText = 'font-size:12px;line-height:1.3;display:flex;flex-direction:column;gap:4px';
 
-    // píldora + código
-    if (blk.color) {
-      const pillRow = document.createElement('div');
-      pillRow.style.cssText = 'display:flex;gap:8px;align-items:center';
-
+    // Píldora + hex
+    if(blk.color){
+      const pillWrap = document.createElement('div');
+      pillWrap.style.cssText = 'display:flex;align-items:center;gap:8px';
       const pill = document.createElement('span');
       pill.title = blk.color;
-      pill.style.cssText = 'width:14px;height:14px;border-radius:9999px;border:1px solid #d1d5db;display:inline-block';
-      pill.style.background = blk.color;
-
-      const code = document.createElement('span');
-      code.textContent = blk.color;
-      code.style.cssText = 'font-size:12px;color:#6b7280';
-
-      pillRow.appendChild(pill);
-      pillRow.appendChild(code);
-      meta.appendChild(pillRow);
+      pill.style.cssText = 'width:14px;height:14px;border-radius:9999px;border:1px solid #e5e7eb;display:inline-block;background:'+blk.color;
+      const hex = document.createElement('span');
+      hex.textContent = blk.color;
+      hex.style.cssText = 'font-weight:500';
+      pillWrap.appendChild(pill);
+      pillWrap.appendChild(hex);
+      text.appendChild(pillWrap);
     }
 
-    // técnica
-    if (blk.tech) {
+    if(blk.tech){
       const t = document.createElement('div');
       t.textContent = `Técnica: ${blk.tech}`;
-      t.style.cssText = 'font-size:12px;color:#111827';
-      meta.appendChild(t);
+      text.appendChild(t);
     }
-
-    // observaciones
-    if (blk.notes) {
+    if(blk.notes){
       const n = document.createElement('div');
-      n.textContent = `Obs: ${blk.notes}`;
-      n.style.cssText = 'font-size:12px;color:#374151;white-space:pre-wrap';
-      meta.appendChild(n);
+      n.textContent = `Observaciones: ${blk.notes}`;
+      text.appendChild(n);
     }
 
     row.appendChild(img);
-    row.appendChild(meta);
-    wrap.appendChild(row);
+    row.appendChild(text);
+    container.appendChild(row);
   }
 
-  function renderLine(lineEl) {
+  function renderLine(lineEl){
     const info = lineEl.querySelector(INFO_SEL) || lineEl;
-    if (!info) return;
-
     const lineId = getLineId(lineEl);
-    if (!lineId) return;
-
-    const nameText = (info.textContent || '').trim();
-    const blocks = parseBlocks(nameText);
-    if (!blocks.length) return;
+    if(!info || !lineId) return;
 
     const wrap = ensureWrap(info);
+    wrap.innerHTML = ''; // limpiar antes de pintar
+
+    const text = info.textContent || '';
+    const blocks = parseBlocks(text);
+    if(!blocks.length) return;
+
     blocks.forEach(blk => renderBlock(wrap, lineId, blk));
   }
 
-  function initialInject() {
-    document.querySelectorAll(LINE_SEL).forEach(renderLine);
-  }
+  function initial(){ document.querySelectorAll(LINE_SEL).forEach(renderLine); }
 
-  function observeMutations() {
+  function observe(){
     const root = document.querySelector('#o_cart, .o_wsale_products_main, .o_wsale_cart_summary, .js_cart_lines') || document.body;
-    new MutationObserver(ms => {
-      for (const m of ms) {
-        m.addedNodes && m.addedNodes.forEach(n => {
-          if (n instanceof HTMLElement) {
-            if (n.matches?.(LINE_SEL)) renderLine(n);
-            else n.querySelectorAll?.(LINE_SEL).forEach(renderLine);
+    new MutationObserver(ms=>{
+      for(const m of ms){
+        m.addedNodes && m.addedNodes.forEach(n=>{
+          if(n instanceof HTMLElement){
+            if(n.matches?.(LINE_SEL)) renderLine(n);
+            n.querySelectorAll?.(LINE_SEL).forEach(renderLine);
           }
         });
       }
-    }).observe(root, { childList: true, subtree: true });
+    }).observe(root, {childList:true, subtree:true});
   }
 
-  function boot() {
-    if (!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines')) return;
-    initialInject();
-    observeMutations();
-    console.log('[SPW] cart injector: multi-personalización con imagen, píldora y texto');
+  function boot(){
+    if(!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines')) return;
+    initial(); observe();
+    console.log('[SPW] cart preview listo (multi N, sin fallback no indexado)');
   }
 
   onReady(boot);
