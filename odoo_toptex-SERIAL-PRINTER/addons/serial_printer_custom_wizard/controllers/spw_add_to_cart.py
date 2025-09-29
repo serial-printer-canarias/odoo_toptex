@@ -3,7 +3,7 @@ from odoo import http, _
 from odoo.http import request
 from base64 import b64decode
 import time
-
+import re
 
 def _to_int(v, dflt=0):
     try:
@@ -41,7 +41,8 @@ class SpwCartController(http.Controller):
             return {'ok': False, 'message': _('Could not add line')}
 
         line = request.env['sale.order.line'].sudo().browse(line_id)
-        # Guarda metadatos en campos propios
+
+        # Guarda metadatos "últimos" en campos simples (no listas)
         line_vals = {
             'spw_tech': tech or False,
             'spw_svg_color': svg_color or False,
@@ -49,34 +50,23 @@ class SpwCartController(http.Controller):
         }
         line.sudo().write(line_vals)
 
-        # Asegurar que la descripción visible incluya Técnica/Color (para que el
-        # script del carrito pueda detectar #RRGGBB y dibujar la píldora)
-        chunks = []
+        # Asegurar que la descripción visible incluya Técnica/Color como histórico (una línea por personalización)
+        # No duplicamos si ya existe la pareja exacta.
         base_name = (line.name or '').strip()
-        if base_name:
-            chunks.append(base_name)
-        if tech:
-            tech_line = f"Técnica: {tech}"
-            if tech_line not in base_name:
-                chunks.append(tech_line)
-        if svg_color:
-            color_line = f"Color SVG: {svg_color}"
-            if color_line not in base_name:
-                chunks.append(color_line)
-        if chunks:
-            line.sudo().write({'name': "\n".join(chunks)})
+        tech_line  = f"Técnica: {tech}" if tech else ""
+        color_line = f"Color SVG: {svg_color}" if svg_color else ""
+        block = "\n".join([s for s in [tech_line, color_line] if s])
+        if block and block not in base_name:
+            new_name = (base_name + ("\n" if base_name else "") + block).strip()
+            line.sudo().write({'name': new_name})
 
-        return {
-            'ok': True,
-            'line_id': line_id,
-            'cart_url': '/shop/cart',
-        }
+        return {'ok': True, 'line_id': line_id, 'cart_url': '/shop/cart'}
 
-    # ====== 2) Adjuntar PNG a la línea ======
+    # ====== 2) Adjuntar PNG a la línea (acumulando) ======
     @http.route(['/spw/attach_png'], type='json', auth='public', methods=['POST'], csrf=False)
     def spw_attach_png(self, **kw):
         """Adjunta un PNG (en base64) a la línea del carrito y guarda la
-        referencia en spw_png_attachment_id."""
+        referencia más reciente en spw_png_attachment_id. NO borra anteriores."""
         data = request.jsonrequest or {}
         line_id = _to_int(data.get('line_id'))
         png_b64 = (data.get('png_b64') or '').strip()
@@ -97,10 +87,11 @@ class SpwCartController(http.Controller):
             'datas': png_b64,  # ya viene en base64
         }
         att = request.env['ir.attachment'].sudo().create(att_vals)
+        # guardamos el último para compatibilidad
         line.sudo().write({'spw_png_attachment_id': att.id})
         return {'ok': True, 'attachment_id': att.id}
 
-    # Fallback by form POST (por si falla fetch JSON)
+    # Fallback por POST clásico (si el fetch JSON no funciona)
     @http.route(['/spw/attach_png_http'], type='http', auth='public', methods=['POST'], csrf=False)
     def spw_attach_png_http(self, **post):
         try:
@@ -109,7 +100,6 @@ class SpwCartController(http.Controller):
         except Exception as e:
             return request.make_json_response({'ok': False, 'message': str(e)})
 
-    # Fallback by form POST
     @http.route(['/spw/add_to_cart_meta_http'], type='http', auth='public', methods=['POST'], csrf=False)
     def spw_add_to_cart_meta_http(self, **post):
         try:
@@ -118,28 +108,57 @@ class SpwCartController(http.Controller):
         except Exception as e:
             return request.make_json_response({'ok': False, 'message': str(e)})
 
-    # ====== 3) Servir la previsualización en el carrito ======
-    @http.route(['/spw/line_preview/<int:line_id>.png'], type='http', auth='public', methods=['GET'], csrf=False)
-    def spw_line_preview(self, line_id, **kw):
-        """Devuelve el PNG adjuntado a la línea. Si no existe, 404 o 1x1."""
+    # ====== 3) PREVIEWs: i-ésimo PNG y JSON con todas las personalizaciones ======
+
+    def _attachments_for_line(self, line):
+        return request.env['ir.attachment'].sudo().search([
+            ('res_model', '=', 'sale.order.line'),
+            ('res_id', '=', line.id),
+            ('mimetype', '=', 'image/png'),
+            ('name', 'ilike', 'spw_line_%'),
+        ], order='id ASC')
+
+    def _parse_blocks_from_name(self, name_text):
+        """Devuelve listas indexadas de técnicas y colores encontradas en line.name."""
+        txt = name_text or ''
+        techs  = re.findall(r'Técnica\s*:\s*([^\n\r]+)', txt)
+        colors = re.findall(r'Color\s*SVG\s*:\s*(#[0-9a-fA-F]{3,8})', txt)
+        return techs, colors
+
+    @http.route(['/spw/line_preview/<int:line_id>/<int:i>.png',
+                 '/spw/line_preview/<int:line_id>.png'], type='http', auth='public', methods=['GET'], csrf=False)
+    def spw_line_preview(self, line_id, i=1, **kw):
+        """Devuelve el PNG N (1-indexado) de la línea; si no hay, imagen 1x1."""
         line = request.env['sale.order.line'].sudo().browse(line_id).exists()
         if not line:
             return request.not_found()
 
-        att = line.sudo().spw_png_attachment_id
+        atts = self._attachments_for_line(line)
+        att = atts[i-1] if (i and i-1 < len(atts)) else (line.sudo().spw_png_attachment_id or (atts[:1] and atts[:1][0]))
         if not att:
-            # Buscar cualquier adjunto nuestro por si no se grabó en el campo
-            att = request.env['ir.attachment'].sudo().search([
-                ('res_model', '=', 'sale.order.line'),
-                ('res_id', '=', line.id),
-                ('mimetype', '=', 'image/png'),
-                ('name', 'like', 'spw_line_%'),
-            ], limit=1)
-
-        if not att:
-            # Transparente 1x1 para no romper nada
             tiny = b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAEklEQVR42mP8/5+hHgAHggJ/2k7O6wAAAABJRU5ErkJggg==")
             return request.make_response(tiny, headers=[('Content-Type', 'image/png')])
 
         data = b64decode(att.datas)
         return request.make_response(data, headers=[('Content-Type', 'image/png')])
+
+    @http.route(['/spw/line_personalizations/<int:line_id>'], type='http', auth='public', methods=['GET'], csrf=False)
+    def spw_line_personalizations(self, line_id, **kw):
+        """JSON con [{img, color, tech}] para pintar en el carrito en vertical."""
+        line = request.env['sale.order.line'].sudo().browse(line_id).exists()
+        if not line:
+            return request.make_json_response({'ok': False, 'items': []})
+
+        atts  = self._attachments_for_line(line)
+        techs, colors = self._parse_blocks_from_name(line.name or "")
+
+        n = max(len(atts), len(techs), len(colors), 1)
+        items = []
+        ts = int(time.time())
+        for idx in range(n):
+            img_url = '/spw/line_preview/%d/%d.png?v=%d' % (line.id, idx+1, ts)
+            tech = (techs[idx] if idx < len(techs) else (techs[-1] if techs else "")) or ""
+            col  = (colors[idx] if idx < len(colors) else (colors[-1] if colors else "")) or ""
+            items.append({'img': img_url, 'tech': tech, 'color': col})
+
+        return request.make_json_response({'ok': True, 'items': items})
