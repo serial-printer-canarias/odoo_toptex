@@ -19,7 +19,7 @@
           <!-- Lienzo / Previsualización -->
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative; overflow:hidden;">
-              <!-- Imagen SAME-ORIGIN para canvas (más ligera = más rápido) -->
+              <!-- Imagen SAME-ORIGIN para canvas (ligera para rapidez) -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920?width=900' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
@@ -184,7 +184,7 @@
         .spw-color-swatch.is-green .spw-color-ring{background:#2A9D8F}
       </style>
 
-      <!-- ====== JS INLINE (transform, drag fluido, pinch y addToCart rápido) ====== -->
+      <!-- ====== JS INLINE (transform, drag fluido, pinch y addToCart robusto) ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -228,7 +228,7 @@
           var leftPx = bw*(0.5 + posX/100);
           var topPx  = bh*(ANCHOR_Y + posY/100);
 
-          // Solo dos propiedades cambian durante drag => muy fluido
+          // Propiedades mínimas para máxima fluidez
           logo.style.left = leftPx + "px";
           logo.style.top  = topPx  + "px";
           logo.style.transform = "translate3d(-50%, -50%, 0) rotate("+rot+"deg)";
@@ -314,7 +314,7 @@
               || '';
         }
 
-        // ---- ADD TO CART RÁPIDO (PNG en background) + "Cant: X" en descripción ----
+        // ---- ADD TO CART (robusto: PNG antes de navegar) + "Cant: X" ----
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
@@ -325,10 +325,16 @@
 
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
-          // Empieza a generar PNG pero no bloquea el click
-          const pngPromise = renderPNGDataURL().catch(()=>null);
+          // 1) Render PNG (rápido con base 900px)
+          let du = null;
+          try {
+            du = await renderPNGDataURL();
+            sessionStorage.setItem('spw_last_product_id', String(variantId));
+            sessionStorage.setItem('spw_last_color', svgColor || '');
+            sessionStorage.setItem('spw_last_png', du || '');
+          } catch(_){}
 
-          // Añade al carrito
+          // 2) Añadir al carrito
           let r1 = await postJSON("/spw/add_to_cart_meta", {
             variant_id: parseInt(variantId,10), qty, tech, svg_color: svgColor, notes
           });
@@ -340,34 +346,31 @@
           if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
           const lineId = r1.data && r1.data.line_id;
+          try { if (lineId) sessionStorage.setItem('spw_last_line_id', String(lineId)); } catch(_){}
+
+          // 3) Adjuntar PNG con fallback y keepalive
+          if (du && lineId){
+            const pngB64 = du.split('base64,')[1] || '';
+            try {
+              const j = await postJSON("/spw/attach_png", { line_id: lineId, png_b64: pngB64 });
+              if (!j.ok) {
+                const fd = new FormData();
+                fd.append('line_id', lineId);
+                fd.append('png_b64', pngB64);
+                fetch("/spw/attach_png_http", { method: "POST", body: fd, credentials:"same-origin", keepalive:true });
+              }
+            } catch(_){}
+          }
+
+          // 4) Ir al carrito
           const baseUrl = (r1.data && r1.data.cart_url) || "/shop/cart";
           const withParam = lineId
             ? (baseUrl + (baseUrl.indexOf('?')===-1?'?':'&') + 'spw_line_id=' + encodeURIComponent(lineId))
             : baseUrl;
-
-          // Estado para preview inmediata en carrito
-          try {
-            sessionStorage.setItem('spw_last_product_id', String(variantId));
-            sessionStorage.setItem('spw_last_color', svgColor || '');
-            if (lineId) sessionStorage.setItem('spw_last_line_id', String(lineId));
-          } catch(_){}
-
-          // Adjunta PNG cuando esté listo (fire-and-forget)
-          pngPromise.then((du) => {
-            if (!du || !lineId) return;
-            try { sessionStorage.setItem('spw_last_png', du || ''); } catch(_){}
-            const pngB64 = du.split('base64,')[1] || '';
-            const fd = new FormData();
-            fd.append('line_id', lineId);
-            fd.append('png_b64', pngB64);
-            fetch("/spw/attach_png_http", { method: "POST", body: fd, credentials:"same-origin" });
-          });
-
-          // Navega ya
           window.location.href = withParam;
         }
 
-        // ---- DRAG MUY FLUIDO (rAF + rectángulo cacheado) + PINCH ----
+        // ---- DRAG MUY FLUIDO (rAF + rect cacheado) + PINCH ----
         function enableDragAndPinch(){
           var cont = $("#spw_canvas");
           var base = $("#spw_product_img");
@@ -510,10 +513,13 @@
       <style id="spw-cart-style">
         .spw-cart-block{margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
         .spw-cart-block img{
-          width: min(160px, 40vw);
-          height:auto;border:1px solid #e5e7eb;border-radius:6px
+          width: 220px;            /* más grande en desktop */
+          max-width: 70vw;         /* grande en móvil sin romper */
+          height:auto;
+          border:1px solid #e5e7eb;
+          border-radius:6px;
         }
-        @media (max-width: 576px){ .spw-cart-block img{ width: 45vw; } }
+        @media (max-width: 576px){ .spw-cart-block img{ width: 70vw; } }
         .spw-swatch{width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;display:inline-block}
       </style>
 
