@@ -1,124 +1,113 @@
-/** SPW – Paleta de color (no toca nada más) */
 odoo.define('serial_printer_custom_wizard.spw_color_palette', [], function () {
   'use strict';
 
-  function onReady(cb){ if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', cb, {once:true}); else cb(); }
+  // Lanzador simple sin dependencias
+  function onReady(cb) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', cb, { once: true });
+    } else cb();
+  }
 
-  // ≈30 colores, claro → oscuro (incluye pasteles)
+  // Paleta (≈30 colores) de claro → oscuro, con pasteles y nombre + HEX
   const PALETTE = [
-    { name: 'Blanco',               hex: '#FFFFFF' },
-    { name: 'Marfil',               hex: '#FFF8E7' },
-    { name: 'Crema',                hex: '#FFF2CC' },
-    { name: 'Amarillo pastel',      hex: '#FFF3B0' },
-    { name: 'Melocotón',            hex: '#FFD8B1' },
-    { name: 'Salmón pastel',        hex: '#FFB3AB' },
-    { name: 'Coral suave',          hex: '#FFA69E' },
-    { name: 'Rosa pastel',          hex: '#F8BBD0' },
-    { name: 'Lila',                 hex: '#E6C6FF' },
-    { name: 'Lavanda',              hex: '#CBB6F7' },
-    { name: 'Malva suave',          hex: '#D1C4E9' },
-    { name: 'Azul bebé',            hex: '#CDE9FF' },
-    { name: 'Celeste',              hex: '#B3E5FC' },
-    { name: 'Azul pastel',          hex: '#A7C5EB' },
-    { name: 'Azul medio',           hex: '#90CAF9' },
-    { name: 'Turquesa claro',       hex: '#A5F3FC' },
-    { name: 'Aguamarina',           hex: '#98F5E1' },
-    { name: 'Menta',                hex: '#BBF7D0' },
-    { name: 'Verde pastel',         hex: '#A9DFBF' },
-    { name: 'Verde manzana',        hex: '#8BD47A' },
-    { name: 'Verde bosque suave',   hex: '#6AB07E' },
-    { name: 'Lima pastel',          hex: '#DCE775' },
-    { name: 'Mostaza suave',        hex: '#E6D77E' },
-    { name: 'Arena',                hex: '#E6D5B8' },
-    { name: 'Topo',                 hex: '#C2B8A3' },
-    { name: 'Gris muy claro',       hex: '#F2F2F2' },
-    { name: 'Gris claro',           hex: '#D9D9D9' },
-    { name: 'Gris medio',           hex: '#A6A6A6' },
-    { name: 'Antracita',            hex: '#4A4A4A' },
-    { name: 'Negro',                hex: '#000000' },
+    { name: 'Blanco',            hex: '#FFFFFF' },
+    { name: 'Marfil',            hex: '#FFFFF0' },
+    { name: 'Lino',              hex: '#FAF0E6' },
+    { name: 'Beige',             hex: '#F5F5DC' },
+    { name: 'Melocotón pastel',  hex: '#FFDAB9' },
+    { name: 'Rosa palo',         hex: '#F4C2C2' },
+    { name: 'Rosa pastel',       hex: '#FFC0CB' },
+    { name: 'Lavanda',           hex: '#E6E6FA' },
+    { name: 'Lila',              hex: '#C8A2C8' },
+    { name: 'Amarillo pastel',   hex: '#FFFACD' },
+    { name: 'Albaricoque',       hex: '#FBCEB1' },
+    { name: 'Coral suave',       hex: '#FFB3A7' },
+    { name: 'Salmón',            hex: '#FA8072' },
+    { name: 'Melón',             hex: '#FFDAB5' },
+    { name: 'Menta',             hex: '#AAF0D1' },
+    { name: 'Verde agua',        hex: '#71E6C6' },
+    { name: 'Turquesa',          hex: '#40E0D0' },
+    { name: 'Cian',              hex: '#00FFFF' },
+    { name: 'Azul bebé',         hex: '#A7C7E7' },
+    { name: 'Cielo',             hex: '#87CEEB' },
+    { name: 'Azul',              hex: '#1D4ED8' },
+    { name: 'Magenta',           hex: '#FF00FF' },
+    { name: 'Rojo',              hex: '#EF4444' },
+    { name: 'Naranja',           hex: '#FB923C' },
+    { name: 'Amarillo',          hex: '#FACC15' },
+    { name: 'Verde',             hex: '#10B981' },
+    { name: 'Gris claro',        hex: '#E5E7EB' },
+    { name: 'Plata',             hex: '#D1D5DB' },
+    { name: 'Gris frío',         hex: '#9CA3AF' },
+    { name: 'Gris cálido',       hex: '#A8A29E' },
+    { name: 'Pizarra',           hex: '#64748B' },
+    { name: 'Antracita',         hex: '#374151' },
+    { name: 'Negro',             hex: '#000000' },
   ];
 
-  function injectStylesOnce() {
-    if (document.getElementById('spw-palette-css')) return;
-    const css = `
-      .spw-color-palette{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:10px;margin-top:8px}
-      .spw-color-cell{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;cursor:pointer}
-      .spw-color-dot{width:28px;height:28px;border-radius:9999px;border:1px solid rgba(0,0,0,.18)}
-      .spw-color-label{font-size:11px;line-height:1.15;text-align:center;white-space:nowrap}
-      .spw-color-cell.is-active{outline:2px solid #4f46e5;outline-offset:1px}
-      .spw-color-current{margin-top:6px;font-size:12px}
-    `;
-    const s = document.createElement('style');
-    s.id = 'spw-palette-css';
-    s.textContent = css;
-    document.head.appendChild(s);
-  }
+  function createPaletteFor(input) {
+    if (!input || input.dataset.spwPalette === '1') return;
+    input.dataset.spwPalette = '1';
 
-  function buildPalette(input){
-    injectStylesOnce();
-
-    // No duplicar si ya existe
-    if (input.nextElementSibling && input.nextElementSibling.classList?.contains('spw-color-palette')) return;
-
-    // Si el input es visible, lo dejamos; si no, lo ocultamos para limpiar UI
-    if (getComputedStyle(input).display !== 'none') input.style.marginBottom = '6px';
-    else input.type = input.type || 'hidden';
-
+    // Contenedor vertical (para móvil se ve mejor en columna)
     const wrap = document.createElement('div');
     wrap.className = 'spw-color-palette';
+    wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-top:10px';
 
-    const current = document.createElement('div');
-    current.className = 'spw-color-current';
-    current.textContent = input.value ? `Seleccionado: ${input.value}` : 'Selecciona un color';
-    input.insertAdjacentElement('afterend', current);
-    current.insertAdjacentElement('afterend', wrap);
-
-    const setActive = (btn) => {
-      wrap.querySelectorAll('.spw-color-cell').forEach(el => el.classList.remove('is-active'));
-      btn.classList.add('is-active');
-      current.textContent = `Seleccionado: ${btn.dataset.hex} · ${btn.dataset.name}`;
-    };
-
-    PALETTE.forEach(c => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'spw-color-cell';
-      btn.dataset.hex = c.hex;
-      btn.dataset.name = c.name;
-      btn.title = `${c.name} ${c.hex}`;
+    // Estilos mínimos (no tocamos CSS global)
+    const makeRow = (c) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'spw-swatch';
+      row.title = `${c.name} ${c.hex}`;
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;cursor:pointer;text-align:left';
 
       const dot = document.createElement('span');
-      dot.className = 'spw-color-dot';
+      dot.style.cssText = 'width:16px;height:16px;border-radius:9999px;border:1px solid rgba(0,0,0,.2);display:inline-block;';
       dot.style.background = c.hex;
 
-      const label = document.createElement('div');
-      label.className = 'spw-color-label';
-      label.innerHTML = `${c.name}<br>${c.hex}`;
+      const label = document.createElement('span');
+      label.textContent = `${c.name} (${c.hex})`;
+      label.style.cssText = 'font-size:12px;line-height:1';
 
-      btn.appendChild(dot);
-      btn.appendChild(label);
-      btn.addEventListener('click', () => {
+      row.appendChild(dot);
+      row.appendChild(label);
+
+      row.addEventListener('click', () => {
         input.value = c.hex;
+        // Notificamos a cualquier listener que ya tengas
+        input.dispatchEvent(new Event('input',  { bubbles: true }));
         input.dispatchEvent(new Event('change', { bubbles: true }));
-        setActive(btn);
+        // Marca visual
+        wrap.querySelectorAll('.spw-swatch').forEach(b => b.style.outline = 'none');
+        row.style.outline = '2px solid #4f46e5';
       });
 
-      // marcar seleccionado si coincide el valor inicial
-      if ((input.value || '').toUpperCase() === c.hex.toUpperCase()) {
-        setActive(btn);
-      }
+      return row;
+    };
 
-      wrap.appendChild(btn);
-    });
+    PALETTE.forEach(c => wrap.appendChild(makeRow(c)));
+    input.insertAdjacentElement('afterend', wrap);
   }
 
-  onReady(function(){
-    // Intentamos encontrar el campo de color
-    const input =
-      document.querySelector('input[name="spw_svg_color"]') ||
-      document.getElementById('spw_svg_color');
+  function boot() {
+    // No tocamos nada existente: si hay un input de color, añadimos la paleta al lado.
+    const targets = document.querySelectorAll('input[name="spw_svg_color"], input#spw_svg_color, input[data-spw-color]');
+    targets.forEach(createPaletteFor);
 
-    if (!input) return; // no está el campo en esta página
-    buildPalette(input);
-  });
+    // Por si el DOM del personalizador cambia dinámicamente
+    const root = document.body;
+    new MutationObserver(muts => {
+      for (const m of muts) {
+        m.addedNodes && m.addedNodes.forEach(n => {
+          if (!(n instanceof HTMLElement)) return;
+          n.querySelectorAll && n.querySelectorAll('input[name="spw_svg_color"], input#spw_svg_color, input[data-spw-color]')
+            .forEach(createPaletteFor);
+        });
+      }
+    }).observe(root, { childList: true, subtree: true });
+  }
+
+  onReady(boot);
+  return {};
 });
