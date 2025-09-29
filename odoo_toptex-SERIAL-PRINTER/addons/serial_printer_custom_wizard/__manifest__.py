@@ -23,6 +23,8 @@
 
             # Lógica customizer (si la usas además del inline)
             'serial_printer_custom_wizard/static/src/js/spw_customizer.js',
+            'serial_printer_custom_wizard/static/src/js/spw_custom_submit.js',
+            
 
             # Inyección preview carrito/checkout
             'serial_printer_custom_wizard/static/src/js/spw_cart_preview.inject.js',
