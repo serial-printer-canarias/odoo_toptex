@@ -3,7 +3,6 @@ from odoo import http, _
 from odoo.http import request
 from base64 import b64decode
 import time
-import re
 
 
 def _to_int(v, dflt=0):
@@ -11,32 +10,6 @@ def _to_int(v, dflt=0):
         return int(v)
     except Exception:
         return dflt
-
-
-# --- Paleta nominal para dar nombre a un HEX cuando mostremos el carrito ---
-COLOR_PALETTE = [
-    ('#FFFFFF', 'Blanco'), ('#F7F3E8', 'Crema'), ('#F7E5D8', 'Hueso pastel'), ('#FFE5A6', 'Amarillo suave'),
-    ('#FFA07A', 'Melocotón'), ('#F7ADC6', 'Rosa pastel'), ('#E5D4F3', 'Lavanda'), ('#D6C4F0', 'Lila'),
-    ('#93C5FD', 'Azul cielo'), ('#60A5FA', 'Azul medio'), ('#2D85FC', 'Turquesa'), ('#1E3A8A', 'Azul marino'),
-    ('#A7F3D0', 'Menta'), ('#C7EFCF', 'Verde pastel'), ('#34D399', 'Verde medio'), ('#3FAF93', 'Malva'),
-    ('#F59E0B', 'Mostaza'), ('#FB923C', 'Naranja'), ('#FB7185', 'Coral'), ('#EF4444', 'Rojo'),
-    ('#991B1B', 'Granate'), ('#8B5E34', 'Marrón'), ('#A8A29E', 'Topo'), ('#E5E7EB', 'Gris claro'),
-    ('#9CA3AF', 'Gris medio'), ('#4B5563', 'Gris oscuro'), ('#0EA5E9', 'Cian'), ('#22D3EE', 'Azul bebé'),
-    ('#64748B', 'Azul gris'), ('#2060FF', 'Azul vívido'), ('#2A9D8F', 'Verde azulado'), ('#000000', 'Negro'),
-]
-COLOR_BY_HEX = {h.upper(): n for (h, n) in COLOR_PALETTE}
-
-
-def _hex_name(hexv: str) -> str:
-    if not hexv:
-        return ''
-    return COLOR_BY_HEX.get(hexv.strip().upper(), '')
-
-
-def _guess_img_url(line_id: int, idx_zero_based: int) -> str:
-    # El JS del carrito pide /spw/line_preview/<line_id>-<n>.png para n=1..N
-    n = idx_zero_based + 1
-    return f"/spw/line_preview/{line_id}-{n}.png?v={int(time.time())}"
 
 
 class SpwCartController(http.Controller):
@@ -170,28 +143,3 @@ class SpwCartController(http.Controller):
 
         data = b64decode(att.datas)
         return request.make_response(data, headers=[('Content-Type', 'image/png')])
-
-    # ====== 4) Listar personalizaciones (para el JS del carrito) ======
-    @http.route(['/spw/line_personalizations/<int:line_id>'], type='json', auth='public', csrf=False)
-    def spw_line_personalizations(self, line_id, **kw):
-        """Devuelve lista de personalizaciones con: img, color(hex), color_name y tech."""
-        line = request.env['sale.order.line'].sudo().browse(line_id).exists()
-        if not line:
-            return {'ok': False, 'items': []}
-
-        text = (line.name or '')
-        techs  = re.findall(r'Técnica:\s*([^\n\r]+)', text)
-        colors = re.findall(r'Color\s*SVG:\s*(#[0-9a-fA-F]{3,8})', text)
-
-        n = max(len(techs), len(colors)) or 1
-        items = []
-        for idx in range(n):
-            hexv = colors[idx] if idx < len(colors) else ''
-            tech = techs[idx]  if idx < len(techs)  else ''
-            items.append({
-                'img': _guess_img_url(line.id, idx),
-                'color': hexv,
-                'color_name': _hex_name(hexv) or hexv,
-                'tech': tech,
-            })
-        return {'ok': True, 'items': items}
