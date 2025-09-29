@@ -1,134 +1,165 @@
-/** SPW – Paleta de colores (píldora + nombre + código) */
-odoo.define('serial_printer_custom_wizard.spw_color_palette', [], function () {
+/** SPW – Paleta de colores (grid 3/2/1 columnas + nombre y código) */
+(function () {
   'use strict';
 
-  // ---------- helpers ----------
-  function onReady(cb){ document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', cb, {once:true}) : cb(); }
-  const selInput = 'input[name="spw_svg_color"], #spw_svg_color, input[name="color_svg"], input[name="spw_color"]';
+  const READY = (cb) =>
+    document.readyState === 'loading'
+      ? document.addEventListener('DOMContentLoaded', cb, { once: true })
+      : cb();
 
-  // 30 colores: blanco → negros con pasteles
+  // ===== Paleta (30 tonos de blanco → negro con pasteles) =====
   const COLORS = [
-    {name:'Blanco',          hex:'#FFFFFF'},
-    {name:'Marfil',          hex:'#F7F2E7'},
-    {name:'Beige pastel',    hex:'#F4E3C1'},
-    {name:'Arena',           hex:'#E8D3B0'},
-    {name:'Melocotón suave', hex:'#FFD8C2'},
-    {name:'Rosa pastel',     hex:'#F7C6CC'},
-    {name:'Coral claro',     hex:'#FFB5A7'},
-    {name:'Salmón',          hex:'#FFA07A'},
-    {name:'Lavanda',         hex:'#E6E0FA'},
-    {name:'Lila',            hex:'#CDB4DB'},
-    {name:'Malva',           hex:'#B9A3E3'},
-    {name:'Violeta suave',   hex:'#A78BFA'},
-    {name:'Azul bebé',       hex:'#BDE0FE'},
-    {name:'Azul cielo',      hex:'#93C5FD'},
-    {name:'Azul medio',      hex:'#60A5FA'},
-    {name:'Turquesa',        hex:'#7DD3FC'},
-    {name:'Cian',            hex:'#22D3EE'},
-    {name:'Menta',           hex:'#A7F3D0'},
-    {name:'Verde pastel',    hex:'#C7EFCF'},
-    {name:'Verde medio',     hex:'#34D399'},
-    {name:'Lima',            hex:'#BBF7D0'},
-    {name:'Amarillo pastel', hex:'#FFF2B2'},
-    {name:'Mostaza suave',   hex:'#FACC15'},
-    {name:'Naranja pastel',  hex:'#FED7AA'},
-    {name:'Rojo suave',      hex:'#FCA5A5'},
-    {name:'Granate',         hex:'#DC2626'},
-    {name:'Gris claro',      hex:'#E5E7EB'},
-    {name:'Gris medio',      hex:'#9CA3AF'},
-    {name:'Gris oscuro',     hex:'#4B5563'},
-    {name:'Negro',           hex:'#000000'},
+    { name: 'Blanco',          hex: '#FFFFFF' },
+    { name: 'Hueso pastel',    hex: '#F7F3E8' },
+    { name: 'Crema',           hex: '#FFF2CC' },
+    { name: 'Amarillo suave',  hex: '#FFF5A8' },
+    { name: 'Melocotón',       hex: '#FFD9B3' },
+    { name: 'Rosa pastel',     hex: '#FAD0E4' },
+    { name: 'Lavanda',         hex: '#E6E0F8' },
+    { name: 'Lila',            hex: '#D7C4F3' },
+    { name: 'Malva',           hex: '#C7B8EA' },
+    { name: 'Azul cielo',      hex: '#93C5FD' },
+    { name: 'Azul pastel',     hex: '#BDE0FE' },
+    { name: 'Azul medio',      hex: '#60A5FA' },
+    { name: 'Turquesa',        hex: '#7DD3FC' },
+    { name: 'Cian',            hex: '#22D3EE' },
+    { name: 'Menta',           hex: '#A7F3D0' },
+    { name: 'Verde pastel',    hex: '#C7EFCF' },
+    { name: 'Verde medio',     hex: '#34D399' },
+    { name: 'Lima',            hex: '#A3E635' },
+    { name: 'Mostaza',         hex: '#EAB308' },
+    { name: 'Naranja',         hex: '#FB923C' },
+    { name: 'Coral',           hex: '#FB7185' },
+    { name: 'Rojo',            hex: '#EF4444' },
+    { name: 'Granate',         hex: '#991B1B' },
+    { name: 'Marrón',          hex: '#8B5E34' },
+    { name: 'Topo',            hex: '#A8A29E' },
+    { name: 'Gris claro',      hex: '#E5E7EB' },
+    { name: 'Gris medio',      hex: '#9CA3AF' },
+    { name: 'Gris oscuro',     hex: '#4B5563' },
+    { name: 'Azul marino',     hex: '#1E3A8A' },
+    { name: 'Negro',           hex: '#000000' },
   ];
 
-  function ensureStyles() {
-    if (document.getElementById('spw-color-palette-css')) return;
-    const css = `
-    .spw-color-palette{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-top:10px}
-    @media (max-width:640px){.spw-color-palette{grid-template-columns:repeat(2,minmax(0,1fr));}}
-    .spw-color-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;cursor:pointer;user-select:none;box-shadow:0 1px 1px rgba(0,0,0,.03)}
-    .spw-color-item:focus{outline:2px solid #6366f1;outline-offset:2px}
-    .spw-color-item.selected{border-color:#c7d2fe;box-shadow:0 0 0 2px #e0e7ff inset}
-    .spw-dot{width:22px;height:22px;border-radius:9999px;border:1px solid rgba(0,0,0,.12);flex:0 0 22px}
-    .spw-labels{display:flex;flex-direction:column;line-height:1.1}
-    .spw-name{font-size:12.5px;color:#111827}
-    .spw-code{font-size:11.5px;color:#6b7280}
+  // ===== CSS embebido (3 columnas desktop, 2 tablet, 1 móvil) =====
+  function injectCSS() {
+    if (document.getElementById('spwColorCSS')) return;
+    const style = document.createElement('style');
+    style.id = 'spwColorCSS';
+    style.textContent = `
+      .spw-color-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:12px 0 6px}
+      @media (max-width:900px){.spw-color-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      @media (max-width:520px){.spw-color-grid{grid-template-columns:1fr}}
+      .spw-color-item{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;cursor:pointer;user-select:none}
+      .spw-color-item:hover{box-shadow:0 1px 3px rgba(0,0,0,.08)}
+      .spw-color-dot{width:22px;height:22px;border-radius:9999px;border:1px solid rgba(0,0,0,.15);flex:none}
+      .spw-color-label{line-height:1.1}
+      .spw-color-name{display:block;font-size:14px;font-weight:600}
+      .spw-color-hex{display:block;font-size:12px;color:#6b7280}
+      .spw-color-item.is-selected{outline:2px solid #111827;outline-offset:2px}
     `;
-    const tag = document.createElement('style');
-    tag.id = 'spw-color-palette-css';
-    tag.appendChild(document.createTextNode(css));
-    document.head.appendChild(tag);
+    document.head.appendChild(style);
   }
 
-  function selectColor(hex, input, container, itemEl) {
-    if (input) {
-      input.value = hex;
-      input.dispatchEvent(new Event('input', {bubbles:true}));
-      input.dispatchEvent(new Event('change', {bubbles:true}));
-    }
-    container.querySelectorAll('.spw-color-item.selected').forEach(el=>el.classList.remove('selected'));
-    itemEl?.classList.add('selected');
+  // ===== utilidades =====
+  function getColorInput() {
+    return (
+      document.querySelector('input[name="spw_svg_color"]') ||
+      document.getElementById('spw_svg_color') ||
+      document.querySelector('input[data-spw="svg-color"]')
+    );
   }
 
-  function renderPaletteFor(input) {
-    if (!input || input.dataset.spwPaletteMounted) return;
-    input.dataset.spwPaletteMounted = '1';
+  function findAnchor() {
+    // Si tienes un ancla específica, dale ese id y lo cogerá primero.
+    return (
+      document.getElementById('spw_color_palette') ||
+      document.querySelector('[data-spw="color"]') ||
+      (getColorInput() && getColorInput().parentElement) ||
+      document.querySelector('.o_product_configurator_form') ||
+      document.querySelector('#wrap')
+    );
+  }
 
-    ensureStyles();
+  // ===== render =====
+  function renderPalette() {
+    const anchor = findAnchor();
+    if (!anchor) return;
 
-    // contenedor
-    const wrap = document.createElement('div');
-    wrap.className = 'spw-color-palette';
+    // Limpieza: quita cualquier paleta previa o listas antiguas que hubiera
+    anchor
+      .querySelectorAll(
+        '#spwColorPalette,.spw-color-grid,.spw-color-list,.spw-color-legacy'
+      )
+      .forEach((el) => el.remove());
 
-    // items
-    COLORS.forEach(c => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'spw-color-item';
-      btn.setAttribute('aria-label', `${c.name} ${c.hex}`);
-      btn.innerHTML = `
-        <span class="spw-dot" style="background:${c.hex}"></span>
-        <span class="spw-labels">
-          <span class="spw-name">${c.name}</span>
-          <span class="spw-code">${c.hex}</span>
-        </span>
-      `;
-      btn.addEventListener('click', () => selectColor(c.hex, input, wrap, btn));
-      wrap.appendChild(btn);
+    const grid = document.createElement('div');
+    grid.id = 'spwColorPalette';
+    grid.className = 'spw-color-grid';
+
+    const current = (getColorInput()?.value || '').trim().toUpperCase();
+
+    COLORS.forEach((c) => {
+      const item = document.createElement('div');
+      item.className = 'spw-color-item';
+      item.dataset.hex = c.hex;
+
+      const dot = document.createElement('span');
+      dot.className = 'spw-color-dot';
+      dot.style.background = c.hex;
+
+      const label = document.createElement('span');
+      label.className = 'spw-color-label';
+      const n = document.createElement('span');
+      n.className = 'spw-color-name';
+      n.textContent = c.name;
+      const h = document.createElement('span');
+      h.className = 'spw-color-hex';
+      h.textContent = c.hex.toUpperCase();
+
+      label.appendChild(n);
+      label.appendChild(h);
+      item.appendChild(dot);
+      item.appendChild(label);
+      grid.appendChild(item);
+
+      if (current && current === c.hex.toUpperCase())
+        item.classList.add('is-selected');
+
+      item.addEventListener('click', () => {
+        const input = getColorInput();
+        if (input) {
+          input.value = c.hex.toUpperCase();
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        grid
+          .querySelectorAll('.spw-color-item.is-selected')
+          .forEach((e) => e.classList.remove('is-selected'));
+        item.classList.add('is-selected');
+
+        // Si tienes un badge/preview de color, actualízalo
+        const badge =
+          document.querySelector('[data-spw="color-badge"]') ||
+          document.querySelector('.spw-color-current');
+        if (badge) badge.textContent = c.hex.toUpperCase();
+      });
     });
 
-    // insertar bajo el input (si hay label/field, queda pegado)
-    input.insertAdjacentElement('afterend', wrap);
-
-    // preselección si el input ya tenía valor
-    const current = (input.value || '').trim().toUpperCase();
-    if (current) {
-      const item = [...wrap.querySelectorAll('.spw-color-item')]
-        .find(el => el.querySelector('.spw-code').textContent.toUpperCase() === current);
-      if (item) item.classList.add('selected');
-    }
+    anchor.appendChild(grid);
   }
 
-  function boot() {
-    const input = document.querySelector(selInput) ||
-      [...document.querySelectorAll('label')]
-        .find(l => /color\s*svg/i.test(l.textContent || ''))?.htmlFor &&
-      document.getElementById([...document.querySelectorAll('label')]
-        .find(l => /color\s*svg/i.test(l.textContent || ''))?.htmlFor);
+  READY(() => {
+    injectCSS();
+    renderPalette();
 
-    if (input) renderPaletteFor(input);
-
-    // por si el DOM cambia (SPA)
-    const root = document.body;
-    new MutationObserver(ms => {
-      for (const m of ms) {
-        if (m.addedNodes) {
-          const i = (m.target && m.target.matches && m.target.matches(selInput)) ? m.target :
-                    (m.target && m.target.querySelector && m.target.querySelector(selInput));
-          if (i) renderPaletteFor(i);
-        }
+    // Si el DOM cambia (páginas con AJAX), re-intenta montar la paleta
+    const obs = new MutationObserver(() => {
+      if (!document.getElementById('spwColorPalette')) {
+        injectCSS();
+        renderPalette();
       }
-    }).observe(root, {subtree:true, childList:true});
-  }
-
-  onReady(boot);
-});
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+  });
+})();
