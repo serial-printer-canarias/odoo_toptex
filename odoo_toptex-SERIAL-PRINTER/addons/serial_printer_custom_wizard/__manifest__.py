@@ -13,7 +13,6 @@
     'assets': {
         'web.assets_frontend': [
             # Colores / estilos
-            'serial_printer_custom_wizard/static/src/css/spw_colors.css',
             'serial_printer_custom_wizard/static/src/css/customizer.css',
             'serial_printer_custom_wizard/static/src/css/personalizar_preview.css',
 
