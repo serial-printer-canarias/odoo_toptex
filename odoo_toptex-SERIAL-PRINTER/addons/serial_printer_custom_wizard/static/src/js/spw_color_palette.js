@@ -1,104 +1,180 @@
-/** SPW – Color palette (no tocar cart; sólo en customizer) */
+/** SPW – Paleta de colores (personalizador) */
 odoo.define('serial_printer_custom_wizard.spw_color_palette', [], function () {
   'use strict';
 
-  function onReady(cb){ document.readyState==='loading'
-    ? document.addEventListener('DOMContentLoaded', cb, {once:true}) : cb(); }
+  // ---------- helpers ----------
+  function onReady(cb){ if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded', cb, {once:true});} else cb(); }
+  const isCart = () => /\/shop\/cart\b/.test(location.pathname);
+  const $ = sel => document.querySelector(sel);
+  const $$ = sel => Array.from(document.querySelectorAll(sel));
 
-  // paleta: blanco → negros con pasteles y medios
+  // Colores: blanco → negro con tonos pastel intercalados
   const PALETTE = [
-    {n:'Blanco',h:'#FFFFFF'},{n:'Crema',h:'#FFF2CC'},{n:'Perla',h:'#F5F5F5'},
-    {n:'Arena',h:'#F6E3C5'},{n:'Melocotón',h:'#FFB6A3'},{n:'Rosa pastel',h:'#F7A8D0'},
-    {n:'Lavanda',h:'#E6E0FA'},{n:'Lila',h:'#D7C4F3'},{n:'Malva',h:'#BFA7F0'},
-    {n:'Azul cielo',h:'#93C5FD'},{n:'Azul medio',h:'#60A5FA'},{n:'Azul marino',h:'#1E3A8A'},
-    {n:'Cian',h:'#22D3EE'},{n:'Turquesa',h:'#7DD3FC'},{n:'Menta',h:'#A7F3D0'},
-    {n:'Verde pastel',h:'#C7F2CF'},{n:'Verde medio',h:'#34D399'},{n:'Verde oscuro',h:'#166534'},
-    {n:'Lima',h:'#A3E635'},{n:'Mostaza',h:'#EAB308'},{n:'Naranja',h:'#FB923C'},
-    {n:'Coral',h:'#FB7185'},{n:'Rojo',h:'#EF4444'},{n:'Granate',h:'#991B1B'},
-    {n:'Topo',h:'#A8A29E'},{n:'Marrón',h:'#8B5E34'},
-    {n:'Gris claro',h:'#E5E7EB'},{n:'Gris medio',h:'#9CA3AF'},{n:'Gris oscuro',h:'#4B5563'},
-    {n:'Antracita',h:'#2E2E2E'},{n:'Negro',h:'#000000'},
+    {name:'Blanco',        hex:'#FFFFFF'},
+    {name:'Crema',         hex:'#FFF2CC'},
+    {name:'Arena',         hex:'#F1E5C6'},
+    {name:'Melocotón',     hex:'#FFB3A7'},
+    {name:'Rosa pastel',   hex:'#F7D6E6'},
+    {name:'Lavanda',       hex:'#E6E1FA'},
+    {name:'Lila',          hex:'#D7C4F3'},
+    {name:'Azul cielo',    hex:'#93C5FD'},
+    {name:'Azul medio',    hex:'#60A5FA'},
+    {name:'Turquesa',      hex:'#7DD3FC'},
+    {name:'Cian',          hex:'#20B3EE'},
+    {name:'Menta',         hex:'#A7F3D0'},
+    {name:'Verde pastel',  hex:'#C7FCEC'},
+    {name:'Verde medio',   hex:'#34D399'},
+    {name:'Lima',          hex:'#A3E635'},
+    {name:'Mostaza',       hex:'#EAB308'},
+    {name:'Naranja',       hex:'#FB923C'},
+    {name:'Coral',         hex:'#FB7185'},
+    {name:'Rojo',          hex:'#EF4444'},
+    {name:'Granate',       hex:'#991B1B'},
+    {name:'Marrón',        hex:'#8B5E34'},
+    {name:'Topo',          hex:'#8A8A9E'},
+    {name:'Gris claro',    hex:'#E5E7EB'},
+    {name:'Gris medio',    hex:'#9CA3AF'},
+    {name:'Gris oscuro',   hex:'#4B5563'},
+    {name:'Azul marino',   hex:'#1E3A8A'},
+    {name:'Petróleo',      hex:'#0E7490'},
+    {name:'Verde bosque',  hex:'#166534'},
+    {name:'Vino',          hex:'#7F1D1D'},
+    {name:'Negro',         hex:'#000000'},
   ];
 
-  // dónde escribir el color elegido (no cambiamos tu flujo)
-  const COLOR_INPUTS = [
-    'input[name="spw_svg_color"]',
-    '#spw_svg_color',
-    'input[name="svg_color"]',
-  ];
+  // CSS inline (no SCSS, no compilación)
+  const CSS = `
+  .spw-palette-wrap{margin-top:12px}
+  .spw-palette{
+    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:10px;max-height:360px;overflow:auto;padding:8px;
+    border:1px solid #eee;border-radius:12px;background:#fff;
+  }
+  @media(min-width:900px){ .spw-palette{grid-template-columns:repeat(3,minmax(0,1fr));} }
+  .spw-swatch{
+    display:flex;align-items:center;gap:10px;
+    padding:8px 10px;border-radius:10px;border:1px solid #e5e7eb;
+    background:#fff;cursor:pointer;transition:box-shadow .15s,transform .03s;
+  }
+  .spw-swatch:active{ transform:scale(.99) }
+  .spw-swatch[aria-selected="true"]{
+    box-shadow:0 0 0 2px #111 inset, 0 0 0 3px rgba(17,17,17,.06);
+  }
+  .spw-dot{width:18px;height:18px;border-radius:9999px;border:1px solid rgba(0,0,0,.18);flex:0 0 18px}
+  .spw-meta{line-height:1}
+  .spw-meta b{display:block;font-size:.9rem}
+  .spw-meta small{display:block;font-size:.75rem;color:#555}
+  /* Ocultar selección de colores antigua SOLO dentro del contenedor nuevo */
+  .spw-palette-wrap .o_wsale_product_configurator_variants,
+  .spw-palette-wrap .js_add_cart_variants,
+  .spw-palette-wrap .product_custom_attribute{ display:none !important; }
+  `;
 
-  function getColorInput(){
-    for (const sel of COLOR_INPUTS){
-      const el = document.querySelector(sel);
-      if (el) return el;
+  function injectCSS(){
+    if($('#spwPaletteCSS')) return;
+    const s=document.createElement('style');
+    s.id='spwPaletteCSS';
+    s.textContent=CSS;
+    document.head.appendChild(s);
+  }
+
+  function findCustomizerForm(){
+    // Buscamos un formulario del personalizador (anclas típicas que ya tienes)
+    return $('#spw_customizer form') ||
+           $('form[action*="/spw/"]') ||
+           $('form.o_wsale_product_configurator') ||
+           document.querySelector('form');
+  }
+
+  function ensureHiddenInput(form){
+    // Campo donde guardamos el HEX elegido (lo usas ya en tu flujo)
+    let inp=form.querySelector('input[name="spw_svg_color"]');
+    if(!inp){
+      inp=document.createElement('input');
+      inp.type='hidden';
+      inp.name='spw_svg_color';
+      form.appendChild(inp);
     }
-    return null;
-  }
-
-  function setColor(hex){
-    const input = getColorInput();
-    if (input){
-      input.value = hex;
-      input.dispatchEvent(new Event('input', {bubbles:true}));
-      input.dispatchEvent(new Event('change', {bubbles:true}));
+    // Campo opcional para el nombre (por si luego quieres mostrarlo en carrito)
+    let nameInp=form.querySelector('input[name="spw_svg_color_name"]');
+    if(!nameInp){
+      nameInp=document.createElement('input');
+      nameInp.type='hidden';
+      nameInp.name='spw_svg_color_name';
+      form.appendChild(nameInp);
     }
+    return {hexInp: inp, nameInp};
   }
 
-  // elimina la UI antigua si existe (no rompe si no está)
-  function removeLegacy(){
-    const suspects = [
-      '.spw-quick-colors', '.spw-color-old', '.spw-dot-row',
-      '.spw-color-pills-legacy', '.spw-legacy-swatches'
-    ];
-    suspects.forEach(s => document.querySelectorAll(s).forEach(n => n.remove()));
-  }
+  function renderPalette(anchor, form){
+    if($('#spwPaletteBox')) return; // ya pintado
 
-  function mountPalette(mount){
-    removeLegacy();
+    const wrap=document.createElement('div');
+    wrap.className='spw-palette-wrap';
+    wrap.id='spwPaletteBox';
 
-    // evita doble render
-    if (mount.querySelector('.spw-color-grid')) return;
+    const grid=document.createElement('div');
+    grid.className='spw-palette';
+    wrap.appendChild(grid);
 
-    const wrap = document.createElement('div');
-    wrap.className = 'spw-color-grid';
+    const {hexInp, nameInp}=ensureHiddenInput(form);
 
-    PALETTE.forEach(({n,h})=>{
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'spw-chip';
-      btn.setAttribute('data-hex', h);
+    // valor actual (si recargas)
+    const current=(hexInp.value||'').toUpperCase();
 
-      btn.innerHTML = `
-        <span class="swatch" style="background:${h}"></span>
-        <span class="labels">
-          <span class="name">${n}</span>
-          <span class="hex">${h}</span>
-        </span>
+    PALETTE.forEach(({name,hex})=>{
+      const btn=document.createElement('button');
+      btn.type='button';
+      btn.className='spw-swatch';
+      btn.setAttribute('role','option');
+      btn.setAttribute('aria-label', `${name} ${hex}`);
+      btn.dataset.hex=hex;
+      btn.dataset.name=name;
+
+      if(current && current===hex.toUpperCase()){
+        btn.setAttribute('aria-selected','true');
+      }
+
+      btn.innerHTML=`
+        <span class="spw-dot" style="background:${hex}"></span>
+        <span class="spw-meta"><b>${name}</b><small>${hex}</small></span>
       `;
 
-      btn.addEventListener('click', ()=>{
-        // marca selección visual
-        wrap.querySelectorAll('.spw-chip.is-active').forEach(b=>b.classList.remove('is-active'));
-        btn.classList.add('is-active');
-        setColor(h);
+      btn.addEventListener('click',()=>{
+        // marcar selección
+        $$('#spwPaletteBox .spw-swatch[aria-selected="true"]').forEach(b=>b.removeAttribute('aria-selected'));
+        btn.setAttribute('aria-selected','true');
+
+        // setear inputs ocultos
+        hexInp.value=hex;
+        nameInp.value=name;
+
+        // dispara evento por si tu JS del personalizador escucha cambios
+        hexInp.dispatchEvent(new Event('change', {bubbles:true}));
       });
 
-      wrap.appendChild(btn);
+      grid.appendChild(btn);
     });
 
-    mount.appendChild(wrap);
+    anchor.parentNode.insertBefore(wrap, anchor.nextSibling);
   }
 
   function boot(){
-    // 1) nunca en el carrito
-    if (document.querySelector('#o_cart')) return;
+    if(isCart()) return; // nunca en carrito
 
-    // 2) sólo si hay contenedor del customizer
-    const mount = document.querySelector('#spw-color-palette, #spw_color_palette');
-    if (!mount) return;
+    // ¿Estamos en el personalizador? Señal mínima: input de color o ancla conocida
+    const form = findCustomizerForm();
+    if(!form) return;
 
-    mount.classList.add('spw-color-palette');
-    mountPalette(mount);
+    injectCSS();
+
+    // Punto de inserción: si tienes un ancla/fieldset para color, úsalo; si no, va al final del form.
+    const anchor =
+      $('#spw_color_palette_anchor') ||
+      form.querySelector('[name="spw_svg_color"]')?.closest('div') ||
+      form;
+
+    renderPalette(anchor, form);
   }
 
   onReady(boot);
