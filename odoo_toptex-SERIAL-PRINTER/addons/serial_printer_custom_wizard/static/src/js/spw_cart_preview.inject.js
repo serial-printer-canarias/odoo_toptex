@@ -9,27 +9,6 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
   const LINE_SEL = '.o_cart_product, .js_cart_lines tr, .o_wsale_cart_item, .cart_line';
   const INFO_SEL = '.o_wsale_product_information, .o_wsale_cart_description, .o_wsale_cart_item_description, .product-name, .oe_subdescription';
 
-  // ---------- paleta (HEX -> nombre) ----------
-  const PALETTE = [
-    ['#FFFFFF','Blanco'],['#F7F5E8','Hueso pastel'],['#FFF2CC','Crema'],
-    ['#FFF5A6','Amarillo suave'],['#F7D3B8','Melocotón'],['#FADDE4','Rosa pastel'],
-    ['#E9D5FF','Lila'],['#EDE9FE','Lavanda'],['#93C5FD','Azul cielo'],
-    ['#60A5FA','Azul medio'],['#7DD3FC','Turquesa'],['#20C3E8','Cian'],
-    ['#A7F3D0','Menta'],['#C7EFCF','Verde pastel'],['#34D399','Verde medio'],
-    ['#A3E635','Lima'],['#EAB308','Mostaza'],['#FB923C','Naranja'],
-    ['#FB7185','Coral'],['#EF4444','Rojo'],['#991B1B','Granate'],
-    ['#8B5E34','Marrón'],['#A8A29E','Topo'],['#E5E7EB','Gris claro'],
-    ['#9CA3AF','Gris medio'],['#4B5563','Gris oscuro'],['#1E3A8A','Azul marino'],
-    ['#172554','Azul noche'],['#000000','Negro'],
-  ];
-  const HEX2NAME = Object.fromEntries(PALETTE.map(([h,n]) => [h.toUpperCase(), n]));
-  const normHex = s => {
-    if(!s) return null;
-    const m = String(s).trim().match(/#([0-9a-f]{3,8})/i);
-    return m ? ('#' + m[1].toUpperCase()) : null;
-  };
-  const colorName = hex => HEX2NAME[(normHex(hex)||'').toUpperCase()] || null;
-
   // ---------- utils ----------
   function urlLineIdFrom(el){
     if(!el) return null;
@@ -52,10 +31,30 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     return wrap;
   }
 
+  function injectHidingCSS(){
+    // Oculta paletas/botones antiguos en carrito y (si aparecieran) en customizer
+    const css = `
+      #o_cart .spw-color-palette,
+      .o_wsale_cart_page .spw-color-palette,
+      #o_cart [data-spw-role="color-palette"],
+      .o_wsale_cart_page [data-spw-role="color-palette"],
+      #o_cart .spw-quick-swatches { display:none !important; }
+      .spw_customize_page .spw-quick-swatches { display:none !important; }
+      .spw-one .spw-color-name{ padding-left:2px; }
+    `;
+    if (!document.getElementById('spw-hide-palette-style')) {
+      const st = document.createElement('style');
+      st.id = 'spw-hide-palette-style';
+      st.type = 'text/css';
+      st.appendChild(document.createTextNode(css));
+      document.head.appendChild(st);
+    }
+  }
+
   function card(item){
     const root = document.createElement('div');
     root.className = 'spw-one';
-    root.style.cssText = 'display:flex;flex-direction:column;gap:6px;align-items:flex-start;border:1px solid #e5e7eb;border-radius:10px;padding:8px;max-width:220px;background:#fff';
+    root.style.cssText = 'display:flex;flex-direction:column;gap:6px;align-items:flex-start;border:1px solid #e5e7eb;border-radius:10px;padding:8px;max-width:220px';
 
     const img = new Image();
     img.alt = 'Personalización';
@@ -65,21 +64,27 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     img.style.cssText = 'width:100%;height:auto;border-radius:8px;object-fit:contain;background:#fff';
     root.appendChild(img);
 
-    // línea con píldora + nombre + hex
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:8px';
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+
     const pill = document.createElement('span');
-    const hex = normHex(item.color);
-    pill.title = hex || '';
+    pill.title = item.color || '';
     pill.style.cssText = 'width:14px;height:14px;border-radius:9999px;border:1px solid #e5e7eb;display:inline-block';
-    if(hex) pill.style.background = hex;
+    if(item.color) pill.style.background = item.color;
     row.appendChild(pill);
 
-    const label = document.createElement('span');
-    const name = colorName(hex);
-    label.textContent = hex ? (name ? `${name} · ${hex}` : hex) : '';
-    label.style.cssText = 'font-size:12px;color:#374151';
-    row.appendChild(label);
+    const hex = document.createElement('span');
+    hex.textContent = item.color || '';
+    hex.style.cssText = 'font-size:12px;color:#374151';
+    row.appendChild(hex);
+
+    if (item.color_name && item.color_name !== item.color) {
+      const name = document.createElement('span');
+      name.className = 'spw-color-name';
+      name.textContent = `· ${item.color_name}`;
+      name.style.cssText = 'font-size:12px;color:#6b7280';
+      row.appendChild(name);
+    }
     root.appendChild(row);
 
     const t1 = document.createElement('div');
@@ -88,9 +93,9 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     if(item.tech) root.appendChild(t1);
 
     const t2 = document.createElement('div');
-    t2.textContent = (hex ? `Color SVG: ${hex}` : '');
+    t2.textContent = (item.color ? `Color SVG: ${item.color}` : '');
     t2.style.cssText = 'font-size:12px;color:#374151';
-    if(hex) root.appendChild(t2);
+    if(item.color) root.appendChild(t2);
 
     return root;
   }
@@ -131,35 +136,9 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     }).observe(root, {childList:true, subtree:true});
   }
 
-  // --- Ocultar paleta/controles en el CARRITO (sin tocar el customizer) ---
-  function hidePaletteInCart(){
-    const cart = document.querySelector('#o_cart, .o_wsale_cart_summary');
-    if(!cart) return;
-    const css = `
-      /* cualquier bloque de la UI de color/paleta/opciones que se haya colado en el carrito */
-      #o_cart [class*="spw"][class*="color"],
-      #o_cart [class*="spw"][class*="palette"],
-      #o_cart [class*="spw"][class*="paleta"],
-      #o_cart [class*="spw"][class*="colors"],
-      #o_cart [class*="spw"][class*="options"],
-      #o_cart [class*="spw"][class*="controls"],
-      .o_wsale_cart_summary [class*="spw"][class*="color"],
-      .o_wsale_cart_summary [class*="spw"][class*="palette"],
-      .o_wsale_cart_summary [class*="spw"][class*="paleta"],
-      .o_wsale_cart_summary [class*="spw"][class*="colors"],
-      .o_wsale_cart_summary [class*="spw"][class*="options"],
-      .o_wsale_cart_summary [class*="spw"][class*="controls"] { display:none !important; visibility:hidden !important; }
-    `;
-    const tag = document.createElement('style');
-    tag.setAttribute('data-spw','hide-palette-cart');
-    tag.textContent = css;
-    document.head.appendChild(tag);
-  }
-
   function boot(){
-    const isCart = !!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines');
-    if(!isCart) return;
-    hidePaletteInCart();     // sólo en carrito
+    injectHidingCSS(); // <- oculta paleta en carrito y botones antiguos
+    if(!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines')) return;
     scanInitial();
     observe();
   }
