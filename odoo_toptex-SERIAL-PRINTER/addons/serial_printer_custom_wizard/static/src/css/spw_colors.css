@@ -4,13 +4,6 @@
 .spw-color-swatch input{position:absolute;opacity:0;width:0;height:0}
 .spw-color-ring{width:18px;height:18px;border-radius:999px;border:1px solid #CBD5E1;display:inline-block}
 
-/* Colores */
-.spw-color-swatch.is-black  .spw-color-ring{background:#000000}
-.spw-color-swatch.is-white  .spw-color-ring{background:#FFFFFF}
-.spw-color-swatch.is-red    .spw-color-ring{background:#D62828}
-.spw-color-swatch.is-blue   .spw-color-ring{background:#2060FF}
-.spw-color-swatch.is-green  .spw-color-ring{background:#2A9D8F}
-
 /* Estado seleccionado */
 .spw-color-swatch input:checked + .spw-color-ring{
   outline:2px solid #111827;
