@@ -16,7 +16,6 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     return (c && (c.getAttribute?.('data-line-id') || c.getAttribute?.('data-id') || c.value)) || null;
   }
 
-  // Lee "Técnica:", "Color SVG:", "Observaciones:" del texto de la línea
   function parseMeta(text){
     const meta = { tech:null, color:null, notes:null };
     if (!text) return meta;
@@ -41,18 +40,13 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
       img.alt = 'Personalización';
       img.loading = 'lazy';
       img.style.cssText = 'width:120px;height:auto;border:1px solid #e5e7eb;border-radius:8px;background:#fff';
-      const right = document.createElement('div');
-      right.className = 'spw-meta';
-      right.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:14px;line-height:1.2';
       const pill = document.createElement('span');
       pill.className = 'spw-pill';
       pill.style.cssText = 'width:14px;height:14px;border-radius:9999px;border:1px solid #e5e7eb;display:inline-block;margin-right:6px;vertical-align:middle';
       const metaText = document.createElement('div');
       metaText.className = 'spw-meta-text';
-      right.appendChild(metaText);
-      box.appendChild(img);
-      box.appendChild(pill);
-      box.appendChild(right);
+      metaText.style.cssText = 'display:flex;flex-direction:column;gap:2px;font-size:14px;line-height:1.2';
+      box.appendChild(img); box.appendChild(pill); box.appendChild(metaText);
       info.appendChild(box);
     }
     return box;
@@ -64,27 +58,24 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     const lineId = getLineId(lineEl);
     if (!lineId) return;
 
-    const text = (info.textContent || '');
-    const meta = parseMeta(text);
-    const box = ensureBox(info);
+    const meta = parseMeta(info.textContent || '');
+    const box  = ensureBox(info);
 
-    // imagen
     const img = box.querySelector('.spw-cart-img');
     img.src = `/spw/line_preview/${lineId}.png?v=${ts()}`;
-    img.onerror = () => { img.style.opacity = '0'; }; // si no hay PNG, que no moleste
+    img.onerror = () => { img.style.opacity = '0'; };
 
-    // píldora
     const pill = box.querySelector('.spw-pill');
     pill.title = meta.color || '—';
     pill.style.background = meta.color || 'transparent';
 
-    // texto
-    const t = [];
-    if (meta.color) t.push(`<b>${meta.color}</b>`);
-    if (meta.tech)  t.push(`Técnica: ${meta.tech}`);
-    if (meta.color) t.push(`Color SVG: ${meta.color}`);
-    if (meta.notes) t.push(`Obs.: ${meta.notes}`);
-    box.querySelector('.spw-meta-text').innerHTML = t.join('<br/>');
+    const metaText = box.querySelector('.spw-meta-text');
+    metaText.innerHTML = [
+      meta.color ? `<b>${meta.color}</b>` : '',
+      meta.tech  ? `Técnica: ${meta.tech}` : '',
+      meta.color ? `Color SVG: ${meta.color}` : '',
+      meta.notes ? `Obs.: ${meta.notes}` : '',
+    ].filter(Boolean).join('<br/>');
   }
 
   function boot(){
