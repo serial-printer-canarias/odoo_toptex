@@ -66,7 +66,41 @@
                   </div>
                 </div>
 
-                <!-- ===== Tamaño / Posición / Rotación (MOVIDO ARRIBA) ===== -->
+                <!-- Color SVG (NUEVO: sin radios legacy) -->
+                <div class="mb-3">
+                  <label class="form-label">Color (SVG)</label>
+
+                  <!-- Input oculto que leerá el JS al añadir al carrito -->
+                  <input type="hidden" name="spw_svg_color" id="spw_svg_color" value=""/>
+
+                  <!-- Contenedor vacío: aquí el inyector pinta .spw-color-item -->
+                  <div id="spwColorPalette" class="spw-color-grid"></div>
+
+                  <div class="spw-help mt-1">Se aplica solo a la impresión (logo).</div>
+
+                  <!-- Puente: actualiza el input al hacer clic en una píldora -->
+                  <script type="module"><![CDATA[
+                    document.addEventListener('click', (ev) => {
+                      const item = ev.target.closest('#spwColorPalette .spw-color-item');
+                      if (!item) return;
+                      const hex = item.dataset.hex || '';
+                      const input = document.querySelector('input[name="spw_svg_color"]');
+                      if (input) input.value = hex;
+                      document.querySelectorAll('#spwColorPalette .spw-color-item.is-selected')
+                        .forEach(el => el.classList.remove('is-selected'));
+                      item.classList.add('is-selected');
+                      document.dispatchEvent(new CustomEvent('spw:color-changed', {detail:{hex}}));
+                    });
+                    // Inicializar si ya hay seleccionada al cargar
+                    document.addEventListener('DOMContentLoaded', () => {
+                      const sel   = document.querySelector('#spwColorPalette .spw-color-item.is-selected');
+                      const inHex = document.querySelector('input[name="spw_svg_color"]');
+                      if (sel && inHex) inHex.value = sel.dataset.hex || '';
+                    });
+                  ]]></script>
+                </div>
+
+                <!-- Tamaño / Posición / Rotación -->
                 <div class="mb-3">
                   <label for="spw_size" class="form-label">Tamaño</label>
                   <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
@@ -84,47 +118,6 @@
                   <input id="spw_rotation" class="form-range" type="range" min="-45" max="45" value="0"/>
                 </div>
 
-                <!-- Color SVG (NUEVO: sin radios legacy) -->
-                <div class="mb-3">
-                  <label class="form-label">Color (SVG)</label>
-
-                  <!-- Inputs ocultos -->
-                  <input type="hidden" name="spw_svg_color" id="spw_svg_color" value=""/>
-                  <input type="hidden" name="spw_svg_color_name" id="spw_svg_color_name" value=""/>
-
-                  <!-- Contenedor vacío: aquí el inyector pinta .spw-color-item -->
-                  <div id="spwColorPalette" class="spw-color-grid"></div>
-
-                  <div class="spw-help mt-1">Se aplica solo a la impresión (logo).</div>
-
-                  <!-- Puente: setea HEX y NAME al hacer clic en una píldora -->
-                  <script type="module">
-                    document.addEventListener('click', (ev) => {
-                      const item = ev.target.closest('#spwColorPalette .spw-color-item');
-                      if (!item) return;
-                      const hex  = item.dataset.hex  || '';
-                      const name = item.dataset.name || item.getAttribute('title') || '';
-                      const inHex  = document.querySelector('input[name="spw_svg_color"]');
-                      const inName = document.querySelector('input[name="spw_svg_color_name"]');
-                      if (inHex)  inHex.value  = hex;
-                      if (inName) inName.value = name;
-                      document.querySelectorAll('#spwColorPalette .spw-color-item.is-selected')
-                        .forEach(el => el.classList.remove('is-selected'));
-                      item.classList.add('is-selected');
-                      document.dispatchEvent(new CustomEvent('spw:color-changed', {detail:{hex, name}}));
-                    });
-
-                    // Inicializar si ya hay una seleccionada al cargar
-                    document.addEventListener('DOMContentLoaded', () => {
-                      const sel  = document.querySelector('#spwColorPalette .spw-color-item.is-selected');
-                      const inHex  = document.querySelector('#spw_svg_color');
-                      const inName = document.querySelector('#spw_svg_color_name');
-                      if (sel && inHex)  inHex.value  = sel.dataset.hex || '';
-                      if (sel && inName) inName.value = sel.dataset.name || sel.getAttribute('title') || '';
-                    });
-                  </script>
-                </div>
-
                 <!-- Cantidad / Observaciones -->
                 <div class="mb-3">
                   <label for="spw_qty" class="form-label">Cantidad</label>
@@ -139,7 +132,7 @@
                 <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset && window.spwReset();">Reset</a>
+                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -161,7 +154,6 @@
 
       <!-- ====== ESTILOS MÍNIMOS ====== -->
       <style>
-        /* legacy swatches (no hay DOM, pero no molestan) */
         .spw-color-swatch{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
         .spw-color-swatch input{display:none}
         .spw-color-ring{display:inline-block;width:18px;height:18px;border-radius:999px;border:1px solid #e5e7eb}
@@ -170,12 +162,6 @@
         .spw-color-swatch.is-red .spw-color-ring{background:#D62828}
         .spw-color-swatch.is-blue .spw-color-ring{background:#2060FF}
         .spw-color-swatch.is-green .spw-color-ring{background:#2A9D8F}
-
-        /* preview + drag */
-        .spw-logo-preview{position:absolute;left:50%;top:50%;
-          transform:translate(-50%,-50%);transform-origin:center center;
-          user-select:none;cursor:grab;touch-action:none}
-        .spw-logo-preview:active{cursor:grabbing}
       </style>
 
       <!-- ====== JS INLINE ====== -->
@@ -205,7 +191,7 @@
           });
         }
 
-        var S={ logoDataURL:"", isSVG:false, pinch:null, dragging:false };
+        var S={ logoDataURL:"", isSVG:false };
 
         function applyTransform(){
           var logo = $("#spw_logo_preview"); if(!logo) return;
@@ -220,7 +206,7 @@
           var bh = base.clientHeight || base.naturalHeight || 0;
 
           var leftPx = bw*(0.5 + posX/100);
-          var topPx  = bh*(0.6 + posY/100); // mantenemos offset probado
+          var topPx  = bh*(0.6 + posY/100);
 
           logo.style.position="absolute";
           logo.style.left = leftPx + "px";
@@ -305,10 +291,7 @@
           var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
           var tech=( (document.querySelector("input[name='spw_tech']:checked")||{}).value )||"";
-          // FIX: leer del input oculto, con fallback legacy :checked
-          var svgColor = (document.querySelector("input[name='spw_svg_color']")||{}).value
-                      || (document.querySelector("input[name='spw_svg_color']:checked")||{}).value
-                      || "";
+          var svgColor=( (document.querySelector("input[name='spw_svg_color']:checked")||{}).value )||"";
           var notes=($val("spw_notes","")||"").trim();
 
           if(!variantId){ alert("Falta la variante del producto."); return; }
@@ -369,7 +352,6 @@
         function init(){
           var logoInput=$("#spw_logo_input");
           var logoEl=$("#spw_logo_preview");
-          var stage=$("#spw_canvas");
 
           if(logoInput){
             logoInput.addEventListener("change", async function(ev){
@@ -387,64 +369,6 @@
             var el=document.getElementById(id);
             if(el) el.addEventListener("input", applyTransform);
           });
-
-          // ==== DRAG (ratón y táctil) ====
-          function clamp(v,min,max){ return Math.min(max, Math.max(min, v)); }
-          if (stage && logoEl){
-            stage.addEventListener('pointerdown', function(ev){
-              if (!ev.target || ev.target.id !== 'spw_logo_preview') return;
-              S.dragging = true;
-              ev.target.setPointerCapture && ev.target.setPointerCapture(ev.pointerId);
-            });
-            stage.addEventListener('pointermove', function(ev){
-              if (!S.dragging) return;
-              var base = $("#spw_product_img");
-              var r = base.getBoundingClientRect();
-              var bw = r.width, bh = r.height;
-              var px = (ev.clientX - r.left) / bw;  // 0..1
-              var py = (ev.clientY - r.top)  / bh;  // 0..1
-              // convertir a rango sliders (-50..50) con offset (0.5, 0.6)
-              var posX = clamp((px - 0.5) * 100, -50, 50);
-              var posY = clamp((py - 0.6) * 100, -50, 50);
-              $("#spw_pos_x").value = posX.toFixed(1);
-              $("#spw_pos_y").value = posY.toFixed(1);
-              applyTransform();
-            });
-            ['pointerup','pointercancel','pointerleave'].forEach(function(t){
-              stage.addEventListener(t, function(){ S.dragging = false; });
-            });
-
-            // Zoom con Ctrl + rueda
-            stage.addEventListener('wheel', function(ev){
-              if (!ev.ctrlKey) return;
-              ev.preventDefault();
-              var s = parseInt($("#spw_size").value||"100",10);
-              s = clamp(s + (ev.deltaY < 0 ? 4 : -4), 10, 200);
-              $("#spw_size").value = s;
-              applyTransform();
-            }, {passive:false});
-
-            // Pinch-to-zoom (dos dedos)
-            var pointers = new Map();
-            stage.addEventListener('pointerdown', e => pointers.set(e.pointerId, {x:e.clientX, y:e.clientY}));
-            stage.addEventListener('pointermove', e => {
-              if (!pointers.has(e.pointerId)) return;
-              pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
-              if (pointers.size === 2){
-                var a=[...pointers.values()][0], b=[...pointers.values()][1];
-                var dist = Math.hypot(a.x-b.x, a.y-b.y);
-                if (!S.pinch) S.pinch = {dist, size: parseInt($("#spw_size").value||"100",10)};
-                var factor = dist / S.pinch.dist;
-                var s = clamp(Math.round(S.pinch.size * factor), 10, 200);
-                $("#spw_size").value = s;
-                applyTransform();
-              }
-            });
-            function endPinch(){ pointers.clear(); S.pinch=null; }
-            stage.addEventListener('pointerup', endPinch);
-            stage.addEventListener('pointercancel', endPinch);
-            stage.addEventListener('pointerleave', endPinch);
-          }
 
           window.spwReset=function(){
             $("#spw_size").value=100;
@@ -490,4 +414,127 @@
           try{ return new URL(location.href).searchParams.get(name); }catch(_){ return null; }
         }
 
-        function parseLineIdFrom
+        function parseLineIdFromHref(node){
+          try{
+            var a = (node && node.closest && node.closest('a[href*="line_id="]')) || (node && node.querySelector && node.querySelector('a[href*="line_id="]'));
+            if(!a) return null;
+            var u = new URL(a.getAttribute('href'), location.origin);
+            return u.searchParams.get('line_id');
+          }catch(_){ return null; }
+        }
+
+        function getLineId(line){
+          if(!line) return null;
+          return line.getAttribute('data-line-id')
+                 || line.getAttribute('data-id')
+                 || ((q('input[name="line_id"]', line)||{}).value)
+                 || parseLineIdFromHref(line)
+                 || null;
+        }
+
+        function findLines(){
+          var sel = 'tr.js_cart_line, .o_wsale_cart_item, .card.js_cart_item, .o_cart_line, .o_checkout_line';
+          return qa(sel).filter(function(n){ return !!getLineId(n); });
+        }
+
+        function infoContainer(line){
+          return q('.o_wsale_product_information', line)
+              || q('.o_cart_product_info', line)
+              || q('td.o_wsale_cart_description', line)
+              || q('.media-body', line)
+              || line;
+        }
+
+        function detectHex(line){
+          try{
+            var cont = infoContainer(line);
+            if(!cont) return null;
+            var m = (cont.textContent||'').match(/#([0-9a-fA-F]{6})\b/);
+            return m ? ('#'+m[1].toUpperCase()) : null;
+          }catch(_){ return null; }
+        }
+
+        function insertPreview(line, pngSrc, hex){
+          var id = getLineId(line); if(!id) return;
+          qa('.spw-cart-block[data-line="'+id+'"]', line).forEach(function(n){ n.remove(); });
+
+          var wrap = document.createElement('div');
+          wrap.className = 'spw-cart-block';
+          wrap.setAttribute('data-line', id);
+
+          var img = new Image();
+          img.alt = 'Personalización';
+          img.loading = 'lazy';
+          img.src = pngSrc;
+          wrap.appendChild(img);
+
+          if (hex && /^#[0-9A-F]{6}$/i.test(hex)) {
+            var sw = document.createElement('span');
+            sw.className = 'spw-swatch';
+            sw.title = hex;
+            sw.style.background = hex;
+            wrap.appendChild(sw);
+          }
+
+          var container = infoContainer(line) || line;
+          container.appendChild(wrap);
+        }
+
+        function inject(){
+          var lines = findLines();
+
+          qa('.spw-cart-block').forEach(function(n){
+            var lid = n.getAttribute('data-line');
+            var alive = lines.some(function(l){ return getLineId(l) === lid; });
+            if(!alive) n.remove();
+          });
+
+          lines.forEach(function(line){
+            var id = getLineId(line);
+            if(!id) return;
+            var src = '/spw/line_preview/' + encodeURIComponent(id) + '.png?_=' + Date.now();
+            var hex = detectHex(line);
+            insertPreview(line, src, hex);
+          });
+
+          var wanted = urlParam('spw_line_id');
+          if (wanted) {
+            try{
+              var lastId = sessionStorage.getItem('spw_last_line_id');
+              var lastPng = sessionStorage.getItem('spw_last_png');
+              var lastColor = sessionStorage.getItem('spw_last_color');
+              if (lastId && lastPng && lastId === wanted) {
+                var line = lines.find(function(l){ return getLineId(l) === wanted; });
+                if (line) insertPreview(line, lastPng, lastColor || detectHex(line));
+              }
+            }catch(_){}
+            try{
+              sessionStorage.removeItem('spw_last_line_id');
+              sessionStorage.removeItem('spw_last_png');
+              sessionStorage.removeItem('spw_last_color');
+            }catch(_){}
+          }
+        }
+
+        function boot(){
+          inject();
+          var root = q('.js_cart_lines') || q('.o_wsale_cart') || q('main') || document.body;
+          if (window.MutationObserver && root){
+            var mo = new MutationObserver(function(){ requestAnimationFrame(inject); });
+            mo.observe(root, {childList:true, subtree:true});
+          }
+          setTimeout(inject, 400);
+          setTimeout(inject, 1200);
+        }
+
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', boot);
+        } else {
+          boot();
+        }
+      })();
+      ]]></script>
+    </xpath>
+  </template>
+
+</odoo>
