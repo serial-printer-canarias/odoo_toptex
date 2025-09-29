@@ -1,98 +1,119 @@
-/** SPW – Cart preview (imagen + píldora + texto) */
+/** SPW – Cart preview (vertical, multi-personalización) */
 odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function () {
   'use strict';
 
+  // ---------- ready ----------
+  function onReady(cb){ document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', cb, {once:true}) : cb(); }
+
+  // ---------- selectores ----------
   const LINE_SEL = '.o_cart_product, .js_cart_lines tr, .o_wsale_cart_item, .cart_line';
   const INFO_SEL = '.o_wsale_product_information, .o_wsale_cart_description, .o_wsale_cart_item_description, .product-name, .oe_subdescription';
 
-  function ready(cb){ document.readyState==='loading' ? document.addEventListener('DOMContentLoaded', cb, {once:true}) : cb(); }
-  const ts = () => Date.now();
-
-  function getLineId(lineEl){
-    const c = lineEl.getAttribute('data-line-id') ? lineEl :
-      lineEl.querySelector('[data-line-id]') ||
-      lineEl.querySelector('input[name="line_id"]') ||
-      lineEl.querySelector('button[data-line-id], a[data-line-id]');
-    return (c && (c.getAttribute?.('data-line-id') || c.getAttribute?.('data-id') || c.value)) || null;
+  // ---------- utils ----------
+  function urlLineIdFrom(el){
+    if(!el) return null;
+    const c = el.getAttribute?.('data-line-id') ? el :
+      el.querySelector?.('[data-line-id]') ||
+      el.querySelector?.('input[name="line_id"]') ||
+      el.querySelector?.('button[data-line-id], a[data-line-id]');
+    return c && (c.getAttribute?.('data-line-id') || c.getAttribute?.('data-id') || c.value);
   }
 
-  function parseMeta(text){
-    const meta = { tech:null, color:null, notes:null };
-    if (!text) return meta;
-    const t = text.replace(/\s+/g,' ').trim();
-    const mTech = t.match(/Técnica:\s*([^|#\n]+)/i);
-    const mCol  = t.match(/Color\s*SVG:\s*(#[0-9a-f]{3,8})/i);
-    const mNote = t.match(/Observaciones:\s*([^|#\n]+)/i);
-    meta.tech = mTech ? mTech[1].trim() : null;
-    meta.color = mCol ? mCol[1].trim() : null;
-    meta.notes = mNote ? mNote[1].trim() : null;
-    return meta;
-  }
-
-  function ensureBox(info){
-    let box = info.querySelector('.spw-cart-box');
-    if (!box){
-      box = document.createElement('div');
-      box.className = 'spw-cart-box';
-      box.style.cssText = 'display:flex;align-items:flex-start;gap:12px;margin-top:8px;';
-      const img = document.createElement('img');
-      img.className = 'spw-cart-img';
-      img.alt = 'Personalización';
-      img.loading = 'lazy';
-      img.style.cssText = 'width:120px;height:auto;border:1px solid #e5e7eb;border-radius:8px;background:#fff';
-      const pill = document.createElement('span');
-      pill.className = 'spw-pill';
-      pill.style.cssText = 'width:14px;height:14px;border-radius:9999px;border:1px solid #e5e7eb;display:inline-block;margin-right:6px;vertical-align:middle';
-      const metaText = document.createElement('div');
-      metaText.className = 'spw-meta-text';
-      metaText.style.cssText = 'display:flex;flex-direction:column;gap:2px;font-size:14px;line-height:1.2';
-      box.appendChild(img); box.appendChild(pill); box.appendChild(metaText);
-      info.appendChild(box);
+  function ensureWrap(info){
+    let wrap = info.querySelector('.spw-cart-preview');
+    if(!wrap){
+      wrap = document.createElement('div');
+      wrap.className = 'spw-cart-preview';
+      // vertical
+      wrap.style.cssText = 'display:flex;flex-direction:column;gap:12px;margin-top:8px';
+      info.appendChild(wrap);
     }
-    return box;
+    return wrap;
   }
 
-  function renderLine(lineEl){
-    const info = lineEl.querySelector(INFO_SEL) || lineEl;
-    if (!info) return;
-    const lineId = getLineId(lineEl);
-    if (!lineId) return;
+  function card(item){
+    const root = document.createElement('div');
+    root.className = 'spw-one';
+    root.style.cssText = 'display:flex;flex-direction:column;gap:6px;align-items:flex-start;border:1px solid #e5e7eb;border-radius:10px;padding:8px;max-width:220px';
 
-    const meta = parseMeta(info.textContent || '');
-    const box  = ensureBox(info);
+    const img = new Image();
+    img.alt = 'Personalización';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.src = item.img;
+    img.style.cssText = 'width:100%;height:auto;border-radius:8px;object-fit:contain;background:#fff';
+    root.appendChild(img);
 
-    const img = box.querySelector('.spw-cart-img');
-    img.src = `/spw/line_preview/${lineId}.png?v=${ts()}`;
-    img.onerror = () => { img.style.opacity = '0'; };
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px';
+    const pill = document.createElement('span');
+    pill.title = item.color || '';
+    pill.style.cssText = 'width:14px;height:14px;border-radius:9999px;border:1px solid #e5e7eb;display:inline-block';
+    if(item.color) pill.style.background = item.color;
+    row.appendChild(pill);
 
-    const pill = box.querySelector('.spw-pill');
-    pill.title = meta.color || '—';
-    pill.style.background = meta.color || 'transparent';
+    const hex = document.createElement('span');
+    hex.textContent = item.color || '';
+    hex.style.cssText = 'font-size:12px;color:#374151';
+    row.appendChild(hex);
+    root.appendChild(row);
 
-    const metaText = box.querySelector('.spw-meta-text');
-    metaText.innerHTML = [
-      meta.color ? `<b>${meta.color}</b>` : '',
-      meta.tech  ? `Técnica: ${meta.tech}` : '',
-      meta.color ? `Color SVG: ${meta.color}` : '',
-      meta.notes ? `Obs.: ${meta.notes}` : '',
-    ].filter(Boolean).join('<br/>');
+    const t1 = document.createElement('div');
+    t1.textContent = (item.tech ? `Técnica: ${item.tech}` : '');
+    t1.style.cssText = 'font-size:12px;color:#374151';
+    if(item.tech) root.appendChild(t1);
+
+    const t2 = document.createElement('div');
+    t2.textContent = (item.color ? `Color SVG: ${item.color}` : '');
+    t2.style.cssText = 'font-size:12px;color:#374151';
+    if(item.color) root.appendChild(t2);
+
+    return root;
   }
 
-  function boot(){
-    const root = document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines') || document.body;
-    if (!root) return;
-    root.querySelectorAll(LINE_SEL).forEach(renderLine);
+  async function renderLine(lineEl){
+    const info = lineEl.querySelector?.(INFO_SEL) || lineEl;
+    const lineId = urlLineIdFrom(lineEl);
+    if(!info || !lineId) return;
+
+    const wrap = ensureWrap(info);
+    wrap.innerHTML = ''; // limpiar
+
+    try{
+      const res = await fetch(`/spw/line_personalizations/${lineId}`);
+      const json = await res.json();
+      const items = (json && json.ok && Array.isArray(json.items)) ? json.items : [];
+      if(!items.length) return;
+
+      // apilar vertical
+      items.forEach(it => wrap.appendChild(card(it)));
+    }catch(e){
+      // silencioso
+      // console.warn('[SPW] fallo al obtener personalizaciones', e);
+    }
+  }
+
+  function scanInitial(){ document.querySelectorAll(LINE_SEL).forEach(renderLine); }
+  function observe(){
+    const root = document.querySelector('#o_cart, .o_wsale_products_main, .o_wsale_cart_summary, .js_cart_lines') || document.body;
     new MutationObserver(ms => {
-      for (const m of ms){
+      for(const m of ms){
         m.addedNodes && m.addedNodes.forEach(n => {
-          if (n instanceof HTMLElement){
-            if (n.matches?.(LINE_SEL)) renderLine(n);
+          if(n instanceof HTMLElement){
+            if(n.matches?.(LINE_SEL)) renderLine(n);
             else n.querySelectorAll?.(LINE_SEL).forEach(renderLine);
           }
         });
       }
-    }).observe(root, { childList:true, subtree:true });
+    }).observe(root, {childList:true, subtree:true});
   }
 
-  ready(boot);
+  function boot(){
+    if(!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines')) return;
+    scanInitial();
+    observe();
+    // console.log('[SPW] cart preview vertical listo');
+  }
+
+  onReady(boot);
 });
