@@ -9,7 +9,6 @@
         'views/customizer_page.xml',
         'views/product_personalize_button.xml',
         'views/spw_cart_preview_inject.xml',
-        'views/spw_color_palette_assets.xml',
     ],
     'assets': {
         'web.assets_frontend': [
@@ -25,6 +24,7 @@
             # Lógica customizer (si la usas además del inline)
             'serial_printer_custom_wizard/static/src/js/spw_customizer.js',
             'serial_printer_custom_wizard/static/src/js/spw_custom_submit.js',
+            'serial_printer_custom_wizard/static/src/js/spw_color_palette.js',
             
 
             # Inyección preview carrito/checkout
