@@ -2,9 +2,8 @@
 from odoo import http, _
 from odoo.http import request
 from base64 import b64decode
-import re
 import time
-
+import re
 
 def _to_int(v, dflt=0):
     try:
@@ -12,43 +11,78 @@ def _to_int(v, dflt=0):
     except Exception:
         return dflt
 
+# -------- helpers --------
+def _tiny_png():
+    # 1x1 transparente
+    return b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAEklEQVR42mP8/5+hHgAHggJ/2k7O6wAAAABJRU5ErkJggg==")
 
-def _count_blocks(name_text: str) -> int:
-    """Cuenta bloques '— Personalización N —' en el name de la línea."""
-    if not name_text:
-        return 0
-    return len(re.findall(r'—\s*Personalización\s*\d+\s*—', name_text))
+def _att_for_index(line_id, idx):
+    Att = request.env['ir.attachment'].sudo()
+    name = f"spw_line_{line_id}_{idx}.png"
+    rec = Att.search([
+        ('res_model', '=', 'sale.order.line'),
+        ('res_id', '=', line_id),
+        ('mimetype', '=', 'image/png'),
+        ('name', '=', name),
+    ], limit=1)
+    return rec
 
+def _next_idx(line):
+    Att = request.env['ir.attachment'].sudo()
+    atts = Att.search([
+        ('res_model', '=', 'sale.order.line'),
+        ('res_id', '=', line.id),
+        ('mimetype', '=', 'image/png'),
+        ('name', 'like', f"spw_line_{line.id}_"),
+    ])
+    mx = 0
+    for a in atts:
+        m = re.search(rf"^spw_line_{line.id}_(\d+)\.png$", a.name or "")
+        if m:
+            try:
+                mx = max(mx, int(m.group(1)))
+            except Exception:
+                pass
+    return mx + 1 if mx >= 0 else 1
+
+def _append_or_replace_block(base_text, idx, tech, color, notes):
+    base_text = (base_text or "").strip()
+    # quita bloque existente con ese N (si lo hubiera)
+    pat = re.compile(rf"—\s*Personalización\s*{idx}\s*—[\s\S]*?(?=—\s*Personalización\s*\d+\s*—|$)")
+    base_text = pat.sub("", base_text).strip()
+
+    lines = [f"— Personalización {idx} —"]
+    if tech:
+        lines.append(f"Técnica: {tech}")
+    if color:
+        lines.append(f"Color SVG: {color}")
+    if notes:
+        lines.append(f"Observaciones: {notes}")
+    block = "\n".join(lines)
+
+    return (base_text + ("\n" if base_text else "") + block).strip()
 
 class SpwCartController(http.Controller):
-    # =========================================================
-    # 1) Crear/actualizar línea y añadir BLOQUE de personalización
-    # =========================================================
+
+    # ====== 1) Crear/actualizar línea y devolver índice N ======
     @http.route(['/spw/add_to_cart_meta'], type='json', auth='public', methods=['POST'], csrf=False)
     def spw_add_to_cart_meta(self, **kw):
-        """
-        Crea/actualiza la línea y AÑADE un bloque nuevo al 'name' con:
-        — Personalización N — / Técnica / Color SVG / Observaciones
-
-        Devuelve line_id, seq (N) y la URL del carrito.
-        """
         vals = request.jsonrequest or {}
         variant_id = _to_int(vals.get('variant_id'))
         qty        = _to_int(vals.get('qty', 1), 1)
         tech       = (vals.get('tech') or '').strip()
         svg_color  = (vals.get('svg_color') or '').strip()
         notes      = (vals.get('notes') or '').strip()
+        idx        = _to_int(vals.get('i'), 0)  # opcional: índice pedido por el front
 
         if not variant_id or qty <= 0:
             return {'ok': False, 'message': _('Bad payload')}
 
-        # Pedido y producto
         order = request.website.sale_get_order(force_create=True)
         product = request.env['product.product'].sudo().browse(variant_id).exists()
         if not product:
             return {'ok': False, 'message': _('Product not found')}
 
-        # _cart_update: puede reutilizar la línea del mismo SKU (está bien)
         res = order._cart_update(product_id=product.id, add_qty=qty)
         line_id = res.get('line_id')
         if not line_id:
@@ -56,140 +90,110 @@ class SpwCartController(http.Controller):
 
         line = request.env['sale.order.line'].sudo().browse(line_id)
 
-        # Siguiente índice N (cuenta bloques ya presentes)
-        current_name = (line.name or '').strip()
-        next_seq = _count_blocks(current_name) + 1
+        # Decide índice (N) si no vino uno
+        if not idx:
+            idx = _next_idx(line)
 
-        # Construir bloque nuevo
-        block_lines = [f"— Personalización {next_seq} —"]
-        if tech:
-            block_lines.append(f"Técnica: {tech}")
-        if svg_color:
-            block_lines.append(f"Color SVG: {svg_color}")
-        if notes:
-            block_lines.append(f"Observaciones: {notes}")
-
-        new_name = (current_name + ("\n" if current_name else "") + "\n".join(block_lines)).strip()
-        line.sudo().write({
-            'name': new_name,
-            # Guardamos también metadatos "últimos" por si se usan en informes
+        # Guarda campos "últimos" (compat.)
+        line_vals = {
             'spw_tech': tech or False,
             'spw_svg_color': svg_color or False,
             'spw_notes': notes or False,
-        })
+        }
+        line.sudo().write(line_vals)
+
+        # Inserta/actualiza bloque “— Personalización N — …” en el name
+        new_name = _append_or_replace_block(line.name, idx, tech, svg_color, notes)
+        if new_name != (line.name or ""):
+            line.sudo().write({'name': new_name})
 
         return {
             'ok': True,
-            'line_id': line.id,
-            'seq': next_seq,
+            'line_id': line_id,
+            'i': idx,                 # <-- devuelve N al front para adjuntar el PNG correcto
             'cart_url': '/shop/cart',
-            'preview_url': f'/spw/line_preview/{line.id}-{next_seq}.png',
         }
 
-    # =========================================================
-    # 2) Adjuntar PNG de una personalización concreta (seq)
-    # =========================================================
+    # ====== 2) Adjuntar PNG a la línea con índice N ======
     @http.route(['/spw/attach_png'], type='json', auth='public', methods=['POST'], csrf=False)
     def spw_attach_png(self, **kw):
-        """
-        Adjunta un PNG (base64) para la línea y el índice 'seq' indicado.
-        Si no se pasa seq, usa el siguiente disponible.
-        """
         data = request.jsonrequest or {}
         line_id = _to_int(data.get('line_id'))
         png_b64 = (data.get('png_b64') or '').strip()
-        seq     = _to_int(data.get('seq'), 0)
+        idx     = _to_int(data.get('i'))  # requerido para multi
 
         if not line_id or not png_b64:
             return {'ok': False, 'message': _('Missing data')}
-
         line = request.env['sale.order.line'].sudo().browse(line_id).exists()
         if not line:
             return {'ok': False, 'message': _('Line not found')}
 
-        # Si no viene seq, calculamos el siguiente según adjuntos existentes
-        Att = request.env['ir.attachment'].sudo()
-        pattern = f"spw_line_{line.id}_"
-        existing = Att.search([
-            ('res_model', '=', 'sale.order.line'),
-            ('res_id', '=', line.id),
-            ('mimetype', '=', 'image/png'),
-            ('name', 'ilike', pattern + '%'),
-        ])
-        if not seq:
-            # siguiente libre = max + 1
-            max_seq = 0
-            for att in existing:
-                m = re.search(rf"spw_line_{line.id}_(\d+)\.png$", att.name or '')
-                if m:
-                    max_seq = max(max_seq, int(m.group(1)))
-            seq = max_seq + 1
+        if not idx:
+            idx = _next_idx(line)
 
-        # Si ya existía el de ese seq, lo sustituimos
-        for att in existing:
-            if re.fullmatch(rf"spw_line_{line.id}_{seq}\.png", att.name or ''):
-                att.unlink()
-                break
-
-        att_name = f"spw_line_{line.id}_{seq}.png"
+        att_name = f"spw_line_{line.id}_{idx}.png"
         att_vals = {
             'name': att_name,
             'res_model': 'sale.order.line',
             'res_id': line.id,
             'type': 'binary',
             'mimetype': 'image/png',
-            'datas': png_b64,  # ya viene base64
+            'datas': png_b64,  # ya en base64
         }
-        att = Att.create(att_vals)
+        att = request.env['ir.attachment'].sudo().create(att_vals)
 
-        # Many2one opcional (conserva el último subido)
-        line.sudo().write({'spw_png_attachment_id': att.id})
+        # Compatibilidad: guarda el último también en el campo single
+        try:
+            line.sudo().write({'spw_png_attachment_id': att.id})
+        except Exception:
+            pass
 
-        return {'ok': True, 'attachment_id': att.id, 'seq': seq}
+        return {'ok': True, 'attachment_id': att.id, 'i': idx}
 
-    # Fallbacks HTTP (por si fetch JSON falla en algún navegador)
+    # Fallbacks HTTP (por si el fetch JSON falla)
     @http.route(['/spw/attach_png_http'], type='http', auth='public', methods=['POST'], csrf=False)
     def spw_attach_png_http(self, **post):
         try:
-            result = self.spw_attach_png()
-            return request.make_json_response(result)
+            return request.make_json_response(self.spw_attach_png())
         except Exception as e:
             return request.make_json_response({'ok': False, 'message': str(e)})
 
     @http.route(['/spw/add_to_cart_meta_http'], type='http', auth='public', methods=['POST'], csrf=False)
     def spw_add_to_cart_meta_http(self, **post):
         try:
-            result = self.spw_add_to_cart_meta()
-            return request.make_json_response(result)
+            return request.make_json_response(self.spw_add_to_cart_meta())
         except Exception as e:
             return request.make_json_response({'ok': False, 'message': str(e)})
 
-    # =========================================================
-    # 3) Servir previsualizaciones por índice
-    # =========================================================
-    @http.route(['/spw/line_preview/<int:line_id>-<int:seq>.png'], type='http', auth='public', methods=['GET'], csrf=False)
-    def spw_line_preview_seq(self, line_id, seq, **kw):
-        """Devuelve el PNG de la línea + índice. 1x1 si no existe."""
+    # ====== 3) Endpoints para servir la previsualización N ======
+    @http.route([
+        '/spw/line_preview/<int:line_id>-<int:idx>.png',      # usado por el JS nuevo
+        '/spw/line_preview/<int:line_id>_<int:idx>.png',      # compat
+        '/spw/line_preview/<int:line_id>/<int:idx>.png',      # compat
+    ], type='http', auth='public', methods=['GET'], csrf=False)
+    def spw_line_preview_idx(self, line_id, idx, **kw):
         line = request.env['sale.order.line'].sudo().browse(line_id).exists()
         if not line:
             return request.not_found()
-
-        name = f"spw_line_{line.id}_{seq}.png"
-        att = request.env['ir.attachment'].sudo().search([
-            ('res_model', '=', 'sale.order.line'),
-            ('res_id', '=', line.id),
-            ('mimetype', '=', 'image/png'),
-            ('name', '=', name),
-        ], limit=1)
-
+        att = _att_for_index(line_id, idx)
         if not att:
-            tiny = b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAEklEQVR42mP8/5+hHgAHggJ/2k7O6wAAAABJRU5ErkJggg==")
-            return request.make_response(tiny, headers=[('Content-Type', 'image/png')])
-
+            return request.make_response(_tiny_png(), headers=[('Content-Type', 'image/png')])
         data = b64decode(att.datas)
         return request.make_response(data, headers=[('Content-Type', 'image/png')])
 
-    # Compatibilidad: si piden sin índice, devolvemos la #1
+    # Compatibilidad: sin índice devuelve el "último" o 1x1
     @http.route(['/spw/line_preview/<int:line_id>.png'], type='http', auth='public', methods=['GET'], csrf=False)
-    def spw_line_preview_legacy(self, line_id, **kw):
-        return self.spw_line_preview_seq(line_id, 1, **kw)
+    def spw_line_preview_last(self, line_id, **kw):
+        line = request.env['sale.order.line'].sudo().browse(line_id).exists()
+        if not line:
+            return request.not_found()
+        att = getattr(line.sudo(), 'spw_png_attachment_id', False)
+        if not att:
+            # último por nombre si existe
+            idx = _next_idx(line) - 1
+            if idx >= 1:
+                att = _att_for_index(line.id, idx)
+        if not att:
+            return request.make_response(_tiny_png(), headers=[('Content-Type', 'image/png')])
+        data = b64decode(att.datas)
+        return request.make_response(data, headers=[('Content-Type', 'image/png')])
