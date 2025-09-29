@@ -66,34 +66,6 @@
                   </div>
                 </div>
 
-                <!-- Color SVG -->
-                <div class="mb-3">
-                  <label class="form-label">Color (SVG)</label>
-                  <div class="spw-color-row d-flex align-items-center gap-2 flex-wrap">
-                    <label class="spw-color-swatch is-black">
-                      <input type="radio" name="spw_svg_color" value="#000000" checked="checked"/>
-                      <span class="spw-color-ring" title="#000000"></span>
-                    </label>
-                    <label class="spw-color-swatch is-white">
-                      <input type="radio" name="spw_svg_color" value="#FFFFFF"/>
-                      <span class="spw-color-ring" title="#FFFFFF"></span>
-                    </label>
-                    <label class="spw-color-swatch is-red">
-                      <input type="radio" name="spw_svg_color" value="#D62828"/>
-                      <span class="spw-color-ring" title="#D62828"></span>
-                    </label>
-                    <label class="spw-color-swatch is-blue">
-                      <input type="radio" name="spw_svg_color" value="#2060FF"/>
-                      <span class="spw-color-ring" title="#2060FF"></span>
-                    </label>
-                    <label class="spw-color-swatch is-green">
-                      <input type="radio" name="spw_svg_color" value="#2A9D8F"/>
-                      <span class="spw-color-ring" title="#2A9D8F"></span>
-                    </label>
-                  </div>
-                  <div class="spw-help mt-1">Se aplica solo a logos SVG.</div>
-                </div>
-
                 <!-- Tamaño / Posición / Rotación -->
                 <div class="mb-3">
                   <label for="spw_size" class="form-label">Tamaño</label>
