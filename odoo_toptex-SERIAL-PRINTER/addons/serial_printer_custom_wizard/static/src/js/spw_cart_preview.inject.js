@@ -23,7 +23,12 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     ['#172554','Azul noche'],['#000000','Negro'],
   ];
   const HEX2NAME = Object.fromEntries(PALETTE.map(([h,n]) => [h.toUpperCase(), n]));
-  const colorName = hex => HEX2NAME[(hex||'').toUpperCase()] || null;
+  const normHex = s => {
+    if(!s) return null;
+    const m = String(s).trim().match(/#([0-9a-f]{3,8})/i);
+    return m ? ('#' + m[1].toUpperCase()) : null;
+  };
+  const colorName = hex => HEX2NAME[(normHex(hex)||'').toUpperCase()] || null;
 
   // ---------- utils ----------
   function urlLineIdFrom(el){
@@ -60,17 +65,19 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     img.style.cssText = 'width:100%;height:auto;border-radius:8px;object-fit:contain;background:#fff';
     root.appendChild(img);
 
+    // línea con píldora + nombre + hex
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:center;gap:8px';
     const pill = document.createElement('span');
-    pill.title = item.color || '';
+    const hex = normHex(item.color);
+    pill.title = hex || '';
     pill.style.cssText = 'width:14px;height:14px;border-radius:9999px;border:1px solid #e5e7eb;display:inline-block';
-    if(item.color) pill.style.background = item.color;
+    if(hex) pill.style.background = hex;
     row.appendChild(pill);
 
     const label = document.createElement('span');
-    const name = item.color ? colorName(item.color) : null;
-    label.textContent = item.color ? (name ? `${name} · ${item.color}` : item.color) : '';
+    const name = colorName(hex);
+    label.textContent = hex ? (name ? `${name} · ${hex}` : hex) : '';
     label.style.cssText = 'font-size:12px;color:#374151';
     row.appendChild(label);
     root.appendChild(row);
@@ -81,9 +88,9 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     if(item.tech) root.appendChild(t1);
 
     const t2 = document.createElement('div');
-    t2.textContent = (item.color ? `Color SVG: ${item.color}` : '');
+    t2.textContent = (hex ? `Color SVG: ${hex}` : '');
     t2.style.cssText = 'font-size:12px;color:#374151';
-    if(item.color) root.appendChild(t2);
+    if(hex) root.appendChild(t2);
 
     return root;
   }
@@ -106,7 +113,6 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
       items.forEach(it => wrap.appendChild(card(it)));
     }catch(e){
       // silencioso
-      // console.warn('[SPW] fallo al obtener personalizaciones', e);
     }
   }
 
@@ -125,31 +131,37 @@ odoo.define('serial_printer_custom_wizard.spw_cart_preview_inject', [], function
     }).observe(root, {childList:true, subtree:true});
   }
 
-  // --- Ocultar paleta si apareciera en el carrito (sin tocar el customizer) ---
+  // --- Ocultar paleta/controles en el CARRITO (sin tocar el customizer) ---
   function hidePaletteInCart(){
     const cart = document.querySelector('#o_cart, .o_wsale_cart_summary');
     if(!cart) return;
     const css = `
-      #o_cart .spw-color-palette,
-      #o_cart .spw_color_palette,
-      #o_cart .spw-colors,
-      #o_cart .spw_colors,
-      #o_cart .spw-palette,
-      #o_cart .spw_palette { display:none !important; }`;
+      /* cualquier bloque de la UI de color/paleta/opciones que se haya colado en el carrito */
+      #o_cart [class*="spw"][class*="color"],
+      #o_cart [class*="spw"][class*="palette"],
+      #o_cart [class*="spw"][class*="paleta"],
+      #o_cart [class*="spw"][class*="colors"],
+      #o_cart [class*="spw"][class*="options"],
+      #o_cart [class*="spw"][class*="controls"],
+      .o_wsale_cart_summary [class*="spw"][class*="color"],
+      .o_wsale_cart_summary [class*="spw"][class*="palette"],
+      .o_wsale_cart_summary [class*="spw"][class*="paleta"],
+      .o_wsale_cart_summary [class*="spw"][class*="colors"],
+      .o_wsale_cart_summary [class*="spw"][class*="options"],
+      .o_wsale_cart_summary [class*="spw"][class*="controls"] { display:none !important; visibility:hidden !important; }
+    `;
     const tag = document.createElement('style');
     tag.setAttribute('data-spw','hide-palette-cart');
     tag.textContent = css;
     document.head.appendChild(tag);
-    cart.querySelectorAll('.spw-color-palette, .spw_color_palette, .spw-colors, .spw_colors, .spw-palette, .spw_palette')
-        .forEach(el => el.style.display = 'none');
   }
 
   function boot(){
-    if(!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines')) return;
-    hidePaletteInCart();   // << sólo este añadido
+    const isCart = !!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines');
+    if(!isCart) return;
+    hidePaletteInCart();     // sólo en carrito
     scanInitial();
     observe();
-    // console.log('[SPW] cart preview vertical listo');
   }
 
   onReady(boot);
