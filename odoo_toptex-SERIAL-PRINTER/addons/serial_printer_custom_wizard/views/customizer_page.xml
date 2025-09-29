@@ -19,7 +19,7 @@
           <!-- Lienzo / Previsualización -->
           <div class="col-12 col-lg-7">
             <div id="spw_canvas" class="spw-stage card p-3" style="position:relative; overflow:hidden;">
-              <!-- Imagen SAME-ORIGIN para canvas (ligera para rapidez) -->
+              <!-- Imagen SAME-ORIGIN para canvas (ligera = rápida) -->
               <img id="spw-base-img"
                    t-att-src="'/web/image/product.product/%s/image_1920?width=900' % (variant_id or (template.product_variant_id and template.product_variant_id.id) or 0)"
                    class="d-none" alt="Base interna Odoo"/>
@@ -47,7 +47,7 @@
                   <small class="text-muted">Máx. 10&#160;MB.</small>
                 </div>
 
-                <!-- ===== CONTROLES PRINCIPALES (arriba) ===== -->
+                <!-- Controles principales -->
                 <div class="mb-3">
                   <label for="spw_size" class="form-label">Tamaño</label>
                   <input id="spw_size" class="form-range" type="range" min="10" max="200" value="100"/>
@@ -173,7 +173,7 @@
         }
         .spw-logo-preview:active { cursor:grabbing; }
 
-        /* Legacy (por si quedan restos) */
+        /* (Legacy por si quedan restos de estilos de color) */
         .spw-color-swatch{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
         .spw-color-swatch input{display:none}
         .spw-color-ring{display:inline-block;width:18px;height:18px;border-radius:999px;border:1px solid #e5e7eb}
@@ -184,7 +184,7 @@
         .spw-color-swatch.is-green .spw-color-ring{background:#2A9D8F}
       </style>
 
-      <!-- ====== JS INLINE (drag fluido + addToCart con CSRF robusto) ====== -->
+      <!-- ====== JS INLINE ====== -->
       <script type="text/javascript"><![CDATA[
       (function () {
         "use strict";
@@ -282,33 +282,28 @@
           return canvas.toDataURL("image/png");
         }
 
-        // ===== Helpers de red con CSRF (Safari/iOS) =====
+        /* ===== Helpers de red con CSRF (Safari/iOS) ===== */
         function getCSRF(){
           var t = (document.querySelector('input[name="csrf_token"]')||{}).value || '';
           if (t) return t;
           try{
-            var m = document.cookie.match(/(?:^|;\\s*)csrf_token=([^;]+)/);
+            var m = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
             if (m) return decodeURIComponent(m[1]);
           }catch(_){}
           return '';
         }
-
         async function postJSON(url, payload){
           try{
             var headers = { "Content-Type":"application/json", "X-Requested-With":"XMLHttpRequest" };
             var csrf = getCSRF(); if (csrf) headers["X-CSRFToken"] = csrf;
-            var resp = await fetch(url,{
-              method:"POST", headers: headers, credentials:"same-origin",
-              body: JSON.stringify(payload),
-            });
+            var resp = await fetch(url,{ method:"POST", headers, credentials:"same-origin", body: JSON.stringify(payload) });
             var txt = await resp.text();
             var data=null; try{ data = JSON.parse(txt); }catch(_){}
             var ok = !!(data && (data.ok===true || data.ok==="true"));
-            if (!ok && resp.ok && !data) ok = true; // por si el endpoint devuelve vacío pero 200
+            if (!ok && resp.ok && !data) ok = true;
             return {ok, data:data||{}, status:resp.status, raw:txt};
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
-
         async function postForm(url, payload){
           try{
             var fd = new FormData();
@@ -329,81 +324,59 @@
               || '';
         }
 
-        function setBusy(btn, on){
-          if(!btn) return;
-          if(on){
-            btn.disabled = true;
-            btn.dataset.orig = btn.dataset.orig || btn.textContent;
-            btn.textContent = "Añadiendo…";
-          }else{
-            btn.disabled = false;
-            if(btn.dataset.orig) btn.textContent = btn.dataset.orig;
-          }
-        }
-
-        // ---- ADD TO CART (robusto: PNG antes de navegar) + "Cant: X" ----
+        // ---- ADD TO CART (PNG seguro antes de navegar + attach HTTP) ----
         async function addToCart(){
-          var btn = $("#spw_add_to_cart"); setBusy(btn, true);
-          try{
-            var variantId=($val("spw_variant_id","")||"").trim();
-            var qty=parseInt($val("spw_qty","1"),10)||1;
-            var tech=( (document.querySelector("input[name='spw_tech']:checked")||{}).value )||"";
-            var svgColor=getSvgColorHex();
-            var notesUser=($val("spw_notes","")||"").trim();
-            var notes=(notesUser ? notesUser + ' | ' : '') + 'Cant: ' + qty;
+          var variantId=($val("spw_variant_id","")||"").trim();
+          var qty=parseInt($val("spw_qty","1"),10)||1;
+          var tech=( (document.querySelector("input[name='spw_tech']:checked")||{}).value )||"";
+          var svgColor=getSvgColorHex();
+          var notesUser=($val("spw_notes","")||"").trim();
+          var notes=(notesUser ? notesUser + ' | ' : '') + 'Cant: ' + qty;
 
-            if(!variantId){ alert("Falta la variante del producto."); return; }
+          if(!variantId){ alert("Falta la variante del producto."); return; }
 
-            // 1) Render PNG (rápido con base 900px)
-            let du = null;
-            try {
-              du = await renderPNGDataURL();
-              sessionStorage.setItem('spw_last_product_id', String(variantId));
-              sessionStorage.setItem('spw_last_color', svgColor || '');
-              sessionStorage.setItem('spw_last_png', du || '');
-            } catch(_){}
+          // 1) Render PNG y guardar para preview inmediata
+          let du = null;
+          try {
+            du = await renderPNGDataURL();
+            sessionStorage.setItem('spw_last_product_id', String(variantId));
+            sessionStorage.setItem('spw_last_color', svgColor || '');
+            sessionStorage.setItem('spw_last_png', du || '');
+          } catch(_){}
 
-            // 2) Añadir al carrito
-            let r1 = await postJSON("/spw/add_to_cart_meta", {
-              variant_id: parseInt(variantId,10), qty, tech, svg_color: svgColor, notes
+          // 2) Añadir al carrito (tu endpoint)
+          let r1 = await postJSON("/spw/add_to_cart_meta", {
+            variant_id: parseInt(variantId,10), qty, tech, svg_color: svgColor, notes
+          });
+          if(!r1.ok){
+            r1 = await postForm("/spw/add_to_cart_meta_http", {
+              variant_id: variantId, qty, tech, svg_color: svgColor, notes
             });
-            if(!r1.ok){
-              r1 = await postForm("/spw/add_to_cart_meta_http", {
-                variant_id: parseInt(variantId,10), qty, tech, svg_color: svgColor, notes
-              });
-            }
-            if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
-
-            const lineId = r1.data && r1.data.line_id;
-            try { if (lineId) sessionStorage.setItem('spw_last_line_id', String(lineId)); } catch(_){}
-
-            // 3) Adjuntar PNG con fallback y keepalive
-            if (du && lineId){
-              const pngB64 = du.split('base64,')[1] || '';
-              try {
-                const j = await postJSON("/spw/attach_png", { line_id: lineId, png_b64: pngB64 });
-                if (!j.ok) {
-                  const fd = new FormData();
-                  fd.append('line_id', lineId);
-                  fd.append('png_b64', pngB64);
-                  var csrf = getCSRF(); if (csrf) fd.append('csrf_token', csrf);
-                  fetch("/spw/attach_png_http", { method: "POST", body: fd, credentials:"same-origin", keepalive:true });
-                }
-              } catch(_){}
-            }
-
-            // 4) Ir al carrito
-            const baseUrl = (r1.data && r1.data.cart_url) || "/shop/cart";
-            const withParam = lineId
-              ? (baseUrl + (baseUrl.indexOf('?')===-1?'?':'&') + 'spw_line_id=' + encodeURIComponent(lineId))
-              : baseUrl;
-            window.location.href = withParam;
-          } finally {
-            setTimeout(function(){ setBusy(btn, false); }, 800);
           }
+          if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
+
+          // 3) Adjuntar PNG SIEMPRE por HTTP (más tolerante en iOS)
+          const lineId = r1.data && r1.data.line_id;
+          if (du && lineId){
+            const pngB64 = du.split('base64,')[1] || '';
+            try {
+              const fd = new FormData();
+              fd.append('line_id', lineId);
+              fd.append('png_b64', pngB64);
+              var csrf = getCSRF(); if (csrf) fd.append('csrf_token', csrf);
+              fetch("/spw/attach_png_http", { method: "POST", body: fd, credentials:"same-origin", keepalive:true });
+            } catch(_){}
+          }
+
+          // 4) Ir al carrito con hint de línea para usar el fallback de sessionStorage
+          const baseUrl = (r1.data && r1.data.cart_url) || "/shop/cart";
+          const withParam = lineId
+            ? (baseUrl + (baseUrl.indexOf('?')===-1?'?':'&') + 'spw_line_id=' + encodeURIComponent(lineId))
+            : baseUrl;
+          window.location.href = withParam;
         }
 
-        // ---- DRAG MUY FLUIDO (rAF + rect cacheado) + PINCH ----
+        // ---- DRAG fluido + PINCH ----
         function enableDragAndPinch(){
           var cont = $("#spw_canvas");
           var base = $("#spw_product_img");
@@ -411,17 +384,17 @@
           if(!cont || !base || !logo) return;
 
           var dragging = false;
-          var br = null;       // rectángulo cacheado
+          var br = null;
           var lastX = 0, lastY = 0;
           var raf = null;
 
           function updateFromPointer(){
             raf = null;
             if (!br) return;
-            var px = (lastX - br.left) / br.width;   // 0..1
-            var py = (lastY - br.top)  / br.height;  // 0..1
-            var posX = (px - 0.5) * 100;             // -50..+50
-            var posY = (py - ANCHOR_Y) * 100;        // -50..+50 aprox
+            var px = (lastX - br.left) / br.width;
+            var py = (lastY - br.top)  / br.height;
+            var posX = (px - 0.5) * 100;
+            var posY = (py - ANCHOR_Y) * 100;
             posX = Math.max(-50, Math.min(50, posX));
             posY = Math.max(-50, Math.min(50, posY));
             $("#spw_pos_x").value = posX.toFixed(1);
@@ -432,7 +405,7 @@
           cont.addEventListener('pointerdown', function(ev){
             if (!ev.target.closest('#spw_logo_preview')) return;
             dragging = true;
-            br = base.getBoundingClientRect();       // cachea solo al empezar
+            br = base.getBoundingClientRect();
             lastX = ev.clientX; lastY = ev.clientY;
             ev.target.setPointerCapture && ev.target.setPointerCapture(ev.pointerId);
             if (!raf) raf = requestAnimationFrame(updateFromPointer);
@@ -446,7 +419,6 @@
             cont.addEventListener(t, function(){ dragging = false; br = null; });
           });
 
-          // Zoom con Ctrl+rueda (ratón)
           cont.addEventListener('wheel', function(ev){
             if (!ev.ctrlKey) return;
             ev.preventDefault();
@@ -457,7 +429,6 @@
             applyTransform();
           }, {passive:false});
 
-          // Pinch (dos dedos)
           var touches = new Map();
           cont.addEventListener('pointerdown', function(ev){ touches.set(ev.pointerId, {x:ev.clientX, y:ev.clientY}); });
           cont.addEventListener('pointermove', function(ev){
@@ -476,8 +447,6 @@
           }, {passive:true});
           function clearPinch(){ touches.clear(); cont._pinchStart = null; }
           ['pointerup','pointercancel','pointerleave'].forEach(function(t){ cont.addEventListener(t, clearPinch); });
-
-          // Recalcular rect al redimensionar/orientación
           window.addEventListener('resize', function(){ if (dragging) br = base.getBoundingClientRect(); }, {passive:true});
         }
 
@@ -546,11 +515,9 @@
       <style id="spw-cart-style">
         .spw-cart-block{margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
         .spw-cart-block img{
-          width: 220px;            /* más grande en desktop */
-          max-width: 70vw;         /* grande en móvil sin romper */
-          height:auto;
-          border:1px solid #e5e7eb;
-          border-radius:6px;
+          width: 220px;
+          max-width: 70vw;
+          height:auto;border:1px solid #e5e7eb;border-radius:6px
         }
         @media (max-width: 576px){ .spw-cart-block img{ width: 70vw; } }
         .spw-swatch{width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;display:inline-block}
