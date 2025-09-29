@@ -1,62 +1,86 @@
-/** SPW – limpiar UI de personalización: quitar botones antiguos y ocultar paleta en carrito */
+/** SPW – Opciones: ocultar botones antiguos en el customizer y la paleta en carrito (versión segura) */
 odoo.define('serial_printer_custom_wizard.spw_options', [], function () {
   'use strict';
 
-  function onReady(cb){
+  function ready(cb){
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', cb, { once: true });
     } else cb();
   }
 
-  function removeEl(el){ if (el && el.remove) el.remove(); }
+  function isCustomizer(){
+    return /\/spw\/customizer\b/.test(location.pathname);
+  }
+  function isCart(){
+    return !!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines');
+  }
 
-  // Quita la fila de “puntos de color” antigua del customizer
-  function removeLegacyColorDots(){
-    // Solo en la página de personalización
-    if (!/\/spw\/customizer\b/.test(location.pathname)) return;
+  /* ---- 1) Customizer: ocultar SOLO la fila de “puntos” antigua ---- */
+  function hideLegacyColorDots(){
+    if (!isCustomizer()) return;
 
-    const root = document.querySelector('.spw_customize, .spw-customizer, .o_main_components-container, main') || document.body;
-
-    // 1) Clases conocidas (si existen en tu tema)
-    root.querySelectorAll(
+    // a) Clases conocidas (no destructivo)
+    const known = document.querySelectorAll(
       '.spw-quick-colors, .spw_quick_colors, .spw-old-color-buttons, .spw-color-shortcuts'
-    ).forEach(removeEl);
+    );
+    if (known.length) {
+      known.forEach(el => el.style.display = 'none');
+      return;
+    }
 
-    // 2) Heurística: fila de “píldoras” pequeñas justo bajo el texto “Se aplica solo a logos SVG”
-    const label = Array.from(root.querySelectorAll('*'))
+    // b) Heurística MUY defensiva: cerca del texto “Se aplica solo a logos SVG”
+    const label = Array.from(document.querySelectorAll('*'))
       .find(el => /Se aplica\s+solo\s+a\s+logos\s+SVG/i.test(el.textContent || ''));
+    if (!label) return;
 
-    if (label) {
-      // busca un contenedor cercano con ≥3 botones/esferas pequeñas y elimínalo
-      let scope = label.parentElement;
-      for (let i = 0; i < 4 && scope; i++) {
-        const row = scope.querySelector(':scope > div, :scope > ul, :scope > section');
-        if (row) {
-          const dots = row.querySelectorAll('button, span, a, li');
-          const smallRound = Array.from(dots).filter(d => {
-            const cs = getComputedStyle(d);
-            const w = d.offsetWidth, h = d.offsetHeight;
-            const br = parseFloat(cs.borderRadius) || 0;
-            return w && h && w <= 24 && h <= 24 && br >= 10;
-          });
-          if (smallRound.length >= 3) { row.remove(); break; }
-        }
-        scope = scope.parentElement;
-      }
+    // Busca un hermano inmediato que sea una fila de “píldoras” pequeñas
+    const container =
+      label.nextElementSibling ||
+      label.parentElement?.querySelector(':scope > div, :scope > ul');
+
+    if (!container) return;
+
+    // Validar: 3–10 elementos redondos y pequeños
+    const items = Array.from(container.children).filter(ch => {
+      const cs = getComputedStyle(ch);
+      const w = ch.offsetWidth, h = ch.offsetHeight;
+      const br = parseFloat(cs.borderRadius) || 0;
+      const tagOk = /^(BUTTON|SPAN|A|LI)$/.test(ch.tagName);
+      const sizeOk = w > 8 && w <= 28 && h > 8 && h <= 28 && Math.abs(w - h) <= 6;
+      const roundOk = br >= Math.min(w, h) / 2 - 2;
+      return tagOk && sizeOk && roundOk;
+    });
+
+    if (items.length >= 3 && items.length <= 10) {
+      container.style.display = 'none'; // no eliminar nodos
     }
   }
 
-  // No queremos la paleta en el carrito (solo en customizer)
+  /* ---- 2) Carrito: ocultar cualquier paleta de colores si se coló ---- */
   function hidePaletteInCart(){
-    if (!document.querySelector('#o_cart, .o_wsale_cart_summary, .js_cart_lines')) return;
-    document.querySelectorAll('.spw-color-palette, [data-spw="palette"], .spw_palette, .spw-colors, .spw-colors-grid')
-      .forEach(removeEl);
+    if (!isCart()) return;
+    const style = document.createElement('style');
+    style.textContent = `
+      #o_cart .spw-color-palette,
+      #o_cart [data-spw="palette"],
+      #o_cart .spw_palette,
+      #o_cart .spw-colors,
+      #o_cart .spw-colors-grid,
+      .o_wsale_cart_summary .spw-color-palette,
+      .o_wsale_cart_summary [data-spw="palette"],
+      .o_wsale_cart_summary .spw_palette,
+      .o_wsale_cart_summary .spw-colors,
+      .o_wsale_cart_summary .spw-colors-grid {
+        display: none !important;
+      }
+    `;
+    document.head.appendChild(style);
   }
 
   function boot(){
-    removeLegacyColorDots();
+    hideLegacyColorDots();
     hidePaletteInCart();
   }
 
-  onReady(boot);
+  ready(boot);
 });
