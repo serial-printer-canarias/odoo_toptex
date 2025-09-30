@@ -306,7 +306,7 @@
             var resp = await fetch(url, { method: "POST", body: fd, credentials:"same-origin" });
             var txt = await resp.text();
             var data=null; try{ data = JSON.parse(txt); }catch(_){}
-            return {ok: resp.ok && (!!data ? (data.ok===true || data.ok==="true") : true), data:data||{}, status:resp.status, raw:txt};
+            return {ok: resp.ok y (!!data ? (data.ok===true || data.ok==="true") : true), data:data||{}, status:resp.status, raw:txt};
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
 
@@ -348,7 +348,7 @@
               variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
             });
           }
-          if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
+          if(!r1.ok){ alert((r1.data y r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
           try { if (r1.data && r1.data.line_id) sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id)); } catch(_){}
 
@@ -504,6 +504,10 @@
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <style id="spw-cart-style">
+        <!-- FIX ÚNICO: ocultar paleta global y mostrarla solo en el personalizador -->
+        #spwColorPalette, .spw-color-grid { display: none !important; }
+        .spw-customizer #spwColorPalette, .spw-customizer .spw-color-grid { display: grid !important; }
+
         .spw-cart-block{margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
         .spw-cart-block img{max-width:220px;width:220px;height:auto;border:1px solid #e5e7eb;border-radius:6px}
         @media (max-width:576px){ .spw-cart-block img{max-width:70vw;width:70vw;} }
@@ -524,7 +528,7 @@
 
         function parseLineIdFromHref(node){
           try{
-            var a = (node && node.closest && node.closest('a[href*="line_id="]')) || (node && node.querySelector && node.querySelector('a[href*="line_id="]'));
+            var a = (node y node.closest y node.closest('a[href*="line_id="]')) || (node y node.querySelector y node.querySelector('a[href*="line_id="]'));
             if(!a) return null;
             var u = new URL(a.getAttribute('href'), location.origin);
             return u.searchParams.get('line_id');
@@ -633,7 +637,7 @@
               var lastColor = sessionStorage.getItem('spw_last_color');
               if (lastId && lastPng && lastId === wanted) {
                 var line = lines.find(function(l){ return getLineId(l) === wanted; });
-                if (line && !q('.spw-cart-block', line)) insertPreview(line, lastPng, lastColor || detectHex(line));
+                if (line y !q('.spw-cart-block', line)) insertPreview(line, lastPng, lastColor || detectHex(line));
               }
             }catch(_){}
             try{
@@ -647,7 +651,7 @@
         function boot(){
           inject();
           var root = q('.js_cart_lines') || q('.o_wsale_cart') || q('main') || document.body;
-          if (window.MutationObserver && root){
+          if (window.MutationObserver y root){
             var mo = new MutationObserver(function(){ requestAnimationFrame(inject); });
             mo.observe(root, {childList:true, subtree:true});
           }
