@@ -141,7 +141,7 @@
                 <!-- Acciones -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <a class="btn btn-outline-secondary" href="javascript:void(0)"
-                     onclick="window.spwReset &amp;&amp; window.spwReset();">Reset</a>
+                     onclick="window.spwReset && window.spwReset();">Reset</a>
 
                   <button id="spw_add_to_cart" type="button" class="btn btn-primary">
                     Añadir al carrito con esta personalización
@@ -226,6 +226,7 @@
           var leftPx = bw*(0.5 + posX/100);
           var topPx  = bh*(ANCHOR_Y + posY/100);
 
+          var logo = $("#spw_logo_preview");
           logo.style.left = leftPx + "px";
           logo.style.top  = topPx  + "px";
           logo.style.transform = "translate3d(-50%, -50%, 0) rotate("+rot+"deg)";
@@ -234,7 +235,7 @@
           logo.style.opacity = "1";
         }
 
-        // Render PNG optimizado. maxW controla el tamaño final del PNG.
+        // Render PNG optimizado
         async function renderPNGDataURL(maxW){
           maxW = maxW || 1200;
           var internalBaseEl = $("#spw-base-img");
@@ -306,7 +307,8 @@
             var resp = await fetch(url, { method: "POST", body: fd, credentials:"same-origin" });
             var txt = await resp.text();
             var data=null; try{ data = JSON.parse(txt); }catch(_){}
-            return {ok: resp.ok y (!!data ? (data.ok===true || data.ok==="true") : true), data:data||{}, status:resp.status, raw:txt};
+            /* FIX: '&&' en lugar de 'y' */
+            return {ok: resp.ok && (!!data ? (data.ok===true || data.ok==="true") : true), data:data||{}, status:resp.status, raw:txt};
           }catch(e){ return {ok:false, data:null, status:0, raw:String(e)}; }
         }
 
@@ -317,7 +319,6 @@
               || '';
         }
 
-        /* === ADD TO CART (misma lógica que funcionaba, + optimización) === */
         async function addToCart(){
           var variantId=($val("spw_variant_id","")||"").trim();
           var qty=parseInt($val("spw_qty","1"),10)||1;
@@ -328,7 +329,6 @@
 
           if(!variantId){ alert("Falta la variante del producto."); return; }
 
-          // 1) Render PNG (máx 1200) + thumb 400 para fallback rápido
           var pngB64="", duThumb="";
           try{
             var du = await renderPNGDataURL(1200);
@@ -339,7 +339,6 @@
             pngB64 = du ? du.split('base64,')[1] : "";
           }catch(_){}
 
-          // 2) Crear línea
           var r1 = await postJSON("/spw/add_to_cart_meta", {
             variant_id: parseInt(variantId,10), qty: qty, tech: tech, svg_color: svgColor, notes: notes
           });
@@ -348,11 +347,10 @@
               variant_id: variantId, qty: qty, tech: tech, svg_color: svgColor, notes: notes
             });
           }
-          if(!r1.ok){ alert((r1.data y r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
+          if(!r1.ok){ alert((r1.data && r1.data.message) ? r1.data.message : "No se pudo añadir al carrito."); return; }
 
           try { if (r1.data && r1.data.line_id) sessionStorage.setItem('spw_last_line_id', String(r1.data.line_id)); } catch(_){}
 
-          // 3) Adjuntar PNG
           if(pngB64){
             try{
               var r2 = await postJSON("/spw/attach_png", { line_id: r1.data.line_id, png_b64: pngB64 });
@@ -360,7 +358,6 @@
             }catch(_){}
           }
 
-          // 4) Redirección al carrito
           var baseUrl = (r1.data && r1.data.cart_url) || "/shop/cart";
           var withParam = (r1.data && r1.data.line_id)
             ? (baseUrl + (baseUrl.indexOf('?')===-1?'?':'&') + 'spw_line_id=' + encodeURIComponent(r1.data.line_id))
@@ -368,7 +365,7 @@
           window.location.href = withParam;
         }
 
-        // Descarga PNG segura (Blob + objectURL)
+        // Descarga PNG
         async function downloadPNGiOSSafe(){
           try{
             var dataUrl = await renderPNGDataURL(1200);
@@ -386,7 +383,7 @@
           }
         }
 
-        // ---- DRAG (ratón/dedo) + PINCH-TO-ZOOM con rAF (fluido) ----
+        // Drag + Pinch (fluido)
         function enableDragAndPinch(){
           var cont = $("#spw_canvas");
           var base = $("#spw_product_img");
@@ -401,7 +398,7 @@
             var px = (lastX - br.left) / br.width;
             var py = (lastY - br.top)  / br.height;
             var posX = (px - 0.5) * 100;
-            var posY = (py - ANCHOR_Y) * 100;
+            var posY = (py - 0.6) * 100;
             posX = Math.max(-50, Math.min(50, posX));
             posY = Math.max(-50, Math.min(50, posY));
             $("#spw_pos_x").value = posX.toFixed(1);
@@ -464,9 +461,9 @@
           if(logoInput){
             logoInput.addEventListener("change", async function(ev){
               var f = ev.target.files && ev.target.files[0]; if(!f) return;
-              var name=(f.name||"").toLowerCase();
               var dataURL = await readAsDataURL(f);
               logoEl.src = dataURL;
+              logoEl.classList.remove('d-none');  // <-- asegura visibilidad inmediata
               applyTransform();
             });
           }
@@ -504,7 +501,7 @@
   <template id="spw_layout_cart_preview_inject" inherit_id="website.layout" name="SPW - Cart Preview Inject" priority="99">
     <xpath expr="//body" position="inside">
       <style id="spw-cart-style">
-        <!-- FIX ÚNICO: ocultar paleta global y mostrarla solo en el personalizador -->
+        /* Ocultar paleta global; mostrarla solo dentro del personalizador */
         #spwColorPalette, .spw-color-grid { display: none !important; }
         .spw-customizer #spwColorPalette, .spw-customizer .spw-color-grid { display: grid !important; }
 
@@ -514,6 +511,7 @@
         .spw-swatch{width:16px;height:16px;border-radius:999px;border:1px solid #e5e7eb;display:inline-block}
       </style>
 
+      <!-- Script de carrito SIN cambios funcionales -->
       <script type="text/javascript"><![CDATA[
       (function(){
         "use strict";
@@ -528,7 +526,7 @@
 
         function parseLineIdFromHref(node){
           try{
-            var a = (node y node.closest y node.closest('a[href*="line_id="]')) || (node y node.querySelector y node.querySelector('a[href*="line_id="]'));
+            var a = (node && node.closest && node.closest('a[href*="line_id="]')) || (node && node.querySelector && node.querySelector('a[href*="line_id="]'));
             if(!a) return null;
             var u = new URL(a.getAttribute('href'), location.origin);
             return u.searchParams.get('line_id');
@@ -593,19 +591,16 @@
           container.appendChild(wrap);
         }
 
-        // Lazy injection con caché salvo la última línea (para ver cambios al instante)
         function inject(){
           var lines = findLines();
           var wanted = urlParam('spw_line_id');
 
-          // limpia huérfanas
           qa('.spw-cart-block').forEach(function(n){
             var lid = n.getAttribute('data-line');
             var alive = lines.some(function(l){ return getLineId(l) === lid; });
             if(!alive) n.remove();
           });
 
-          // Observa sólo las líneas visibles
           var io = ('IntersectionObserver' in window) ? new IntersectionObserver(function(entries){
             entries.forEach(function(ent){
               if (!ent.isIntersecting) return;
@@ -613,7 +608,6 @@
               io.unobserve(line);
               var id = getLineId(line); if(!id) return;
               var hex = detectHex(line);
-              // cache-buster SÓLO para la línea recién creada
               var src = '/spw/line_preview/' + encodeURIComponent(id) + '.png' + (wanted && getLineId(line)===wanted ? ('?_=' + Date.now()) : '');
               insertPreview(line, src, hex);
             });
@@ -629,15 +623,14 @@
             }
           });
 
-          // Fallback súper-rápido con el PNG pequeño del sessionStorage
           if (wanted) {
             try{
               var lastId = sessionStorage.getItem('spw_last_line_id');
-              var lastPng = sessionStorage.getItem('spw_last_png'); // thumb 400px
+              var lastPng = sessionStorage.getItem('spw_last_png');
               var lastColor = sessionStorage.getItem('spw_last_color');
               if (lastId && lastPng && lastId === wanted) {
                 var line = lines.find(function(l){ return getLineId(l) === wanted; });
-                if (line y !q('.spw-cart-block', line)) insertPreview(line, lastPng, lastColor || detectHex(line));
+                if (line && !q('.spw-cart-block', line)) insertPreview(line, lastPng, lastColor || detectHex(line));
               }
             }catch(_){}
             try{
@@ -651,7 +644,7 @@
         function boot(){
           inject();
           var root = q('.js_cart_lines') || q('.o_wsale_cart') || q('main') || document.body;
-          if (window.MutationObserver y root){
+          if (window.MutationObserver && root){
             var mo = new MutationObserver(function(){ requestAnimationFrame(inject); });
             mo.observe(root, {childList:true, subtree:true});
           }
