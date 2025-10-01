@@ -1,37 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- ===== PRESUPUESTO/PEDIDO ===== -->
+  <!-- =========================
+       PRESUPUESTO / PEDIDO (sale)
+       ========================= -->
   <template id="report_saleorder_spw_inherit"
             inherit_id="sale.report_saleorder_document"
             name="SPW - Custom en Presupuesto/Pedido"
             priority="90">
-    <!-- Hook muy estable: tras el nombre de línea -->
-    <xpath expr="//span[contains(@t-field, 'l.name') or contains(@t-field, 'line.name')]"
-           position="after">
 
-      <!-- Sólo líneas de producto (no secciones/notas) -->
-      <t t-if="(l if 'l' in locals() else line) and not (getattr((l if 'l' in locals() else line), 'display_type', False)) and (l if 'l' in locals() else line).product_id">
-        <t t-set="obj" t-value="l if 'l' in locals() else line"/>
-
+    <!-- Insertamos dentro de la celda de descripción de CADA línea de producto.
+         Usamos un xpath muy robusto: localizar el <span t-field="l.name"> y subir al <td>. -->
+    <xpath expr="//span[@t-field='l.name']/ancestor::td[1]" position="inside">
+      <!-- Solo en líneas de producto (no sección/nota) -->
+      <t t-if="l and not getattr(l, 'display_type', False) and getattr(l, 'product_id', False)">
         <div style="margin-top:6px;">
-          <div style="display:flex;align-items:flex-start;gap:8px;">
-            <!-- Producto -->
-            <img t-att-src="'/web/image/product.product/%s/image_128' % (obj.product_id.id)"
-                 alt="Producto"
-                 style="max-width:64px;max-height:64px;border:1px solid #ddd;border-radius:4px"/>
+          <div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;">
+            <!-- Foto del producto -->
+            <img t-att-src="'/web/image/product.product/%s/image_128' % (l.product_id.id)"
+                 alt="Producto" style="max-width:64px;max-height:64px;border:1px solid #ddd;border-radius:4px"/>
 
-            <!-- Personalización: nunca 404 (controlador devuelve 1x1 si no hay) -->
-            <img t-att-src="'/spw/line_preview/%s.png?w=600&amp;m=pdf' % (obj.id)"
-                 alt="Personalización"
-                 style="max-width:120px;max-height:120px;border:1px solid #ddd;border-radius:4px"/>
+            <!-- Foto de personalización (nunca 404: el controlador da 1x1 si no hay) -->
+            <img t-att-src="'/spw/line_preview/%s.png' % (l.id)"
+                 alt="Personalización" style="max-width:120px;max-height:120px;border:1px solid #ddd;border-radius:4px"/>
 
             <!-- Metadatos -->
-            <div style="font-size:11px;line-height:1.25;">
-              <t t-set="tech"  t-value="getattr(obj, 'spw_tech', '')"/>
-              <t t-set="hex"   t-value="getattr(obj, 'spw_svg_color', '')"/>
-              <t t-set="notes" t-value="getattr(obj, 'spw_notes', '')"/>
-              <t t-set="qty"   t-value="getattr(obj, 'product_uom_qty', 0) or getattr(obj, 'quantity', 0)"/>
+            <div style="font-size:11px;line-height:1.25;min-width:120px;">
+              <t t-set="tech"  t-value="getattr(l, 'spw_tech', '')"/>
+              <t t-set="hex"   t-value="getattr(l, 'spw_svg_color', '')"/>
+              <t t-set="notes" t-value="getattr(l, 'spw_notes', '')"/>
+              <t t-set="qty"   t-value="getattr(l, 'product_uom_qty', 0)"/>
               <div t-if="tech or hex or notes or qty">
                 <div t-if="tech"><strong>Técnica:</strong> <span t-esc="tech"/></div>
                 <div t-if="hex"><strong>Color SVG:</strong> <span t-esc="hex"/></div>
@@ -42,34 +40,32 @@
           </div>
         </div>
       </t>
-
     </xpath>
   </template>
 
-  <!-- ===== FACTURA ===== -->
+  <!-- =========
+       FACTURA
+       ========= -->
   <template id="report_invoice_spw_inherit"
             inherit_id="account.report_invoice_document"
             name="SPW - Custom en Factura"
             priority="90">
-    <xpath expr="//span[contains(@t-field, 'line.name') or contains(@t-field, 'l.name')]"
-           position="after">
 
+    <!-- En factura el loop usa 'line'; apuntamos al <span t-field="line.name"> -->
+    <xpath expr="//span[@t-field='line.name']/ancestor::td[1]" position="inside">
       <t t-if="line and not getattr(line, 'display_type', False) and line.product_id">
-        <!-- Si hay vínculo a venta, úsalo; si no, la propia línea -->
-        <t t-set="sale_line_ids" t-value="getattr(line, 'sale_line_ids', False)"/>
-        <t t-set="base_id" t-value="(sale_line_ids and sale_line_ids[0].id) or line.id"/>
+        <!-- Si la línea contable viene de venta, usamos el id de la SOL para la imagen; si no, el de la propia AML -->
+        <t t-set="sol_id" t-value="(line.sale_line_ids and line.sale_line_ids[0].id) or line.id"/>
 
         <div style="margin-top:6px;">
-          <div style="display:flex;align-items:flex-start;gap:8px;">
+          <div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;">
             <img t-att-src="'/web/image/product.product/%s/image_128' % (line.product_id.id)"
-                 alt="Producto"
-                 style="max-width:64px;max-height:64px;border:1px solid #ddd;border-radius:4px"/>
+                 alt="Producto" style="max-width:64px;max-height:64px;border:1px solid #ddd;border-radius:4px"/>
 
-            <img t-att-src="'/spw/line_preview/%s.png?w=600&amp;m=pdf' % (base_id)"
-                 alt="Personalización"
-                 style="max-width:120px;max-height:120px;border:1px solid #ddd;border-radius:4px"/>
+            <img t-att-src="'/spw/line_preview/%s.png' % (sol_id)"
+                 alt="Personalización" style="max-width:120px;max-height:120px;border:1px solid #ddd;border-radius:4px"/>
 
-            <div style="font-size:11px;line-height:1.25;">
+            <div style="font-size:11px;line-height:1.25;min-width:120px;">
               <t t-set="tech"  t-value="getattr(line, 'spw_tech', '')"/>
               <t t-set="hex"   t-value="getattr(line, 'spw_svg_color', '')"/>
               <t t-set="notes" t-value="getattr(line, 'spw_notes', '')"/>
@@ -84,7 +80,6 @@
           </div>
         </div>
       </t>
-
     </xpath>
   </template>
 
