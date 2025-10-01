@@ -9,36 +9,49 @@
             name="SPW - Custom en Presupuesto/Pedido"
             priority="90">
 
-    <!-- Insertamos dentro de la celda de descripción de CADA línea de producto.
-         Usamos un xpath muy robusto: localizar el <span t-field="l.name"> y subir al <td>. -->
-    <xpath expr="//span[@t-field='l.name']/ancestor::td[1]" position="inside">
-      <!-- Solo en líneas de producto (no sección/nota) -->
-      <t t-if="l and not getattr(l, 'display_type', False) and getattr(l, 'product_id', False)">
-        <div style="margin-top:6px;">
-          <div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;">
-            <!-- Foto del producto -->
-            <img t-att-src="'/web/image/product.product/%s/image_128' % (l.product_id.id)"
-                 alt="Producto" style="max-width:64px;max-height:64px;border:1px solid #ddd;border-radius:4px"/>
+    <!--
+      XPATH UNIVERSAL:
+      - Coincide con el <td> de descripción por nombre (td_description) en distintas variantes
+      - O, si no existe, sube desde el <span t-field="...name"> hasta su <td> contenedor.
+      Con que uno de los targets exista, la herencia se aplica.
+    -->
+    <xpath expr="//td[contains(@name,'td_description')]
+                 | //span[@t-field='line.name']/ancestor::td[1]
+                 | //span[@t-field='l.name']/ancestor::td[1]"
+           position="inside">
 
-            <!-- Foto de personalización (nunca 404: el controlador da 1x1 si no hay) -->
-            <img t-att-src="'/spw/line_preview/%s.png' % (l.id)"
-                 alt="Personalización" style="max-width:120px;max-height:120px;border:1px solid #ddd;border-radius:4px"/>
+      <!-- Solo líneas de producto (no sección/nota) -->
+      <t t-if="l if 'l' in locals() else (line if 'line' in locals() else False)">
+        <t t-set="rec" t-value="l if 'l' in locals() else (line if 'line' in locals() else False)"/>
+        <t t-if="rec and not getattr(rec, 'display_type', False) and getattr(rec, 'product_id', False)">
+          <div style="margin-top:6px;">
+            <div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;">
+              <!-- Foto del producto -->
+              <img t-att-src="'/web/image/product.product/%s/image_128' % (rec.product_id.id)"
+                   alt="Producto"
+                   style="max-width:64px;max-height:64px;border:1px solid #ddd;border-radius:4px"/>
 
-            <!-- Metadatos -->
-            <div style="font-size:11px;line-height:1.25;min-width:120px;">
-              <t t-set="tech"  t-value="getattr(l, 'spw_tech', '')"/>
-              <t t-set="hex"   t-value="getattr(l, 'spw_svg_color', '')"/>
-              <t t-set="notes" t-value="getattr(l, 'spw_notes', '')"/>
-              <t t-set="qty"   t-value="getattr(l, 'product_uom_qty', 0)"/>
-              <div t-if="tech or hex or notes or qty">
-                <div t-if="tech"><strong>Técnica:</strong> <span t-esc="tech"/></div>
-                <div t-if="hex"><strong>Color SVG:</strong> <span t-esc="hex"/></div>
-                <div t-if="notes"><strong>Obs:</strong> <span t-esc="notes"/></div>
-                <div t-if="qty"><strong>Cant:</strong> <span t-esc="qty"/></div>
+              <!-- Foto de personalización (nunca 404: el controlador devuelve 1x1 si no hay) -->
+              <img t-att-src="'/spw/line_preview/%s.png' % (rec.id)"
+                   alt="Personalización"
+                   style="max-width:120px;max-height:120px;border:1px solid #ddd;border-radius:4px"/>
+
+              <!-- Metadatos -->
+              <div style="font-size:11px;line-height:1.25;min-width:120px;">
+                <t t-set="tech"  t-value="getattr(rec, 'spw_tech', '')"/>
+                <t t-set="hex"   t-value="getattr(rec, 'spw_svg_color', '')"/>
+                <t t-set="notes" t-value="getattr(rec, 'spw_notes', '')"/>
+                <t t-set="qty"   t-value="getattr(rec, 'product_uom_qty', 0)"/>
+                <div t-if="tech or hex or notes or qty">
+                  <div t-if="tech"><strong>Técnica:</strong> <span t-esc="tech"/></div>
+                  <div t-if="hex"><strong>Color SVG:</strong> <span t-esc="hex"/></div>
+                  <div t-if="notes"><strong>Obs:</strong> <span t-esc="notes"/></div>
+                  <div t-if="qty"><strong>Cant:</strong> <span t-esc="qty"/></div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </t>
       </t>
     </xpath>
   </template>
@@ -51,34 +64,46 @@
             name="SPW - Custom en Factura"
             priority="90">
 
-    <!-- En factura el loop usa 'line'; apuntamos al <span t-field="line.name"> -->
-    <xpath expr="//span[@t-field='line.name']/ancestor::td[1]" position="inside">
-      <t t-if="line and not getattr(line, 'display_type', False) and line.product_id">
-        <!-- Si la línea contable viene de venta, usamos el id de la SOL para la imagen; si no, el de la propia AML -->
-        <t t-set="sol_id" t-value="(line.sale_line_ids and line.sale_line_ids[0].id) or line.id"/>
+    <!-- Mismo enfoque universal para la celda de descripción -->
+    <xpath expr="//td[contains(@name,'td_description')]
+                 | //span[@t-field='line.name']/ancestor::td[1]
+                 | //span[@t-field='l.name']/ancestor::td[1]"
+           position="inside">
 
-        <div style="margin-top:6px;">
-          <div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;">
-            <img t-att-src="'/web/image/product.product/%s/image_128' % (line.product_id.id)"
-                 alt="Producto" style="max-width:64px;max-height:64px;border:1px solid #ddd;border-radius:4px"/>
+      <!-- En factura, la variable casi siempre es 'line' -->
+      <t t-if="line if 'line' in locals() else (l if 'l' in locals() else False)">
+        <t t-set="rec" t-value="line if 'line' in locals() else (l if 'l' in locals() else False)"/>
+        <t t-if="rec and not getattr(rec, 'display_type', False) and getattr(rec, 'product_id', False)">
 
-            <img t-att-src="'/spw/line_preview/%s.png' % (sol_id)"
-                 alt="Personalización" style="max-width:120px;max-height:120px;border:1px solid #ddd;border-radius:4px"/>
+          <!-- Si viene de venta, usamos el id de la SOL para la imagen;
+               si no, usamos el id de la propia línea contable -->
+          <t t-set="sol_id" t-value="(getattr(rec, 'sale_line_ids', []) and rec.sale_line_ids[0].id) or rec.id"/>
 
-            <div style="font-size:11px;line-height:1.25;min-width:120px;">
-              <t t-set="tech"  t-value="getattr(line, 'spw_tech', '')"/>
-              <t t-set="hex"   t-value="getattr(line, 'spw_svg_color', '')"/>
-              <t t-set="notes" t-value="getattr(line, 'spw_notes', '')"/>
-              <t t-set="qty"   t-value="getattr(line, 'quantity', 0) or getattr(line, 'product_uom_qty', 0)"/>
-              <div t-if="tech or hex or notes or qty">
-                <div t-if="tech"><strong>Técnica:</strong> <span t-esc="tech"/></div>
-                <div t-if="hex"><strong>Color SVG:</strong> <span t-esc="hex"/></div>
-                <div t-if="notes"><strong>Obs:</strong> <span t-esc="notes"/></div>
-                <div t-if="qty"><strong>Cant:</strong> <span t-esc="qty"/></div>
+          <div style="margin-top:6px;">
+            <div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;">
+              <img t-att-src="'/web/image/product.product/%s/image_128' % (rec.product_id.id)"
+                   alt="Producto"
+                   style="max-width:64px;max-height:64px;border:1px solid #ddd;border-radius:4px"/>
+
+              <img t-att-src="'/spw/line_preview/%s.png' % (sol_id)"
+                   alt="Personalización"
+                   style="max-width:120px;max-height:120px;border:1px solid #ddd;border-radius:4px"/>
+
+              <div style="font-size:11px;line-height:1.25;min-width:120px;">
+                <t t-set="tech"  t-value="getattr(rec, 'spw_tech', '')"/>
+                <t t-set="hex"   t-value="getattr(rec, 'spw_svg_color', '')"/>
+                <t t-set="notes" t-value="getattr(rec, 'spw_notes', '')"/>
+                <t t-set="qty"   t-value="getattr(rec, 'quantity', 0) or getattr(rec, 'product_uom_qty', 0)"/>
+                <div t-if="tech or hex or notes or qty">
+                  <div t-if="tech"><strong>Técnica:</strong> <span t-esc="tech"/></div>
+                  <div t-if="hex"><strong>Color SVG:</strong> <span t-esc="hex"/></div>
+                  <div t-if="notes"><strong>Obs:</strong> <span t-esc="notes"/></div>
+                  <div t-if="qty"><strong>Cant:</strong> <span t-esc="qty"/></div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </t>
       </t>
     </xpath>
   </template>
