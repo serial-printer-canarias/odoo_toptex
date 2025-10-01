@@ -2,37 +2,42 @@
 <odoo>
 
   <!-- =========================================================
-       PRESUPUESTO / PEDIDO: inyecta imágenes y metadatos SPW
+       PRESUPUESTO / PEDIDO: imágenes + datos SPW por línea
        ========================================================= -->
   <template id="report_saleorder_spw_inherit"
             inherit_id="sale.report_saleorder_document"
-            name="SPW - Imágenes y Custom en Presupuesto/Pedido"
+            name="SPW - Custom en Presupuesto/Pedido"
             priority="90">
 
-    <!-- Inserta el bloque dentro de la celda de descripción de cada línea -->
-    <xpath expr="//table[contains(@class,'o_main_table')]/tbody/tr/td[@name='td_description']"
+    <!-- Unión de localizadores para distintas versiones de la plantilla -->
+    <xpath expr="//table[contains(@class,'o_main_table')]//td[@name='td_description']
+                 | //td[@name='td_description']
+                 | //table[contains(@class,'o_main_table')]//td[@name='name']
+                 | //table[contains(@class,'o_main_table')]//td[contains(concat(' ', normalize-space(@class), ' '), ' o_td_description ')]"
            position="inside">
-      <div class="spw-line" t-if="line and line.product_id">
-        <div class="spw-flex">
-          <!-- Imagen del PRODUCTO -->
+
+      <div t-if="line and line.product_id"
+           style="margin-top:6px;">
+        <div style="display:flex;align-items:flex-start;gap:8px;">
+          <!-- Imagen PRODUCTO -->
           <img t-att-src="'/web/image/product.product/%s/image_128' % (line.product_id.id)"
                alt="Producto"
-               class="spw-img-prod"/>
+               style="max-width:64px;max-height:64px;border:1px solid #ddd;border-radius:4px"/>
 
-          <!-- Imagen de la PERSONALIZACIÓN (PNG guardado por nuestro flujo) -->
+          <!-- Imagen PERSONALIZACIÓN -->
           <img t-if="line.id"
                t-att-src="'/spw/line_preview/%s.png?m=pdf' % (line.id)"
                alt="Personalización"
-               class="spw-img-custom"/>
+               style="max-width:120px;max-height:120px;border:1px solid #ddd;border-radius:4px"/>
 
-          <!-- Metadatos de personalización -->
-          <div class="spw-meta">
+          <!-- Metadatos -->
+          <div style="font-size:11px;line-height:1.25;">
             <t t-set="tech"  t-value="getattr(line, 'spw_tech', '')"/>
             <t t-set="hex"   t-value="getattr(line, 'spw_svg_color', '')"/>
             <t t-set="notes" t-value="getattr(line, 'spw_notes', '')"/>
             <t t-set="qty"   t-value="hasattr(line, 'product_uom_qty') and line.product_uom_qty or (hasattr(line,'quantity') and line.quantity or 0)"/>
 
-            <div t-if="tech or hex or notes or qty" class="spw-meta-inner">
+            <div t-if="tech or hex or notes or qty">
               <div t-if="tech"><strong>Técnica:</strong> <span t-esc="tech"/></div>
               <div t-if="hex"><strong>Color SVG:</strong> <span t-esc="hex"/></div>
               <div t-if="notes"><strong>Obs:</strong> <span t-esc="notes"/></div>
@@ -41,51 +46,46 @@
           </div>
         </div>
       </div>
-    </xpath>
 
-    <!-- Estilos mínimos (no rompe el reporte estándar) -->
-    <xpath expr="//style[1]" position="after">
-      <style>
-        .spw-flex{display:flex;align-items:flex-start;gap:8px;margin-top:6px}
-        .spw-img-prod{max-width:64px;max-height:64px;border:1px solid #ddd;border-radius:4px}
-        .spw-img-custom{max-width:120px;max-height:120px;border:1px solid #ddd;border-radius:4px}
-        .spw-meta{font-size:11px;line-height:1.25}
-        .spw-meta-inner div{margin:2px 0}
-      </style>
     </xpath>
   </template>
 
   <!-- ===============================================
-       FACTURA: mismo bloque para account.move (PDF)
+       FACTURA: mismas inserciones para account.move
        =============================================== -->
   <template id="report_invoice_spw_inherit"
             inherit_id="account.report_invoice_document"
-            name="SPW - Imágenes y Custom en Factura"
+            name="SPW - Custom en Factura"
             priority="90">
 
-    <xpath expr="//table[contains(@class,'o_main_table')]/tbody/tr/td[@name='td_description']"
+    <xpath expr="//table[contains(@class,'o_main_table')]//td[@name='td_description']
+                 | //td[@name='td_description']
+                 | //table[contains(@class,'o_main_table')]//td[@name='name']
+                 | //table[contains(@class,'o_main_table')]//td[contains(concat(' ', normalize-space(@class), ' '), ' o_td_description ')]"
            position="inside">
-      <div class="spw-line" t-if="line and line.product_id">
-        <div class="spw-flex">
-          <!-- Imagen del PRODUCTO -->
+
+      <div t-if="line and line.product_id"
+           style="margin-top:6px;">
+        <div style="display:flex;align-items:flex-start;gap:8px;">
+          <!-- Imagen PRODUCTO -->
           <img t-att-src="'/web/image/product.product/%s/image_128' % (line.product_id.id)"
                alt="Producto"
-               class="spw-img-prod"/>
+               style="max-width:64px;max-height:64px;border:1px solid #ddd;border-radius:4px"/>
 
-          <!-- Imagen de la PERSONALIZACIÓN -->
+          <!-- Imagen PERSONALIZACIÓN -->
           <img t-if="line.id"
                t-att-src="'/spw/line_preview/%s.png?m=pdf' % (line.id)"
                alt="Personalización"
-               class="spw-img-custom"/>
+               style="max-width:120px;max-height:120px;border:1px solid #ddd;border-radius:4px"/>
 
-          <!-- Metadatos de personalización -->
-          <div class="spw-meta">
+          <!-- Metadatos -->
+          <div style="font-size:11px;line-height:1.25;">
             <t t-set="tech"  t-value="getattr(line, 'spw_tech', '')"/>
             <t t-set="hex"   t-value="getattr(line, 'spw_svg_color', '')"/>
             <t t-set="notes" t-value="getattr(line, 'spw_notes', '')"/>
-            <t t-set="qty"   t-value="hasattr(line,'quantity') and line.quantity or (hasattr(line, 'product_uom_qty') and line.product_uom_qty or 0)"/>
+            <t t-set="qty"   t-value="hasattr(line,'quantity') and line.quantity or (hasattr(line,'product_uom_qty') and line.product_uom_qty or 0)"/>
 
-            <div t-if="tech or hex or notes or qty" class="spw-meta-inner">
+            <div t-if="tech or hex or notes or qty">
               <div t-if="tech"><strong>Técnica:</strong> <span t-esc="tech"/></div>
               <div t-if="hex"><strong>Color SVG:</strong> <span t-esc="hex"/></div>
               <div t-if="notes"><strong>Obs:</strong> <span t-esc="notes"/></div>
@@ -94,16 +94,7 @@
           </div>
         </div>
       </div>
-    </xpath>
 
-    <xpath expr="//style[1]" position="after">
-      <style>
-        .spw-flex{display:flex;align-items:flex-start;gap:8px;margin-top:6px}
-        .spw-img-prod{max-width:64px;max-height:64px;border:1px solid #ddd;border-radius:4px}
-        .spw-img-custom{max-width:120px;max-height:120px;border:1px solid #ddd;border-radius:4px}
-        .spw-meta{font-size:11px;line-height:1.25}
-        .spw-meta-inner div{margin:2px 0}
-      </style>
     </xpath>
   </template>
 
