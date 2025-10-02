@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- Bloque reutilizable: recibe 'ln' con la línea -->
+  <!-- Bloque que pinta imágenes + píldora; recibe 'ln' -->
   <template id="spw_line_block">
     <t t-if="ln">
       <div style="margin-top:6px;display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;">
-        <!-- Imagen del producto (usar t-att-src) -->
+        <!-- Imagen del producto -->
         <img t-att-src="'/web/image/product.product/%s/image_128' % (ln.product_id.id if ln.product_id else 0)"
              alt="Producto"
              style="width:72px;height:auto;border:1px solid #DDD;border-radius:4px;"/>
 
-        <!-- PNG de personalización (vía controller) -->
+        <!-- PNG personalización desde controller -->
         <img t-att-src="'/spw/line_preview/%s.png' % ln.id"
              alt="Personalización"
              style="width:96px;height:auto;border:1px solid #DDD;border-radius:4px;"/>
 
-        <!-- Píldora de color si en el texto aparece un HEX -->
+        <!-- Píldora de color (detecta primer HEX del texto) -->
         <t t-set="hex" t-value="False"/>
         <t t-if="'#' in (ln.name or '')">
           <t t-set="hex" t-value="(ln.name or '').split('#')[-1].split()[0]"/>
@@ -27,30 +27,23 @@
     </t>
   </template>
 
-  <!-- =========================
-       PRESUPUESTO / PEDIDO (sale.order)
-       XPath robusto: columna descripción = td.class~='name'
-       ========================= -->
+  <!-- ===== PRESUPUESTO/PEDIDO (sale.order) =====
+       XPath robusto: primer TD de cada fila (descripción) -->
   <template id="report_saleorder_spw_inherit"
             inherit_id="sale.report_saleorder_document"
             name="SPW - Extras en Presupuesto/Pedido">
-    <xpath expr="//table[contains(@class,'o_main_table')]//tbody//tr//td[contains(concat(' ', normalize-space(@class), ' '), ' name ')]"
-           position="inside">
-      <!-- En sale la variable de iteración es 'l' -->
+    <xpath expr="//table[contains(@class,'o_main_table')]//tbody//tr/td[1]" position="inside">
       <t t-set="ln" t-value="l"/>
       <t t-call="serial_printer_custom_wizard.spw_line_block"/>
     </xpath>
   </template>
 
-  <!-- =========================
-       FACTURA (account.move)
-       También usa la columna con class 'name'
-       ========================= -->
+  <!-- ===== FACTURA (account.move) =====
+       Mismo criterio: primer TD de la fila -->
   <template id="report_invoice_spw_inherit"
             inherit_id="account.report_invoice_document"
             name="SPW - Extras en Factura">
-    <xpath expr="//table[contains(@class,'o_main_table')]//tbody//tr//td[contains(concat(' ', normalize-space(@class), ' '), ' name ')]"
-           position="inside">
+    <xpath expr="//table[contains(@class,'o_main_table')]//tbody//tr/td[1]" position="inside">
       <t t-set="ln" t-value="l"/>
       <t t-call="serial_printer_custom_wizard.spw_line_block"/>
     </xpath>
