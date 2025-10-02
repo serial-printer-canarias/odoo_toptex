@@ -1,81 +1,67 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- =======================================
-       SPW – Extras en Presupuesto / Pedido
-       (sale.report_saleorder_document)
-       ======================================= -->
+  <!-- =========================
+       PRESUPUESTO / PEDIDO (sale.order)
+       ========================= -->
   <template id="report_saleorder_spw_inherit"
-            name="SPW – Extras en Presupuesto/Pedido"
             inherit_id="sale.report_saleorder_document"
-            priority="99">
+            name="SPW - Extras en Presupuesto/Pedido">
 
-    <!-- Inserta dentro de la celda que contiene el <span t-field="*.name"> -->
-    <xpath expr="//span[contains(@t-field,'.name')]/ancestor::td[1]" position="inside">
-      <div class="spw-report-block" style="margin-top:4px;">
-
-        <!-- Foto de producto -->
-        <t t-if="l.product_id">
-          <img t-att-src="'/web/image/product.product/%s/image_128' % l.product_id.id"
+    <!-- Insertar al final de la celda de DESCRIPCIÓN de cada línea -->
+    <xpath expr="//table[contains(@class,'o_main_table')]/tbody/tr/td[1]"
+           position="inside">
+      <!-- En el report de sale, la variable de línea suele ser 'l' -->
+      <t t-if="l">
+        <div style="margin-top:6px; display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
+          <!-- Imagen del PRODUCTO (arreglo: usar t-att-src) -->
+          <img t-att-src="'/web/image/product.product/%s/image_128' % (l.product_id.id or 0)"
                alt="Producto"
-               style="width:72px;height:auto;border:1px solid #DDD;border-radius:4px;margin-right:6px;vertical-align:top;"/>
-        </t>
+               style="width:72px; height:auto; border:1px solid #DDD; border-radius:4px;"/>
 
-        <!-- PNG de personalización (usa el id de sale.order.line) -->
-        <img t-att-src="'/spw/line_preview/%s.png' % l.id"
-             alt="Personalización"
-             style="width:72px;height:auto;border:1px solid #DDD;border-radius:4px;vertical-align:top;"/>
+          <!-- PNG de PERSONALIZACIÓN servido por el controller público -->
+          <img t-att-src="'/spw/line_preview/%s.png' % l.id"
+               alt="Personalización"
+               style="width:96px; height:auto; border:1px solid #DDD; border-radius:4px;"/>
 
-        <!-- Píldora de color si en la descripción hay un #RRGGBB -->
-        <t t-if="'#' in (l.name or '')">
-          <t t-set="__hex" t-value="(l.name or '').split('#')[-1][:6]"/>
-          <t t-if="__hex and len(__hex)==6">
-            <span t-att-style="'display:inline-block;width:10px;height:10px;border-radius:20px;border:1px solid #999;margin-left:6px;vertical-align:middle;background:#%s' % __hex"/>
-            <span style="font-size:10px;margin-left:4px;" t-esc="'#'+__hex"/>
+          <!-- Píldora de color (lee HEX del texto de la línea si existe #XXXXXX) -->
+          <t t-set="hex"
+             t-value="('#' in (l.name or '')) and ( (l.name or '').split('#')[-1].split()[0] ) or False"/>
+          <t t-if="hex and len(hex) in (3,6) or (len(hex)==7 and hex.startswith('#'))">
+            <span t-att-style="'display:inline-block;width:14px;height:14px;border-radius:50%%;border:1px solid #999;background:%s;margin-top:2px;'" t-esc="('#'+hex) if not hex.startswith('#') else hex"/>
           </t>
-        </t>
-
-      </div>
+        </div>
+      </t>
     </xpath>
   </template>
 
-  <!-- ==========================
-       SPW – Extras en Factura
-       (account.report_invoice_document)
-       ========================== -->
+  <!-- =========================
+       FACTURA (account.move)
+       ========================= -->
   <template id="report_invoice_spw_inherit"
-            name="SPW – Extras en Factura"
             inherit_id="account.report_invoice_document"
-            priority="99">
+            name="SPW - Extras en Factura">
 
-    <!-- Igual: dentro del <td> que contiene el <span t-field="*.name"> -->
-    <xpath expr="//span[contains(@t-field,'.name')]/ancestor::td[1]" position="inside">
-      <div class="spw-report-block" style="margin-top:4px;">
-
-        <!-- Foto de producto -->
-        <t t-if="line.product_id">
-          <img t-att-src="'/web/image/product.product/%s/image_128' % line.product_id.id"
+    <xpath expr="//table[contains(@class,'o_main_table')]/tbody/tr/td[1]"
+           position="inside">
+      <!-- En el report de factura, también se usa 'l' por defecto -->
+      <t t-if="l">
+        <div style="margin-top:6px; display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
+          <img t-att-src="'/web/image/product.product/%s/image_128' % (getattr(l, 'product_id', False) and l.product_id.id or 0)"
                alt="Producto"
-               style="width:72px;height:auto;border:1px solid #DDD;border-radius:4px;margin-right:6px;vertical-align:top;"/>
-        </t>
+               style="width:72px; height:auto; border:1px solid #DDD; border-radius:4px;"/>
 
-        <!-- PNG de personalización.
-             Primero intenta la sale.order.line vinculada; si no hay, usa el id de account.move.line -->
-        <t t-set="__sol_id" t-value="(line.sale_line_ids and line.sale_line_ids[:1].id) or False"/>
-        <img t-att-src="'/spw/line_preview/%s.png' % (__sol_id or line.id)"
-             alt="Personalización"
-             style="width:72px;height:auto;border:1px solid #DDD;border-radius:4px;vertical-align:top;"/>
+          <img t-att-src="'/spw/line_preview/%s.png' % l.id"
+               alt="Personalización"
+               style="width:96px; height:auto; border:1px solid #DDD; border-radius:4px;"/>
 
-        <!-- Píldora de color -->
-        <t t-if="'#' in (line.name or '')">
-          <t t-set="__hex" t-value="(line.name or '').split('#')[-1][:6]"/>
-          <t t-if="__hex and len(__hex)==6">
-            <span t-att-style="'display:inline-block;width:10px;height:10px;border-radius:20px;border:1px solid #999;margin-left:6px;vertical-align:middle;background:#%s' % __hex"/>
-            <span style="font-size:10px;margin-left:4px;" t-esc="'#'+__hex"/>
+          <t t-set="hex"
+             t-value="('#' in (l.name or '')) and ( (l.name or '').split('#')[-1].split()[0] ) or False"/>
+          <t t-if="hex and len(hex) in (3,6) or (len(hex)==7 and hex.startswith('#'))">
+            <span t-att-style="'display:inline-block;width:14px;height:14px;border-radius:50%%;border:1px solid #999;background:%s;margin-top:2px;'" t-esc="('#'+hex) if not hex.startswith('#') else hex"/>
           </t>
-        </t>
-
-      </div>
+        </div>
+      </t>
     </xpath>
   </template>
 
