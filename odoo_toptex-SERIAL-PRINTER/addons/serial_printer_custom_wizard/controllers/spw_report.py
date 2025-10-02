@@ -3,95 +3,58 @@ from odoo import http
 from odoo.http import request
 import base64
 
-# PNG transparente 1x1 como fallback (evita 404/500 en <img>)
+# PNG transparente 1x1 como fallback
 BLANK_PNG = base64.b64decode(
-    b'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/eeNdt8AAAAASUVORK5CYII='
+    b'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII='
 )
 
 class SpwReport(http.Controller):
-    # ---------------------------------------------------------
-    # 1) PREVIEW EN CARRITO / LISTAS
-    #    /spw/line_preview/<id>.png  -> binario PNG
-    # ---------------------------------------------------------
-    @http.route('/spw/line_preview/<int:line_id>.png', type='http', auth='public', website=True)
+
+    # Acepta con y sin extensión .png
+    @http.route(['/spw/line_preview/<int:line_id>.png',
+                 '/spw/line_preview/<int:line_id>'],
+                type='http', auth='public', website=True, cors='*')
     def spw_line_preview(self, line_id, **kw):
         """
-        Devuelve el PNG de personalización asociado a una sale.order.line.
-        Si no existe, responde un PNG 1x1 transparente.
+        Devuelve el PNG de personalización asociado a una línea
+        de venta o de factura. Si no existe, responde 1x1 transparente.
         """
         env = request.env.sudo()
-        # Registro puede ser sale.order.line o, por compatibilidad, account.move.line
-        sol = env['sale.order.line'].browse(line_id)
-        aml = env['account.move.line'].browse(line_id)
-        rec = sol if sol.exists() else (aml if aml.exists() else None)
 
-        if not rec:
-            return request.make_response(BLANK_PNG, headers=[('Content-Type', 'image/png')])
+        # Buscar primero en sale.order.line, luego en account.move.line
+        rec = env['sale.order.line'].browse(line_id)
+        if not rec.exists():
+            rec = env['account.move.line'].browse(line_id)
+            if not rec.exists():
+                return request.make_response(
+                    BLANK_PNG, [('Content-Type', 'image/png')]
+                )
 
-        # Buscamos adjunto más reciente con nombre tipo spw_* y mimetype imagen
+        # 1) ¿Hay adjunto PNG ligado a la línea?
         att = env['ir.attachment'].search([
             ('res_model', '=', rec._name),
             ('res_id', '=', rec.id),
-            ('mimetype', 'ilike', 'image'),
-            ('name', 'ilike', 'spw%'),
-        ], limit=1, order='id desc')
+            ('mimetype', 'ilike', 'image/png'),
+            ('name', 'ilike', 'spw')
+        ], limit=1)
 
-        if not att:
-            return request.make_response(BLANK_PNG, headers=[('Content-Type', 'image/png')])
+        if att and att.datas:
+            data = base64.b64decode(att.datas)
+            return request.make_response(data, [('Content-Type', 'image/png')])
 
-        data = base64.b64decode(att.datas or b'') if att.datas else BLANK_PNG
-        return request.make_response(data, headers=[('Content-Type', att.mimetype or 'image/png')])
+        # 2) ¿La línea tiene un campo binario (spw_png o spw_png_data)?
+        data_b64 = False
+        if 'spw_png' in rec._fields and rec.spw_png:
+            data_b64 = rec.spw_png
+        elif 'spw_png_data' in rec._fields and rec.spw_png_data:
+            data_b64 = rec.spw_png_data
 
-    # ---------------------------------------------------------
-    # 2) GUARDAR PNG EN LA LÍNEA (JSON)
-    # ---------------------------------------------------------
-    @http.route('/spw/attach_png', type='json', auth='public', website=True, csrf=False)
-    def spw_attach_png_json(self, line_id=None, png_b64=None, **kw):
-        """
-        Guarda el PNG en ir.attachment vinculado a sale.order.line (line_id).
-        Devuelve {ok: True, attachment_id: <id>} o {ok: False, message: "..."}.
-        """
-        try:
-            line_id = int(line_id) if line_id else 0
-            if not line_id or not png_b64:
-                return {'ok': False, 'message': 'missing data'}
+        if data_b64:
+            try:
+                data = base64.b64decode(data_b64)
+                return request.make_response(data, [('Content-Type', 'image/png')])
+            except Exception:
+                pass
 
-            line = request.env['sale.order.line'].sudo().browse(line_id)
-            if not line.exists():
-                return {'ok': False, 'message': 'line not found'}
-
-            # Limpia anteriores adjuntos spw_* de esa línea (opcional pero evita basura)
-            request.env['ir.attachment'].sudo().search([
-                ('res_model', '=', 'sale.order.line'),
-                ('res_id', '=', line.id),
-                ('name', 'ilike', 'spw%'),
-            ]).unlink()
-
-            # Acepta tanto "xxxx" como "data:image/png;base64,xxxx"
-            data_part = png_b64.split('base64,')[-1]
-
-            att = request.env['ir.attachment'].sudo().create({
-                'name': 'spw_line_%s.png' % line.id,
-                'res_model': 'sale.order.line',
-                'res_id': line.id,
-                'type': 'binary',
-                'mimetype': 'image/png',
-                'datas': data_part,
-            })
-            return {'ok': True, 'attachment_id': att.id}
-        except Exception as e:
-            return {'ok': False, 'message': str(e)}
-
-    # ---------------------------------------------------------
-    # 3) GUARDAR PNG EN LA LÍNEA (POST clásico, fallback)
-    # ---------------------------------------------------------
-    @http.route('/spw/attach_png_http', type='http', auth='public', website=True, csrf=False, methods=['POST'])
-    def spw_attach_png_http(self, **post):
-        """
-        Fallback HTTP para navegadores que bloqueen JSON fetch por CORS/CSRF.
-        """
-        res = self.spw_attach_png_json(
-            line_id=post.get('line_id') or post.get('line') or post.get('lineid'),
-            png_b64=post.get('png_b64'),
-        )
-        return request.make_json_response(res)
+        # 3) Fallback 1x1
+        return request.make_response(BLANK_PNG, [('Content-Type', 'image/png')])
