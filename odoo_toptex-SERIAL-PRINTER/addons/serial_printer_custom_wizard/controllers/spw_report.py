@@ -3,7 +3,7 @@ from odoo import http
 from odoo.http import request
 import base64
 
-# PNG 1x1 transparente (fallback, evita 500)
+# PNG 1x1 transparente (fallback)
 BLANK_PNG = base64.b64decode(
     b'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII='
 )
@@ -14,7 +14,7 @@ class SpwReport(http.Controller):
                  '/spw/line_preview/<int:line_id>'],
                 type='http', auth='public', website=True, cors='*')
     def spw_line_preview(self, line_id, **kw):
-        """Devuelve el PNG de personalización asociado a una línea de venta/factura."""
+        """Devuelve el PNG de personalización para una línea de venta/factura."""
         env = request.env.sudo()
 
         rec = env['sale.order.line'].browse(line_id)
@@ -23,18 +23,18 @@ class SpwReport(http.Controller):
             if not rec.exists():
                 return request.make_response(BLANK_PNG, [('Content-Type', 'image/png')])
 
-        # 1) Buscar adjunto image/png ligado a la línea (nombre contiene 'spw')
-        att = env['ir.attachments' if 'ir.attachments' in env else 'ir.attachment'].search([
+        # 1) Adjuntos PNG ligados a la línea (nombre contiene 'spw')
+        att = env['ir.attachment'].search([
             ('res_model', '=', rec._name),
             ('res_id', '=', rec.id),
             ('mimetype', 'ilike', 'image/png'),
             ('name', 'ilike', 'spw')
         ], limit=1)
-        if att and getattr(att, 'datas', False):
+        if att and att.datas:
             return request.make_response(base64.b64decode(att.datas),
                                          [('Content-Type', 'image/png')])
 
-        # 2) Campos binarios (si existen)
+        # 2) Campos binarios si existen
         data_b64 = False
         if 'spw_png' in rec._fields and rec.spw_png:
             data_b64 = rec.spw_png
@@ -47,5 +47,5 @@ class SpwReport(http.Controller):
             except Exception:
                 pass
 
-        # 3) Fallback seguro
+        # 3) Fallback
         return request.make_response(BLANK_PNG, [('Content-Type', 'image/png')])
