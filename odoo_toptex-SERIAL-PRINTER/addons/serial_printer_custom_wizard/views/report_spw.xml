@@ -8,102 +8,59 @@
             inherit_id="sale.report_saleorder_document"
             name="SPW - Extras en presupuesto/pedido">
 
-    <!-- Caso habitual: la variable se llama 'line' -->
-    <xpath expr="//span[@t-field='line.name']" position="after">
-      <t t-set="l" t-value="line"/>
-      <div style="margin-top:6px;">
-        <!-- IMÁGENES: reservamos alto para que wkhtml no colapse -->
-        <div style="height:52px; line-height:0; margin:0 0 4px 0;">
-          <!-- Producto -->
-          <t t-if="l.product_id and l.product_id.image_128">
-            <img t-att-src="'data:image/png;base64,%s' % (l.product_id.image_128 or '')"
-                 style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                 onerror="this.style.display='none';"/>
-          </t>
-          <!-- Personalización binaria en la línea -->
-          <t t-if="getattr(l,'spw_png', False)">
-            <img t-att-src="'data:image/png;base64,%s' % (l.spw_png or '')"
-                 style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                 onerror="this.style.display='none';"/>
-          </t>
-          <!-- Personalización desde adjunto (fallback) -->
-          <t t-set="att" t-value="getattr(l,'spw_png_attachment_id', False) or getattr(l,'spw_attachment_id', False)"/>
-          <t t-if="att and att.datas">
-            <img t-att-src="'data:image/png;base64,%s' % (att.datas or '')"
-                 style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                 onerror="this.style.display='none';"/>
-          </t>
-        </div>
+    <!-- Un único xpath que funciona con 'line' o con 'l' -->
+    <xpath expr="//span[@t-field='line.name'] | //span[@t-field='l.name']" position="after">
+      <!-- Normaliza variable de línea -->
+      <t t-set="l" t-value="(line if 'line' in locals() else (l if 'l' in locals() else None))"/>
+      <t t-if="l">
+        <div style="margin-top:6px;">
+          <!-- IMÁGENES (producto + personalización) -->
+          <div style="height:52px; line-height:0; margin:0 0 4px 0;">
+            <!-- Producto -->
+            <t t-if="getattr(l, 'product_id', False) and getattr(l.product_id, 'image_128', False)">
+              <img t-att-src="'data:image/png;base64,%s' % (l.product_id.image_128 or '')"
+                   style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
+                   onerror="this.style.display='none';"/>
+            </t>
+            <!-- Personalización binaria en la línea -->
+            <t t-if="getattr(l,'spw_png', False)">
+              <img t-att-src="'data:image/png;base64,%s' % (l.spw_png or '')"
+                   style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
+                   onerror="this.style.display='none';"/>
+            </t>
+            <!-- Personalización desde adjunto (fallback) -->
+            <t t-set="att" t-value="getattr(l,'spw_png_attachment_id', False) or getattr(l,'spw_attachment_id', False)"/>
+            <t t-if="att and getattr(att,'datas', False)">
+              <img t-att-src="'data:image/png;base64,%s' % (att.datas or '')"
+                   style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
+                   onerror="this.style.display='none';"/>
+            </t>
+          </div>
 
-        <!-- PÍLDORA + metadatos -->
-        <div style="font-size:11px;line-height:1.2;color:#374151;">
-          <t t-set="hex" t-value="getattr(l,'spw_svg_color', '') or ''"/>
-          <t t-if="hex">
-            <span t-att-style="'background:%s;display:inline-block;width:10px;height:10px;border:1px solid #cbd5e1;vertical-align:middle;margin-right:4px;'%hex"/>
-          </t>
-          <t t-if="getattr(l,'spw_tech', False)">
-            <span><strong>Técnica:</strong> <t t-esc="l.spw_tech"/></span>
-          </t>
-          <t t-if="getattr(l,'spw_svg_color_name', False) or getattr(l,'spw_svg_color', False)">
-            <span style="margin-left:8px;">
-              <strong>Color SVG:</strong>
-              <t t-esc="getattr(l,'spw_svg_color_name', False) or getattr(l,'spw_svg_color', '')"/>
-            </span>
-          </t>
-          <t t-if="getattr(l,'spw_notes', False)">
-            <span style="margin-left:8px;"><strong>Obs:</strong> <t t-esc="l.spw_notes"/></span>
-          </t>
-          <t t-if="getattr(l,'product_uom_qty', False)">
-            <span style="margin-left:8px;"><strong>Cant:</strong> <t t-esc="l.product_uom_qty"/></span>
-          </t>
+          <!-- PÍLDORA + metadatos -->
+          <div style="font-size:11px;line-height:1.2;color:#374151;">
+            <t t-set="hex" t-value="getattr(l,'spw_svg_color', '') or ''"/>
+            <t t-if="hex">
+              <span t-att-style="'background:%s;display:inline-block;width:10px;height:10px;border:1px solid #cbd5e1;vertical-align:middle;margin-right:4px;'%hex"/>
+            </t>
+            <t t-if="getattr(l,'spw_tech', False)">
+              <span><strong>Técnica:</strong> <t t-esc="l.spw_tech"/></span>
+            </t>
+            <t t-if="getattr(l,'spw_svg_color_name', False) or getattr(l,'spw_svg_color', False)">
+              <span style="margin-left:8px;">
+                <strong>Color SVG:</strong>
+                <t t-esc="getattr(l,'spw_svg_color_name', False) or getattr(l,'spw_svg_color', '')"/>
+              </span>
+            </t>
+            <t t-if="getattr(l,'spw_notes', False)">
+              <span style="margin-left:8px;"><strong>Obs:</strong> <t t-esc="l.spw_notes"/></span>
+            </t>
+            <t t-if="getattr(l,'product_uom_qty', False)">
+              <span style="margin-left:8px;"><strong>Cant:</strong> <t t-esc="l.product_uom_qty"/></span>
+            </t>
+          </div>
         </div>
-      </div>
-    </xpath>
-
-    <!-- Variante de plantillas que usan 'l' en vez de 'line' -->
-    <xpath expr="//span[@t-field='l.name']" position="after">
-      <t t-set="l" t-value="l"/>
-      <div style="margin-top:6px;">
-        <div style="height:52px; line-height:0; margin:0 0 4px 0;">
-          <t t-if="l.product_id and l.product_id.image_128">
-            <img t-att-src="'data:image/png;base64,%s' % (l.product_id.image_128 or '')"
-                 style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                 onerror="this.style.display='none';"/>
-          </t>
-          <t t-if="getattr(l,'spw_png', False)">
-            <img t-att-src="'data:image/png;base64,%s' % (l.spw_png or '')"
-                 style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                 onerror="this.style.display='none';"/>
-          </t>
-          <t t-set="att" t-value="getattr(l,'spw_png_attachment_id', False) or getattr(l,'spw_attachment_id', False)"/>
-          <t t-if="att and att.datas">
-            <img t-att-src="'data:image/png;base64,%s' % (att.datas or '')"
-                 style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                 onerror="this.style.display='none';"/>
-          </t>
-        </div>
-        <div style="font-size:11px;line-height:1.2;color:#374151;">
-          <t t-set="hex" t-value="getattr(l,'spw_svg_color', '') or ''"/>
-          <t t-if="hex">
-            <span t-att-style="'background:%s;display:inline-block;width:10px;height:10px;border:1px solid #cbd5e1;vertical-align:middle;margin-right:4px;'%hex"/>
-          </t>
-          <t t-if="getattr(l,'spw_tech', False)">
-            <span><strong>Técnica:</strong> <t t-esc="l.spw_tech"/></span>
-          </t>
-          <t t-if="getattr(l,'spw_svg_color_name', False) or getattr(l,'spw_svg_color', False)">
-            <span style="margin-left:8px;">
-              <strong>Color SVG:</strong>
-              <t t-esc="getattr(l,'spw_svg_color_name', False) or getattr(l,'spw_svg_color', '')"/>
-            </span>
-          </t>
-          <t t-if="getattr(l,'spw_notes', False)">
-            <span style="margin-left:8px;"><strong>Obs:</strong> <t t-esc="l.spw_notes"/></span>
-          </t>
-          <t t-if="getattr(l,'product_uom_qty', False)">
-            <span style="margin-left:8px;"><strong>Cant:</strong> <t t-esc="l.product_uom_qty"/></span>
-          </t>
-        </div>
-      </div>
+      </t>
     </xpath>
   </template>
 
@@ -114,92 +71,52 @@
             inherit_id="account.report_invoice_document"
             name="SPW - Extras en factura">
 
-    <xpath expr="//span[@t-field='line.name']" position="after">
-      <!-- En factura, tomamos sale_line_ids[0] cuando existe -->
-      <t t-set="src" t-value="(line.sale_line_ids and line.sale_line_ids[0]) or line"/>
+    <!-- Un único xpath que funciona con 'line' o con 'l' -->
+    <xpath expr="//span[@t-field='line.name'] | //span[@t-field='l.name']" position="after">
+      <!-- En factura, preferimos la sale_line si existe -->
+      <t t-set="src"
+         t-value="(((line.sale_line_ids and line.sale_line_ids[0]) or line) if 'line' in locals() else (((l.sale_line_ids and l.sale_line_ids[0]) or l) if 'l' in locals() else None))"/>
+      <t t-if="src">
+        <div style="margin-top:6px;">
+          <div style="height:52px; line-height:0; margin:0 0 4px 0;">
+            <t t-if="getattr(src, 'product_id', False) and getattr(src.product_id, 'image_128', False)">
+              <img t-att-src="'data:image/png;base64,%s' % (src.product_id.image_128 or '')"
+                   style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
+                   onerror="this.style.display='none';"/>
+            </t>
+            <t t-if="getattr(src,'spw_png', False)">
+              <img t-att-src="'data:image/png;base64,%s' % (src.spw_png or '')"
+                   style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
+                   onerror="this.style.display='none';"/>
+            </t>
+            <t t-set="att" t-value="getattr(src,'spw_png_attachment_id', False) or getattr(src,'spw_attachment_id', False)"/>
+            <t t-if="att and getattr(att,'datas', False)">
+              <img t-att-src="'data:image/png;base64,%s' % (att.datas or '')"
+                   style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
+                   onerror="this.style.display='none';"/>
+            </t>
+          </div>
 
-      <div style="margin-top:6px;">
-        <div style="height:52px; line-height:0; margin:0 0 4px 0;">
-          <t t-if="src.product_id and src.product_id.image_128">
-            <img t-att-src="'data:image/png;base64,%s' % (src.product_id.image_128 or '')"
-                 style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                 onerror="this.style.display='none';"/>
-          </t>
-          <t t-if="getattr(src,'spw_png', False)">
-            <img t-att-src="'data:image/png;base64,%s' % (src.spw_png or '')"
-                 style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                 onerror="this.style.display='none';"/>
-          </t>
-          <t t-set="att" t-value="getattr(src,'spw_png_attachment_id', False) or getattr(src,'spw_attachment_id', False)"/>
-          <t t-if="att and att.datas">
-            <img t-att-src="'data:image/png;base64,%s' % (att.datas or '')"
-                 style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                 onerror="this.style.display='none';"/>
-          </t>
+          <div style="font-size:11px;line-height:1.2;color:#374151;">
+            <t t-set="hex" t-value="getattr(src,'spw_svg_color', '') or ''"/>
+            <t t-if="hex">
+              <span t-att-style="'background:%s;display:inline-block;width:10px;height:10px;border:1px solid #cbd5e1;vertical-align:middle;margin-right:4px;'%hex"/>
+            </t>
+            <t t-if="getattr(src,'spw_tech', False)">
+              <span><strong>Técnica:</strong> <t t-esc="src.spw_tech"/></span>
+            </t>
+            <t t-if="getattr(src,'spw_svg_color_name', False) or getattr(src,'spw_svg_color', False)">
+              <span style="margin-left:8px;">
+                <strong>Color SVG:</strong>
+                <t t-esc="getattr(src,'spw_svg_color_name', False) or getattr(src,'spw_svg_color', '')"/>
+              </span>
+            </t>
+            <t t-if="getattr(src,'spw_notes', False)">
+              <span style="margin-left:8px;"><strong>Obs:</strong> <t t-esc="src.spw_notes"/></span>
+            </t>
+          </div>
         </div>
-
-        <div style="font-size:11px;line-height:1.2;color:#374151;">
-          <t t-set="hex" t-value="getattr(src,'spw_svg_color', '') or ''"/>
-          <t t-if="hex">
-            <span t-att-style="'background:%s;display:inline-block;width:10px;height:10px;border:1px solid #cbd5e1;vertical-align:middle;margin-right:4px;'%hex"/>
-          </t>
-          <t t-if="getattr(src,'spw_tech', False)">
-            <span><strong>Técnica:</strong> <t t-esc="src.spw_tech"/></span>
-          </t>
-          <t t-if="getattr(src,'spw_svg_color_name', False) or getattr(src,'spw_svg_color', False)">
-            <span style="margin-left:8px;">
-              <strong>Color SVG:</strong>
-              <t t-esc="getattr(src,'spw_svg_color_name', False) or getattr(src,'spw_svg_color', '')"/>
-            </span>
-          </t>
-          <t t-if="getattr(src,'spw_notes', False)">
-            <span style="margin-left:8px;"><strong>Obs:</strong> <t t-esc="src.spw_notes"/></span>
-          </t>
-        </div>
-      </div>
-    </xpath>
-
-    <!-- Variante con 'l.name' si la plantilla lo usa así -->
-    <xpath expr="//span[@t-field='l.name']" position="after">
-      <t t-set="src" t-value="(l.sale_line_ids and l.sale_line_ids[0]) or l"/>
-      <div style="margin-top:6px;">
-        <div style="height:52px; line-height:0; margin:0 0 4px 0;">
-          <t t-if="src.product_id and src.product_id.image_128">
-            <img t-att-src="'data:image/png;base64,%s' % (src.product_id.image_128 or '')"
-                 style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                 onerror="this.style.display='none';"/>
-          </t>
-          <t t-if="getattr(src,'spw_png', False)">
-            <img t-att-src="'data:image/png;base64,%s' % (src.spw_png or '')"
-                 style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                 onerror="this.style.display='none';"/>
-          </t>
-          <t t-set="att" t-value="getattr(src,'spw_png_attachment_id', False) or getattr(src,'spw_attachment_id', False)"/>
-          <t t-if="att and att.datas">
-            <img t-att-src="'data:image/png;base64,%s' % (att.datas or '')"
-                 style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                 onerror="this.style.display='none';"/>
-          </t>
-        </div>
-        <div style="font-size:11px;line-height:1.2;color:#374151;">
-          <t t-set="hex" t-value="getattr(src,'spw_svg_color', '') or ''"/>
-          <t t-if="hex">
-            <span t-att-style="'background:%s;display:inline-block;width:10px;height:10px;border:1px solid #cbd5e1;vertical-align:middle;margin-right:4px;'%hex"/>
-          </t>
-          <t t-if="getattr(src,'spw_tech', False)">
-            <span><strong>Técnica:</strong> <t t-esc="src.spw_tech"/></span>
-          </t>
-          <t t-if="getattr(src,'spw_svg_color_name', False) or getattr(src,'spw_svg_color', False)">
-            <span style="margin-left:8px;">
-              <strong>Color SVG:</strong>
-              <t t-esc="getattr(src,'spw_svg_color_name', False) or getattr(src,'spw_svg_color', '')"/>
-            </span>
-          </t>
-          <t t-if="getattr(src,'spw_notes', False)">
-            <span style="margin-left:8px;"><strong>Obs:</strong> <t t-esc="src.spw_notes"/></span>
-          </t>
-        </div>
-      </div>
+      </t>
     </xpath>
   </template>
 
