@@ -8,7 +8,7 @@
             inherit_id="sale.report_saleorder_document"
             name="SPW - Extra en presupuesto/pedido (líneas)">
 
-    <!-- Celda de DESCRIPCIÓN (flexible a versiones) -->
+    <!-- Celda de DESCRIPCIÓN (robusta a distintas plantillas) -->
     <xpath expr="//table[.//span[@t-field='line.name'] or .//span[@t-field='l.name']]//tbody//tr/td[1]"
            position="inside">
 
@@ -18,41 +18,49 @@
 
       <div class="spw-line-extra" style="margin-top:6px;">
 
-        <!-- ====== IMÁGENES (layout compatible wkhtmltopdf) ====== -->
-        <table style="border-collapse:collapse;margin:0 0 4px 0;">
-          <tr>
-            <!-- Imagen de producto -->
-            <td t-if="l and l.product_id" style="padding:0 6px 0 0;vertical-align:top;">
-              <img t-att-src="'/web/image/product.product/%s/image_128' % l.product_id.id"
-                   style="height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;"/>
-            </td>
+        <!-- ====== BLOQUE DE IMÁGENES (compatible con wkhtml) ====== -->
+        <div style="height:52px; line-height:0; margin:0 0 4px 0;">
+          <!-- Imagen de producto -->
+          <t t-if="l and l.product_id">
+            <img t-att-src="'/web/image/product.product/%s/image_128?unique=1' % l.product_id.id"
+                 style="display:inline-block; height:48px; width:auto; border:1px solid #e5e7eb; border-radius:3px; margin-right:6px; vertical-align:top;"
+                 onerror="this.style.display='none';"/>
+          </t>
 
-            <!-- Personalización: 1) binario en la línea -->
-            <td t-if="l and hasattr(l,'spw_png') and l.spw_png"
-                style="padding:0 6px 0 0;vertical-align:top;">
-              <img t-att-src="'/web/image/sale.order.line/%s/spw_png' % l.id"
-                   style="height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;"/>
-            </td>
+          <!-- 1) Personalización como binario en la línea -->
+          <t t-if="l and hasattr(l,'spw_png') and l.spw_png">
+            <img t-att-src="'/web/image/sale.order.line/%s/spw_png?unique=1' % l.id"
+                 style="display:inline-block; height:48px; width:auto; border:1px solid #e5e7eb; border-radius:3px; margin-right:6px; vertical-align:top;"
+                 onerror="this.style.display='none';"/>
+          </t>
 
-            <!-- 2) adjunto enlazado -->
-            <t t-if="l" t-set="spw_att"
-               t-value="getattr(l,'spw_png_attachment_id', False) or getattr(l,'spw_attachment_id', False)"/>
-            <td t-if="spw_att" style="padding:0 6px 0 0;vertical-align:top;">
-              <img t-att-src="'/web/image/ir.attachment/%s/datas' % spw_att.id"
-                   style="height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;"/>
-            </td>
+          <!-- 2) Personalización en adjunto -->
+          <t t-set="spw_att" t-if="l"
+             t-value="getattr(l,'spw_png_attachment_id', False) or getattr(l,'spw_attachment_id', False)"/>
+          <t t-if="spw_att">
+            <img t-att-src="'/web/image/ir.attachment/%s/datas?unique=1' % spw_att.id"
+                 style="display:inline-block; height:48px; width:auto; border:1px solid #e5e7eb; border-radius:3px; margin-right:6px; vertical-align:top;"
+                 onerror="this.style.display='none';"/>
+          </t>
 
-            <!-- 3) fallback: ruta pública del preview -->
-            <td t-if="l and not (hasattr(l,'spw_png') and l.spw_png) and not spw_att"
-                style="padding:0;vertical-align:top;">
-              <img t-att-src="'/spw/line_preview/%s.png' % l.id"
-                   style="height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;"/>
-            </td>
-          </tr>
-        </table>
+          <!-- 3) Fallback: preview público -->
+          <t t-if="l and not (hasattr(l,'spw_png') and l.spw_png) and not spw_att">
+            <img t-att-src="'/spw/line_preview/%s.png?unique=1' % l.id"
+                 style="display:inline-block; height:48px; width:auto; border:1px solid #e5e7eb; border-radius:3px; margin-right:6px; vertical-align:top;"
+                 onerror="this.style.display='none';"/>
+          </t>
+        </div>
 
-        <!-- ====== METADATOS ====== -->
+        <!-- ====== PÍLDORA DE COLOR + METADATOS ====== -->
         <div style="font-size:11px;line-height:1.2;color:#374151;">
+          <!-- Píldora -->
+          <t t-set="hex"
+             t-value="(getattr(l,'spw_svg_color', False) and getattr(l,'spw_svg_color')) or ''"/>
+          <t t-if="hex">
+            <span style="display:inline-block;width:10px;height:10px;border:1px solid #cbd5e1;vertical-align:middle;margin-right:4px;"
+                  t-att-style="'background:%s;display:inline-block;width:10px;height:10px;border:1px solid #cbd5e1;vertical-align:middle;margin-right:4px;'%hex"/>
+          </t>
+
           <t t-if="l and getattr(l,'spw_tech', False)">
             <span><strong>Técnica:</strong> <t t-esc="l.spw_tech"/></span>
           </t>
@@ -83,46 +91,48 @@
     <xpath expr="//table[.//span[@t-field='line.name'] or .//span[@t-field='l.name']]//tbody//tr/td[1]"
            position="inside">
 
-      <!-- preferimos la propia línea; si no, la vinculada de venta -->
       <t t-if="line" t-set="l" t-value="line"/>
       <t t-if="not line and l" t-set="l" t-value="l"/>
       <t t-set="sl" t-if="l and hasattr(l,'sale_line_ids') and l.sale_line_ids"
          t-value="l.sale_line_ids[0]"/>
-
-      <!-- Usa sl si existe; si no, l -->
       <t t-set="src" t-value="sl or l"/>
 
       <div class="spw-line-extra" style="margin-top:6px;">
+        <div style="height:52px; line-height:0; margin:0 0 4px 0;">
+          <t t-if="src and getattr(src,'product_id', False)">
+            <img t-att-src="'/web/image/product.product/%s/image_128?unique=1' % src.product_id.id"
+                 style="display:inline-block; height:48px; width:auto; border:1px solid #e5e7eb; border-radius:3px; margin-right:6px; vertical-align:top;"
+                 onerror="this.style.display='none';"/>
+          </t>
 
-        <table style="border-collapse:collapse;margin:0 0 4px 0;">
-          <tr>
-            <td t-if="src and getattr(src,'product_id', False)" style="padding:0 6px 0 0;vertical-align:top;">
-              <img t-att-src="'/web/image/product.product/%s/image_128' % src.product_id.id"
-                   style="height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;"/>
-            </td>
+          <t t-if="src and hasattr(src,'spw_png') and src.spw_png">
+            <img t-att-src="'/web/image/%s/%s/spw_png?unique=1' % (src._name.replace('.','/'), src.id)"
+                 style="display:inline-block; height:48px; width:auto; border:1px solid #e5e7eb; border-radius:3px; margin-right:6px; vertical-align:top;"
+                 onerror="this.style.display='none';"/>
+          </t>
 
-            <td t-if="src and hasattr(src,'spw_png') and src.spw_png"
-                style="padding:0 6px 0 0;vertical-align:top;">
-              <img t-att-src="'/web/image/%s/%s/spw_png' % (src._name.replace('.','/'), src.id)"
-                   style="height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;"/>
-            </td>
+          <t t-set="spw_att" t-if="src"
+             t-value="getattr(src,'spw_png_attachment_id', False) or getattr(src,'spw_attachment_id', False)"/>
+          <t t-if="spw_att">
+            <img t-att-src="'/web/image/ir.attachment/%s/datas?unique=1' % spw_att.id"
+                 style="display:inline-block; height:48px; width:auto; border:1px solid #e5e7eb; border-radius:3px; margin-right:6px; vertical-align:top;"
+                 onerror="this.style.display='none';"/>
+          </t>
 
-            <t t-if="src" t-set="spw_att"
-               t-value="getattr(src,'spw_png_attachment_id', False) or getattr(src,'spw_attachment_id', False)"/>
-            <td t-if="spw_att" style="padding:0 6px 0 0;vertical-align:top;">
-              <img t-att-src="'/web/image/ir.attachment/%s/datas' % spw_att.id"
-                   style="height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;"/>
-            </td>
+          <t t-if="src and not (hasattr(src,'spw_png') and src.spw_png) and not spw_att">
+            <img t-att-src="'/spw/line_preview/%s.png?unique=1' % (getattr(src,'id', False) or 0)"
+                 style="display:inline-block; height:48px; width:auto; border:1px solid #e5e7eb; border-radius:3px; margin-right:6px; vertical-align:top;"
+                 onerror="this.style.display='none';"/>
+          </t>
+        </div>
 
-            <td t-if="src and not (hasattr(src,'spw_png') and src.spw_png) and not spw_att"
-                style="padding:0;vertical-align:top;">
-              <img t-att-src="'/spw/line_preview/%s.png' % (getattr(src,'id', False) or 0)"
-                   style="height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;"/>
-            </td>
-          </tr>
-        </table>
-
+        <!-- Píldora + metadatos desde la fuente disponible -->
+        <t t-set="hex"
+           t-value="(getattr(src,'spw_svg_color', False) and getattr(src,'spw_svg_color')) or ''"/>
         <div style="font-size:11px;line-height:1.2;color:#374151;">
+          <t t-if="hex">
+            <span t-att-style="'background:%s;display:inline-block;width:10px;height:10px;border:1px solid #cbd5e1;vertical-align:middle;margin-right:4px;'%hex"/>
+          </t>
           <t t-if="src and getattr(src,'spw_tech', False)">
             <span><strong>Técnica:</strong> <t t-esc="src.spw_tech"/></span>
           </t>
