@@ -2,47 +2,31 @@
 <odoo>
 
   <!-- =========================================================
-       PRESUPUESTO / PEDIDO (sale.report_saleorder_document)
-       - Inserta debajo de la descripción de cada línea:
-         * Foto del producto
-         * PNG de personalización (último adjunto de la línea)
-         * Píldora de color si existe l.spw_svg_color
+       PRESUPUESTO / PEDIDO
        ========================================================= -->
   <template id="report_saleorder_spw_inherit"
             inherit_id="sale.report_saleorder_document"
             name="SPW – Extras en Presupuesto/Pedido">
-    <!-- Columna de descripción (1ª columna de cada línea) -->
     <xpath expr="//table[contains(@class,'o_main_table')]/tbody/tr/td[1]" position="inside">
-      <!-- Bloque SPW (se ejecuta en el contexto de la línea 'l') -->
       <div class="spw-print-block" style="margin-top:6px;">
-        <!-- Buscar el adjunto de personalización de esta línea -->
+        <!-- Adjuntos de la línea de pedido -->
         <t t-set="spw_att"
            t-value="o.env['ir.attachment'].search([('res_model','=','sale.order.line'),
                                                    ('res_id','=', l.id),
                                                    ('mimetype','ilike','image'),
                                                    ('name','ilike','spw%')], limit=1, order='id desc')"/>
         <t t-set="spw_att_url" t-value="'/web/image/%s' % spw_att.id if spw_att else False"/>
-        <!-- URL de imagen del producto -->
         <t t-set="prod_url" t-value="'/web/image/product.product/%s/image_128' % (l.product_id.id or 0)"/>
 
         <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">
-          <!-- Foto producto -->
-          <img t-att-src="prod_url"
-               alt="Producto"
+          <img t-att-src="prod_url" alt="Producto"
                style="max-width:60px;max-height:60px;border:1px solid #ddd;border-radius:4px;"/>
-
-          <!-- PNG personalización (si existe) -->
-          <img t-if="spw_att_url"
-               t-att-src="spw_att_url"
-               alt="Personalización"
+          <img t-if="spw_att_url" t-att-src="spw_att_url" alt="Personalización"
                style="max-width:140px;border:1px solid #ddd;border-radius:4px;"/>
-
-          <!-- Píldora de color si la línea tiene el hex -->
           <t t-if="getattr(l, 'spw_svg_color', False)">
             <span title="Color SVG"
                   t-att-style="'display:inline-block;width:14px;height:14px;border-radius:999px;border:1px solid #bbb;background:%s' % l.spw_svg_color"></span>
-            <span style="font-size:11px;margin-left:6px;"
-                  t-esc="l.spw_svg_color"/>
+            <span style="font-size:11px;margin-left:6px;" t-esc="l.spw_svg_color"/>
           </t>
         </div>
       </div>
@@ -50,35 +34,33 @@
   </template>
 
   <!-- =========================================================
-       FACTURA (account.report_invoice_document)
-       - Mismo bloque que en presupuesto/pedido
+       FACTURA
+       - Reutiliza el adjunto de la sale.order.line ligada
        ========================================================= -->
   <template id="report_invoice_spw_inherit"
             inherit_id="account.report_invoice_document"
             name="SPW – Extras en Factura">
     <xpath expr="//table[contains(@class,'o_main_table')]/tbody/tr/td[1]" position="inside">
       <div class="spw-print-block" style="margin-top:6px;">
+        <!-- Primera sale.order.line asociada al apunte -->
+        <t t-set="sl" t-value="(l.sale_line_ids and l.sale_line_ids[0]) or False"/>
         <t t-set="spw_att"
-           t-value="o.env['ir.attachment'].search([('res_model','=','account.move.line'),
-                                                   ('res_id','=', l.id),
-                                                   ('mimetype','ilike','image'),
-                                                   ('name','ilike','spw%')], limit=1, order='id desc')"/>
+           t-value="sl and o.env['ir.attachment'].search([('res_model','=','sale.order.line'),
+                                                          ('res_id','=', sl.id),
+                                                          ('mimetype','ilike','image'),
+                                                          ('name','ilike','spw%')], limit=1, order='id desc') or False"/>
         <t t-set="spw_att_url" t-value="'/web/image/%s' % spw_att.id if spw_att else False"/>
         <t t-set="prod_url" t-value="'/web/image/product.product/%s/image_128' % (l.product_id.id or 0)"/>
 
         <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">
-          <img t-att-src="prod_url"
-               alt="Producto"
+          <img t-att-src="prod_url" alt="Producto"
                style="max-width:60px;max-height:60px;border:1px solid #ddd;border-radius:4px;"/>
-          <img t-if="spw_att_url"
-               t-att-src="spw_att_url"
-               alt="Personalización"
+          <img t-if="spw_att_url" t-att-src="spw_att_url" alt="Personalización"
                style="max-width:140px;border:1px solid #ddd;border-radius:4px;"/>
           <t t-if="getattr(l, 'spw_svg_color', False)">
             <span title="Color SVG"
                   t-att-style="'display:inline-block;width:14px;height:14px;border-radius:999px;border:1px solid #bbb;background:%s' % l.spw_svg_color"></span>
-            <span style="font-size:11px;margin-left:6px;"
-                  t-esc="l.spw_svg_color"/>
+            <span style="font-size:11px;margin-left:6px;" t-esc="l.spw_svg_color"/>
           </t>
         </div>
       </div>
