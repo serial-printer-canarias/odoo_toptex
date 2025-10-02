@@ -1,66 +1,72 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
+  <!-- Bloque reutilizable para pintar imágenes y píldora de color.
+       Espera una variable 'ln' con la línea -->
+  <template id="spw_line_block">
+    <t t-if="ln">
+      <div style="margin-top:6px; display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
+        <!-- Imagen del producto (ARREGLO: usar t-att-src) -->
+        <img t-att-src="'/web/image/product.product/%s/image_128' % (getattr(ln, 'product_id', False) and ln.product_id.id or 0)"
+             alt="Producto"
+             style="width:72px;height:auto;border:1px solid #DDD;border-radius:4px;"/>
+
+        <!-- PNG de personalización servido por controller -->
+        <img t-att-src="'/spw/line_preview/%s.png' % ln.id"
+             alt="Personalización"
+             style="width:96px;height:auto;border:1px solid #DDD;border-radius:4px;"/>
+
+        <!-- Píldora HEX si aparece #XXXXXX en el nombre -->
+        <t t-set="hex" t-value="False"/>
+        <t t-if="'#' in (ln.name or '')">
+          <t t-set="hex" t-value="(ln.name or '').split('#')[-1].split()[0]"/>
+        </t>
+        <t t-if="hex">
+          <span t-att-style="'display:inline-block;width:14px;height:14px;border-radius:50%%;border:1px solid #999;background:%s;margin-top:2px;'" t-esc="('#'+hex) if not hex.startswith('#') else hex"/>
+        </t>
+      </div>
+    </t>
+  </template>
+
   <!-- =========================
        PRESUPUESTO / PEDIDO (sale.order)
+       Celda de descripción: td[@name='td_product_name']
        ========================= -->
   <template id="report_saleorder_spw_inherit"
             inherit_id="sale.report_saleorder_document"
             name="SPW - Extras en Presupuesto/Pedido">
 
-    <!-- Insertar al final de la celda de DESCRIPCIÓN de cada línea -->
-    <xpath expr="//table[contains(@class,'o_main_table')]/tbody/tr/td[1]"
+    <xpath expr="//table[contains(@class,'o_main_table')]/tbody/tr/td[@name='td_product_name']"
            position="inside">
-      <!-- En el report de sale, la variable de línea suele ser 'l' -->
+      <!-- En sale el alias suele ser 'l'; dejamos fallback 'line' -->
       <t t-if="l">
-        <div style="margin-top:6px; display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
-          <!-- Imagen del PRODUCTO (arreglo: usar t-att-src) -->
-          <img t-att-src="'/web/image/product.product/%s/image_128' % (l.product_id.id or 0)"
-               alt="Producto"
-               style="width:72px; height:auto; border:1px solid #DDD; border-radius:4px;"/>
-
-          <!-- PNG de PERSONALIZACIÓN servido por el controller público -->
-          <img t-att-src="'/spw/line_preview/%s.png' % l.id"
-               alt="Personalización"
-               style="width:96px; height:auto; border:1px solid #DDD; border-radius:4px;"/>
-
-          <!-- Píldora de color (lee HEX del texto de la línea si existe #XXXXXX) -->
-          <t t-set="hex"
-             t-value="('#' in (l.name or '')) and ( (l.name or '').split('#')[-1].split()[0] ) or False"/>
-          <t t-if="hex and len(hex) in (3,6) or (len(hex)==7 and hex.startswith('#'))">
-            <span t-att-style="'display:inline-block;width:14px;height:14px;border-radius:50%%;border:1px solid #999;background:%s;margin-top:2px;'" t-esc="('#'+hex) if not hex.startswith('#') else hex"/>
-          </t>
-        </div>
+        <t t-set="ln" t-value="l"/>
+        <t t-call="serial_printer_custom_wizard.spw_line_block"/>
+      </t>
+      <t t-if="not l and line">
+        <t t-set="ln" t-value="line"/>
+        <t t-call="serial_printer_custom_wizard.spw_line_block"/>
       </t>
     </xpath>
   </template>
 
   <!-- =========================
        FACTURA (account.move)
+       Celda de descripción: td[@name='td_description']
        ========================= -->
   <template id="report_invoice_spw_inherit"
             inherit_id="account.report_invoice_document"
             name="SPW - Extras en Factura">
 
-    <xpath expr="//table[contains(@class,'o_main_table')]/tbody/tr/td[1]"
+    <xpath expr="//table[contains(@class,'o_main_table')]/tbody/tr/td[@name='td_description']"
            position="inside">
-      <!-- En el report de factura, también se usa 'l' por defecto -->
       <t t-if="l">
-        <div style="margin-top:6px; display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
-          <img t-att-src="'/web/image/product.product/%s/image_128' % (getattr(l, 'product_id', False) and l.product_id.id or 0)"
-               alt="Producto"
-               style="width:72px; height:auto; border:1px solid #DDD; border-radius:4px;"/>
-
-          <img t-att-src="'/spw/line_preview/%s.png' % l.id"
-               alt="Personalización"
-               style="width:96px; height:auto; border:1px solid #DDD; border-radius:4px;"/>
-
-          <t t-set="hex"
-             t-value="('#' in (l.name or '')) and ( (l.name or '').split('#')[-1].split()[0] ) or False"/>
-          <t t-if="hex and len(hex) in (3,6) or (len(hex)==7 and hex.startswith('#'))">
-            <span t-att-style="'display:inline-block;width:14px;height:14px;border-radius:50%%;border:1px solid #999;background:%s;margin-top:2px;'" t-esc="('#'+hex) if not hex.startswith('#') else hex"/>
-          </t>
-        </div>
+        <t t-set="ln" t-value="l"/>
+        <t t-call="serial_printer_custom_wizard.spw_line_block"/>
+      </t>
+      <t t-if="not l and line">
+        <t t-set="ln" t-value="line"/>
+        <t t-call="serial_printer_custom_wizard.spw_line_block"/>
       </t>
     </xpath>
   </template>
