@@ -2,121 +2,136 @@
 <odoo>
 
   <!-- =========================================================
-       PRESUPUESTO / PEDIDO: bloque SPW tras el nombre de línea
+       PRESUPUESTO/PEDIDO: bloque extra con imágenes y detalles
        ========================================================= -->
-  <template id="report_saleorder_spw_inherit"
+  <template id="report_saleorder_spw_extras"
             inherit_id="sale.report_saleorder_document"
-            name="SPW - Extras en presupuesto/pedido">
+            name="SPW - Extras en Presupuesto/Pedido (bloque final)">
+    <!-- Insertamos al final de la página del reporte -->
+    <xpath expr="//div[contains(@class,'page')]" position="inside">
+      <div class="mt16 spw_extras" t-if="doc.order_line">
+        <h4 style="margin: 24px 0 8px 0;">Personalización</h4>
+        <table class="table table-sm" style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="text-align:left; border-bottom:1px solid #ddd; padding:6px 4px;">Producto</th>
+              <th style="text-align:left; border-bottom:1px solid #ddd; padding:6px 4px;">Personalización</th>
+              <th style="text-align:left; border-bottom:1px solid #ddd; padding:6px 4px;">Detalles</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr t-foreach="doc.order_line" t-as="l">
+              <!-- Imagen del producto -->
+              <td style="vertical-align:top; padding:8px 4px; width:26%;">
+                <img t-att-src="'/web/image/product.product/%s/image_128' % (l.product_id.product_variant_id.id or 0)"
+                     alt="Producto"
+                     style="max-width:120px; max-height:120px; border:1px solid #e0e0e0; border-radius:4px;"/>
+                <div style="font-size:11px; margin-top:4px;">
+                  <t t-esc="l.name"/>
+                </div>
+              </td>
 
-    <!-- Un único xpath que funciona con 'line' o con 'l' -->
-    <xpath expr="//span[@t-field='line.name'] | //span[@t-field='l.name']" position="after">
-      <!-- Normaliza variable de línea -->
-      <t t-set="l" t-value="(line if 'line' in locals() else (l if 'l' in locals() else None))"/>
-      <t t-if="l">
-        <div style="margin-top:6px;">
-          <!-- IMÁGENES (producto + personalización) -->
-          <div style="height:52px; line-height:0; margin:0 0 4px 0;">
-            <!-- Producto -->
-            <t t-if="getattr(l, 'product_id', False) and getattr(l.product_id, 'image_128', False)">
-              <img t-att-src="'data:image/png;base64,%s' % (l.product_id.image_128 or '')"
-                   style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                   onerror="this.style.display='none';"/>
-            </t>
-            <!-- Personalización binaria en la línea -->
-            <t t-if="getattr(l,'spw_png', False)">
-              <img t-att-src="'data:image/png;base64,%s' % (l.spw_png or '')"
-                   style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                   onerror="this.style.display='none';"/>
-            </t>
-            <!-- Personalización desde adjunto (fallback) -->
-            <t t-set="att" t-value="getattr(l,'spw_png_attachment_id', False) or getattr(l,'spw_attachment_id', False)"/>
-            <t t-if="att and getattr(att,'datas', False)">
-              <img t-att-src="'data:image/png;base64,%s' % (att.datas or '')"
-                   style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                   onerror="this.style.display='none';"/>
-            </t>
-          </div>
+              <!-- PNG de personalización (binario o adjunto) -->
+              <td style="vertical-align:top; padding:8px 4px; width:26%;">
+                <t t-set="spw_png_data"
+                   t-value="(l.spw_png or (l.spw_png_attachment_id and l.spw_png_attachment_id.datas))"/>
+                <t t-if="spw_png_data">
+                  <img t-att-src="'data:image/png;base64,%s' % spw_png_data"
+                       alt="Personalización"
+                       style="max-width:160px; max-height:160px; border:1px solid #e0e0e0; border-radius:4px;"/>
+                </t>
+                <t t-if="not spw_png_data">
+                  <span style="font-size:11px; color:#777;">(Sin imagen adjunta)</span>
+                </t>
+              </td>
 
-          <!-- PÍLDORA + metadatos -->
-          <div style="font-size:11px;line-height:1.2;color:#374151;">
-            <t t-set="hex" t-value="getattr(l,'spw_svg_color', '') or ''"/>
-            <t t-if="hex">
-              <span t-att-style="'background:%s;display:inline-block;width:10px;height:10px;border:1px solid #cbd5e1;vertical-align:middle;margin-right:4px;'%hex"/>
-            </t>
-            <t t-if="getattr(l,'spw_tech', False)">
-              <span><strong>Técnica:</strong> <t t-esc="l.spw_tech"/></span>
-            </t>
-            <t t-if="getattr(l,'spw_svg_color_name', False) or getattr(l,'spw_svg_color', False)">
-              <span style="margin-left:8px;">
-                <strong>Color SVG:</strong>
-                <t t-esc="getattr(l,'spw_svg_color_name', False) or getattr(l,'spw_svg_color', '')"/>
-              </span>
-            </t>
-            <t t-if="getattr(l,'spw_notes', False)">
-              <span style="margin-left:8px;"><strong>Obs:</strong> <t t-esc="l.spw_notes"/></span>
-            </t>
-            <t t-if="getattr(l,'product_uom_qty', False)">
-              <span style="margin-left:8px;"><strong>Cant:</strong> <t t-esc="l.product_uom_qty"/></span>
-            </t>
-          </div>
-        </div>
-      </t>
+              <!-- Texto: técnica, color (píldora), observaciones y cantidad -->
+              <td style="vertical-align:top; padding:8px 4px;">
+                <div t-if="l.spw_tech"><strong>Técnica:</strong> <t t-esc="l.spw_tech"/></div>
+
+                <t t-set="hex" t-value="(l.spw_svg_color or '').upper()"/>
+                <div t-if="hex">
+                  <strong>Color SVG:</strong> <t t-esc="hex"/>
+                  <span t-att-style="'display:inline-block; width:12px; height:12px; border-radius:50%%; margin-left:6px; background:%s; border:1px solid #888; vertical-align:middle;' % hex"></span>
+                </div>
+
+                <div t-if="l.spw_notes"><strong>Obs:</strong> <t t-esc="l.spw_notes"/></div>
+                <div><strong>Cantidad línea:</strong> <t t-esc="l.product_uom_qty"/></div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </xpath>
   </template>
 
-  <!-- ================================================
-       FACTURA: usa la sale_line como fuente si existe
-       ================================================ -->
-  <template id="report_invoice_spw_inherit"
+  <!-- ===============================================
+       FACTURA: bloque extra con imágenes y detalles
+       (si la factura no tiene binario, busca en la SOL)
+       =============================================== -->
+  <template id="report_invoice_spw_extras"
             inherit_id="account.report_invoice_document"
-            name="SPW - Extras en factura">
+            name="SPW - Extras en Factura (bloque final)">
+    <xpath expr="//div[contains(@class,'page')]" position="inside">
+      <div class="mt16 spw_extras" t-if="doc.invoice_line_ids">
+        <h4 style="margin: 24px 0 8px 0;">Personalización</h4>
+        <table class="table table-sm" style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="text-align:left; border-bottom:1px solid #ddd; padding:6px 4px;">Producto</th>
+              <th style="text-align:left; border-bottom:1px solid #ddd; padding:6px 4px;">Personalización</th>
+              <th style="text-align:left; border-bottom:1px solid #ddd; padding:6px 4px;">Detalles</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr t-foreach="doc.invoice_line_ids" t-as="l">
+              <!-- Imagen del producto -->
+              <td style="vertical-align:top; padding:8px 4px; width:26%;">
+                <img t-att-src="'/web/image/product.product/%s/image_128' % (l.product_id.product_variant_id.id or 0)"
+                     alt="Producto"
+                     style="max-width:120px; max-height:120px; border:1px solid #e0e0e0; border-radius:4px;"/>
+                <div style="font-size:11px; margin-top:4px;">
+                  <t t-esc="l.name"/>
+                </div>
+              </td>
 
-    <!-- Un único xpath que funciona con 'line' o con 'l' -->
-    <xpath expr="//span[@t-field='line.name'] | //span[@t-field='l.name']" position="after">
-      <!-- En factura, preferimos la sale_line si existe -->
-      <t t-set="src"
-         t-value="(((line.sale_line_ids and line.sale_line_ids[0]) or line) if 'line' in locals() else (((l.sale_line_ids and l.sale_line_ids[0]) or l) if 'l' in locals() else None))"/>
-      <t t-if="src">
-        <div style="margin-top:6px;">
-          <div style="height:52px; line-height:0; margin:0 0 4px 0;">
-            <t t-if="getattr(src, 'product_id', False) and getattr(src.product_id, 'image_128', False)">
-              <img t-att-src="'data:image/png;base64,%s' % (src.product_id.image_128 or '')"
-                   style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                   onerror="this.style.display='none';"/>
-            </t>
-            <t t-if="getattr(src,'spw_png', False)">
-              <img t-att-src="'data:image/png;base64,%s' % (src.spw_png or '')"
-                   style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                   onerror="this.style.display='none';"/>
-            </t>
-            <t t-set="att" t-value="getattr(src,'spw_png_attachment_id', False) or getattr(src,'spw_attachment_id', False)"/>
-            <t t-if="att and getattr(att,'datas', False)">
-              <img t-att-src="'data:image/png;base64,%s' % (att.datas or '')"
-                   style="display:inline-block;height:48px;width:auto;border:1px solid #e5e7eb;border-radius:3px;margin-right:6px;vertical-align:top;"
-                   onerror="this.style.display='none';"/>
-            </t>
-          </div>
+              <!-- PNG: primero en la línea de factura; si no, en la SOL enlazada -->
+              <td style="vertical-align:top; padding:8px 4px; width:26%;">
+                <t t-set="png_fact" t-value="(l.spw_png or (l.spw_png_attachment_id and l.spw_png_attachment_id.datas))"/>
+                <t t-set="sol" t-value="(l.sale_line_ids and l.sale_line_ids[:1]) and l.sale_line_ids[0] or False"/>
+                <t t-set="png_sol" t-value="sol and (sol.spw_png or (sol.spw_png_attachment_id and sol.spw_png_attachment_id.datas))"/>
+                <t t-set="spw_png_data" t-value="png_fact or png_sol"/>
+                <t t-if="spw_png_data">
+                  <img t-att-src="'data:image/png;base64,%s' % spw_png_data"
+                       alt="Personalización"
+                       style="max-width:160px; max-height:160px; border:1px solid #e0e0e0; border-radius:4px;"/>
+                </t>
+                <t t-if="not spw_png_data">
+                  <span style="font-size:11px; color:#777;">(Sin imagen adjunta)</span>
+                </t>
+              </td>
 
-          <div style="font-size:11px;line-height:1.2;color:#374151;">
-            <t t-set="hex" t-value="getattr(src,'spw_svg_color', '') or ''"/>
-            <t t-if="hex">
-              <span t-att-style="'background:%s;display:inline-block;width:10px;height:10px;border:1px solid #cbd5e1;vertical-align:middle;margin-right:4px;'%hex"/>
-            </t>
-            <t t-if="getattr(src,'spw_tech', False)">
-              <span><strong>Técnica:</strong> <t t-esc="src.spw_tech"/></span>
-            </t>
-            <t t-if="getattr(src,'spw_svg_color_name', False) or getattr(src,'spw_svg_color', False)">
-              <span style="margin-left:8px;">
-                <strong>Color SVG:</strong>
-                <t t-esc="getattr(src,'spw_svg_color_name', False) or getattr(src,'spw_svg_color', '')"/>
-              </span>
-            </t>
-            <t t-if="getattr(src,'spw_notes', False)">
-              <span style="margin-left:8px;"><strong>Obs:</strong> <t t-esc="src.spw_notes"/></span>
-            </t>
-          </div>
-        </div>
-      </t>
+              <!-- Texto: técnica, color, observaciones y cantidad -->
+              <td style="vertical-align:top; padding:8px 4px;">
+                <!-- Preferimos valores en factura; si no, heredamos de la SOL -->
+                <t t-set="tech" t-value="l.spw_tech or (sol and sol.spw_tech)"/>
+                <t t-set="hex"  t-value="(l.spw_svg_color or (sol and sol.spw_svg_color) or '').upper()"/>
+                <t t-set="notes" t-value="l.spw_notes or (sol and sol.spw_notes)"/>
+
+                <div t-if="tech"><strong>Técnica:</strong> <t t-esc="tech"/></div>
+
+                <div t-if="hex">
+                  <strong>Color SVG:</strong> <t t-esc="hex"/>
+                  <span t-att-style="'display:inline-block; width:12px; height:12px; border-radius:50%%; margin-left:6px; background:%s; border:1px solid #888; vertical-align:middle;' % hex"></span>
+                </div>
+
+                <div t-if="notes"><strong>Obs:</strong> <t t-esc="notes"/></div>
+                <div><strong>Cantidad línea:</strong> <t t-esc="l.quantity or l.display_quantity or l.quantity"/></div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </xpath>
   </template>
 
