@@ -3,19 +3,18 @@ from odoo import http
 from odoo.http import request
 import base64
 
-# PNG transparente 1x1 (fallback)
+# PNG 1x1 transparente (fallback, evita 500)
 BLANK_PNG = base64.b64decode(
     b'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII='
 )
 
 class SpwReport(http.Controller):
 
-    # Acepta /spw/line_preview/<id> y /spw/line_preview/<id>.png
     @http.route(['/spw/line_preview/<int:line_id>.png',
                  '/spw/line_preview/<int:line_id>'],
                 type='http', auth='public', website=True, cors='*')
     def spw_line_preview(self, line_id, **kw):
-        """Devuelve el PNG de personalización de una línea (venta o factura)."""
+        """Devuelve el PNG de personalización asociado a una línea de venta/factura."""
         env = request.env.sudo()
 
         rec = env['sale.order.line'].browse(line_id)
@@ -24,18 +23,18 @@ class SpwReport(http.Controller):
             if not rec.exists():
                 return request.make_response(BLANK_PNG, [('Content-Type', 'image/png')])
 
-        # 1) Adjuntos image/png ligados a la línea (nombre contiene 'spw')
-        att = env['ir.attachment'].search([
+        # 1) Buscar adjunto image/png ligado a la línea (nombre contiene 'spw')
+        att = env['ir.attachments' if 'ir.attachments' in env else 'ir.attachment'].search([
             ('res_model', '=', rec._name),
             ('res_id', '=', rec.id),
             ('mimetype', 'ilike', 'image/png'),
             ('name', 'ilike', 'spw')
         ], limit=1)
-        if att and att.datas:
+        if att and getattr(att, 'datas', False):
             return request.make_response(base64.b64decode(att.datas),
                                          [('Content-Type', 'image/png')])
 
-        # 2) Campos binarios en la línea (si existen)
+        # 2) Campos binarios (si existen)
         data_b64 = False
         if 'spw_png' in rec._fields and rec.spw_png:
             data_b64 = rec.spw_png
@@ -48,5 +47,5 @@ class SpwReport(http.Controller):
             except Exception:
                 pass
 
-        # 3) Fallback
+        # 3) Fallback seguro
         return request.make_response(BLANK_PNG, [('Content-Type', 'image/png')])
