@@ -1,22 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
-  <!-- Bloque reutilizable para pintar imágenes y píldora de color.
-       Espera una variable 'ln' con la línea -->
+  <!-- Bloque reutilizable: recibe 'ln' con la línea -->
   <template id="spw_line_block">
     <t t-if="ln">
-      <div style="margin-top:6px; display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
-        <!-- Imagen del producto (ARREGLO: usar t-att-src) -->
-        <img t-att-src="'/web/image/product.product/%s/image_128' % (getattr(ln, 'product_id', False) and ln.product_id.id or 0)"
+      <div style="margin-top:6px;display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;">
+        <!-- Imagen del producto (usar t-att-src) -->
+        <img t-att-src="'/web/image/product.product/%s/image_128' % (ln.product_id.id if ln.product_id else 0)"
              alt="Producto"
              style="width:72px;height:auto;border:1px solid #DDD;border-radius:4px;"/>
 
-        <!-- PNG de personalización servido por controller -->
+        <!-- PNG de personalización (vía controller) -->
         <img t-att-src="'/spw/line_preview/%s.png' % ln.id"
              alt="Personalización"
              style="width:96px;height:auto;border:1px solid #DDD;border-radius:4px;"/>
 
-        <!-- Píldora HEX si aparece #XXXXXX en el nombre -->
+        <!-- Píldora de color si en el texto aparece un HEX -->
         <t t-set="hex" t-value="False"/>
         <t t-if="'#' in (ln.name or '')">
           <t t-set="hex" t-value="(ln.name or '').split('#')[-1].split()[0]"/>
@@ -30,44 +29,30 @@
 
   <!-- =========================
        PRESUPUESTO / PEDIDO (sale.order)
-       Celda de descripción: td[@name='td_product_name']
+       XPath robusto: columna descripción = td.class~='name'
        ========================= -->
   <template id="report_saleorder_spw_inherit"
             inherit_id="sale.report_saleorder_document"
             name="SPW - Extras en Presupuesto/Pedido">
-
-    <xpath expr="//table[contains(@class,'o_main_table')]/tbody/tr/td[@name='td_product_name']"
+    <xpath expr="//table[contains(@class,'o_main_table')]//tbody//tr//td[contains(concat(' ', normalize-space(@class), ' '), ' name ')]"
            position="inside">
-      <!-- En sale el alias suele ser 'l'; dejamos fallback 'line' -->
-      <t t-if="l">
-        <t t-set="ln" t-value="l"/>
-        <t t-call="serial_printer_custom_wizard.spw_line_block"/>
-      </t>
-      <t t-if="not l and line">
-        <t t-set="ln" t-value="line"/>
-        <t t-call="serial_printer_custom_wizard.spw_line_block"/>
-      </t>
+      <!-- En sale la variable de iteración es 'l' -->
+      <t t-set="ln" t-value="l"/>
+      <t t-call="serial_printer_custom_wizard.spw_line_block"/>
     </xpath>
   </template>
 
   <!-- =========================
        FACTURA (account.move)
-       Celda de descripción: td[@name='td_description']
+       También usa la columna con class 'name'
        ========================= -->
   <template id="report_invoice_spw_inherit"
             inherit_id="account.report_invoice_document"
             name="SPW - Extras en Factura">
-
-    <xpath expr="//table[contains(@class,'o_main_table')]/tbody/tr/td[@name='td_description']"
+    <xpath expr="//table[contains(@class,'o_main_table')]//tbody//tr//td[contains(concat(' ', normalize-space(@class), ' '), ' name ')]"
            position="inside">
-      <t t-if="l">
-        <t t-set="ln" t-value="l"/>
-        <t t-call="serial_printer_custom_wizard.spw_line_block"/>
-      </t>
-      <t t-if="not l and line">
-        <t t-set="ln" t-value="line"/>
-        <t t-call="serial_printer_custom_wizard.spw_line_block"/>
-      </t>
+      <t t-set="ln" t-value="l"/>
+      <t t-call="serial_printer_custom_wizard.spw_line_block"/>
     </xpath>
   </template>
 
