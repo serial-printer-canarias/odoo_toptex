@@ -68,6 +68,10 @@ def get_image_binary_from_url(url):
         _logger.warning(f"❌ Error al procesar imagen: {e}")
     return None
 
+def _norm_ref(s):
+    """Normaliza referencias para evitar duplicados por mayúsculas/espacios."""
+    return (s or "").strip().upper()
+
 
 # ===================== Modelo =====================
 
@@ -75,7 +79,7 @@ class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     # ---------------------------------------------------------------------
-    # Productos (no tocar lo que ya funciona; mantenemos patrón existente)
+    # Productos (manteniendo todo igual; solo refuerzo anti-duplicados)
     # ---------------------------------------------------------------------
     @api.model
     def sync_product_from_api(self):
@@ -112,13 +116,15 @@ class ProductTemplate(models.Model):
         if isinstance(batch, dict) and "items" in batch:
             batch = batch["items"]
 
-        # Si la página viene vacía: se entiende como fin de catálogo -> reiniciar a 1
+        # Si la página viene vacía: fin de catálogo -> reinicio
         if not batch:
             _logger.info("✅ Página vacía. Fin de catálogo detectado. Reinicio a página 1 para próximo ciclo.")
             icp.set_param('toptex_last_page', '1')
             return
 
-        processed_refs = set(self.env['product.template'].search([]).mapped('default_code'))
+        # --- DEDUP: cache normalizado por default_code de templates existentes
+        existing_refs = set(_norm_ref(x) for x in self.env['product.template'].search([]).mapped('default_code'))
+
         Attr = self.env['product.attribute']
         AttrVal = self.env['product.attribute.value']
 
@@ -129,12 +135,13 @@ class ProductTemplate(models.Model):
             catalog_ref = data.get("catalogReference")
             if not catalog_ref:
                 continue
+            norm_ref = _norm_ref(catalog_ref)
 
-            # --------- DEDUP GUARD (mínimo, sin tocar el resto) ----------
-            if catalog_ref in processed_refs or self.search([('default_code', '=', catalog_ref)], limit=1):
+            # --------- GUARD reforzado ----------
+            if norm_ref in existing_refs or self.search([('default_code', 'ilike', catalog_ref)], limit=1):
                 _logger.info(f"↪️ Ya existe template {catalog_ref}. Saltando.")
                 continue
-            # --------------------------------------------------------------
+            # ------------------------------------
 
             name_data = data.get("designation") or {}
             name = (name_data.get("es") or name_data.get("en") or "Producto sin nombre").replace("TopTex", "").strip()
@@ -184,7 +191,7 @@ class ProductTemplate(models.Model):
             }
             try:
                 tmpl = self.create(vals)
-                processed_refs.add(catalog_ref)
+                existing_refs.add(norm_ref)
                 _logger.info(f"✅ Producto creado: {catalog_ref} | {full_name}")
             except Exception as e:
                 _logger.error(f"❌ Error creando {catalog_ref}: {e}")
@@ -208,7 +215,7 @@ class ProductTemplate(models.Model):
             except Exception as e:
                 _logger.warning(f"⚠️ No se pudo asignar imagen al template {catalog_ref}: {e}")
 
-            # precios + sku
+            # precios + sku (igual que lo tenías)
             try:
                 price_items = []
                 rprice = requests.get(f"{proxy}/v3/products/price?catalog_reference={catalog_ref}",
@@ -227,7 +234,8 @@ class ProductTemplate(models.Model):
                         if it.get("color")==cn and it.get("size")==sn:
                             prices = it.get("prices") or []
                             if prices:
-                                return float(prices[0].get("price",0.0))
+                                # tomar el precio más bajo disponible
+                                return float(min(p.get("price", 0.0) for p in prices if isinstance(p, dict)) or 0.0)
                     return 0.0
 
                 def get_sku(cn, sn):
@@ -254,7 +262,7 @@ class ProductTemplate(models.Model):
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
     # ---------------------------------------------------------------------
-    # Stock (igual que lo tenías)
+    # Stock (igual)
     # ---------------------------------------------------------------------
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
@@ -281,7 +289,7 @@ class ProductTemplate(models.Model):
             return
 
         last_id = int(icp.get_param('toptex_stock_last_id') or 0)
-        budget  = int(icp.get_param('toptex_stock_time_budget') or 900)  # 15 min
+        budget  = int(icp.get_param('toptex_stock_time_budget') or 900)  # 15 min por defecto
         start   = time.monotonic()
 
         variants = Product.search([('id','>',last_id), ('default_code','!=',False)], order='id', limit=5000)
@@ -329,7 +337,7 @@ class ProductTemplate(models.Model):
         _logger.info(f"STOCK offset guardado: {new_last if variants else 0}")
 
     # ---------------------------------------------------------------------
-    # Imágenes por variante (igual que lo tenías)
+    # Imágenes por variante (igual)
     # ---------------------------------------------------------------------
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
@@ -349,7 +357,7 @@ class ProductTemplate(models.Model):
 
         Variant = self.env['product.product']
         last_id = int(icp.get_param('toptex_img_last_id') or 0)
-        budget  = int(icp.get_param('toptex_img_time_budget') or 900)  # 15 min
+        budget  = int(icp.get_param('toptex_img_time_budget') or 900)  # 15 min por defecto
         start   = time.monotonic()
 
         variants = Variant.search([('id','>',last_id), ('default_code','!=',False)], order='id', limit=6000)
@@ -451,13 +459,16 @@ class ProductTemplate(models.Model):
         _logger.info(f"IMG offset guardado: {new_last if variants else 0}")
 
     # ---------------------------------------------------------------------
-    # NUEVO: Server Action precio coste (ya añadido antes)
+    # Server Action: precio de coste POR SKU (nuevo orden/robustez)
     # ---------------------------------------------------------------------
     def sync_cost_price_from_api(self):
         """
-        Actualiza standard_price (coste) de cada variante usando /v3/products/price
-        por catalog_reference + (Color, Talla). Mantiene offset y límite de tiempo.
-        No modifica lst_price (venta).
+        Actualiza standard_price (coste) de cada variante por SKU.
+        Orden de resolución del coste:
+            1) /v3/products/{sku}/price  -> toma el precio con menor quantity
+            2) /v3/products/price?sku=SKU -> idem
+            3) Fallback: /v3/products/price?catalog_reference=CATREF + (Color,Talla)
+        No modifica lst_price.
         """
         icp = self.env['ir.config_parameter'].sudo()
         proxy    = icp.get_param('toptex_proxy_url')
@@ -482,67 +493,105 @@ class ProductTemplate(models.Model):
             return
         headers["x-toptex-authorization"] = token.strip()
 
-        # offset por template
-        last_tmpl_id = int(icp.get_param('toptex_cost_last_tmpl_id') or 0)
-        budget       = int(icp.get_param('toptex_cost_time_budget') or 900)  # 15 min
-        start        = time.monotonic()
+        # offset por variante (preciso, porque ahora vamos SKU a SKU)
+        last_var_id = int(icp.get_param('toptex_cost_last_var_id') or 0)
+        budget      = int(icp.get_param('toptex_cost_time_budget') or 900)  # 15 min por defecto
+        start       = time.monotonic()
 
-        Tmpl = self.env['product.template']
+        Variant = self.env['product.product']
         Attr = self.env['product.attribute']
         color_attr = Attr.search([('name','=','Color')], limit=1)
         size_attr  = Attr.search([('name','=','Talla')], limit=1)
 
-        templates = Tmpl.search([('id','>',last_tmpl_id), ('default_code','!=',False)], order='id', limit=2000)
-        if not templates:
-            templates = Tmpl.search([('default_code','!=',False)], order='id', limit=2000)
-            last_tmpl_id = 0
+        variants = Variant.search([('id','>',last_var_id), ('default_code','!=',False)], order='id', limit=5000)
+        if not variants:
+            variants = Variant.search([('default_code','!=',False)], order='id', limit=5000)
+            last_var_id = 0
 
-        new_last = last_tmpl_id
+        new_last = last_var_id
 
-        for tmpl in templates:
-            new_last = tmpl.id
-            catalog_ref = tmpl.default_code
-            if not catalog_ref:
+        def _min_price(prices):
+            """Devuelve el menor price (float) de una lista de tramos."""
+            vals = []
+            for p in prices or []:
+                try:
+                    vals.append(float(p.get('price', 0.0)))
+                except Exception:
+                    continue
+            return min(vals) if vals else 0.0
+
+        def _cost_by_sku(sku):
+            # 1) /products/{sku}/price
+            try:
+                r = requests.get(f"{proxy}/v3/products/{sku}/price", headers=headers, timeout=20)
+                if r.status_code == 200:
+                    js = r.json() or {}
+                    prices = js.get('prices') or js.get('Prices') or []
+                    cost = _min_price(prices)
+                    if cost:
+                        return cost
+            except Exception as e:
+                _logger.warning(f"⚠️ SKU price endpoint error ({sku}): {e}")
+
+            # 2) /products/price?sku=SKU
+            try:
+                r = requests.get(f"{proxy}/v3/products/price?sku={sku}", headers=headers, timeout=20)
+                if r.status_code == 200:
+                    js = r.json() or {}
+                    items = js.get('items') if isinstance(js, dict) else None
+                    if isinstance(items, list) and items:
+                        # cada item debería tener 'prices'
+                        prices = items[0].get('prices') or []
+                        cost = _min_price(prices)
+                        if cost:
+                            return cost
+            except Exception as e:
+                _logger.warning(f"⚠️ SKU price query error ({sku}): {e}")
+
+            return 0.0
+
+        def _cost_fallback_catalog(catref, cname, sname):
+            """Fallback por catálogo + (Color,Talla) si por SKU no hay precio."""
+            try:
+                r = requests.get(f"{proxy}/v3/products/price?catalog_reference={catref}",
+                                 headers=headers, timeout=25)
+                if r.status_code == 200:
+                    items = (r.json() or {}).get('items', []) or []
+                    for it in items:
+                        if it.get('color') == cname and it.get('size') == sname:
+                            return _min_price(it.get('prices') or [])
+            except Exception as e:
+                _logger.warning(f"⚠️ Fallback catalog price error ({catref}): {e}")
+            return 0.0
+
+        for v in variants:
+            new_last = v.id
+            if v.type != 'consu' or not v.product_tmpl_id.is_storable:
                 continue
 
-            price_items = []
+            sku = v.default_code
+            catref = v.product_tmpl_id.default_code or ""
+
+            # nombres de atributos para fallback
+            cval = v.product_template_attribute_value_ids.filtered(lambda x: color_attr and x.attribute_id.id==color_attr.id)
+            sval = v.product_template_attribute_value_ids.filtered(lambda x: size_attr and x.attribute_id.id==size_attr.id)
+            cname = cval.name if cval else ""
+            sname = sval.name if sval else ""
+
+            cost = _cost_by_sku(sku)
+            if not cost and catref:
+                cost = _cost_fallback_catalog(catref, cname, sname)
+
             try:
-                rprice = requests.get(f"{proxy}/v3/products/price?catalog_reference={catalog_ref}",
-                                      headers=headers, timeout=30)
-                if rprice.status_code == 200:
-                    price_items = (rprice.json() or {}).get("items", []) or []
-                else:
-                    _logger.warning(f"⚠️ Precio {catalog_ref}: {rprice.status_code} {rprice.text}")
+                v.with_context(disable_standard_price_constraint=True).write({'standard_price': cost})
+                _logger.info(f"💰 Coste actualizado por SKU: {sku} -> {cost}")
             except Exception as e:
-                _logger.warning(f"❌ Error solicitando precios {catalog_ref}: {e}")
-                price_items = []
-
-            price_map = {}
-            for it in price_items:
-                cn = it.get("color") or ""
-                sn = it.get("size") or ""
-                prices = it.get("prices") or []
-                cost = float(prices[0].get("price", 0.0)) if prices else 0.0
-                price_map[(cn, sn)] = cost
-
-            for v in tmpl.product_variant_ids:
-                if v.type != 'consu' or not tmpl.is_storable:
-                    continue
-                cval = v.product_template_attribute_value_ids.filtered(lambda x: color_attr and x.attribute_id.id==color_attr.id)
-                sval = v.product_template_attribute_value_ids.filtered(lambda x: size_attr and x.attribute_id.id==size_attr.id)
-                cname = cval.name if cval else ""
-                sname = sval.name if sval else ""
-                cost  = price_map.get((cname, sname), 0.0)
-                try:
-                    v.with_context(disable_standard_price_constraint=True).write({'standard_price': cost})
-                    _logger.info(f"💰 Coste actualizado: {catalog_ref} [{cname}/{sname}] -> {cost}")
-                except Exception as e:
-                    _logger.warning(f"⚠️ No se pudo actualizar coste {catalog_ref} [{cname}/{sname}]: {e}")
+                _logger.warning(f"⚠️ No se pudo actualizar coste SKU {sku}: {e}")
 
             if time.monotonic() - start > budget:
-                icp.set_param('toptex_cost_last_tmpl_id', str(new_last))
-                _logger.warning(f"⏱️ Tiempo límite alcanzado (coste). Guardado offset tmpl {new_last} y saliendo.")
+                icp.set_param('toptex_cost_last_var_id', str(new_last))
+                _logger.warning(f"⏱️ Tiempo límite alcanzado (coste SKU). Guardado offset var {new_last} y saliendo.")
                 return
 
-        icp.set_param('toptex_cost_last_tmpl_id', str(new_last if templates else 0))
-        _logger.info(f"COST offset guardado (tmpl): {new_last if templates else 0}")
+        icp.set_param('toptex_cost_last_var_id', str(new_last if variants else 0))
+        _logger.info(f"COST offset guardado (var): {new_last if variants else 0}")
