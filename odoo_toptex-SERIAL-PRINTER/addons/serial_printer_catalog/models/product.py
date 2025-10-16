@@ -39,7 +39,6 @@ def _choose_packshot_url(packshots):
         node = d.get(key)
         if isinstance(node, dict) and node.get("url_packshot"):
             return node["url_packshot"]
-    # cualquiera válido
     for node in d.values():
         if isinstance(node, dict) and node.get("url_packshot"):
             return node["url_packshot"]
@@ -97,7 +96,8 @@ class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     # ---------------------------------------------------------------------
-    # Productos (paginado 50): dedup fuerte + variantes nuevas + coste solo si hay SKU
+    # Productos (paginado 50): DEDUP + variantes nuevas + coste solo si hay SKU
+    # AJUSTE NUEVO: offset de página se guarda SIEMPRE (antes y en finally)
     # ---------------------------------------------------------------------
     @api.model
     def sync_product_from_api(self):
@@ -122,252 +122,238 @@ class ProductTemplate(models.Model):
         headers["x-toptex-authorization"] = token.strip()
 
         page_number = int(icp.get_param('toptex_last_page') or 1)
+        next_page = page_number + 1
         page_size = 50
 
-        url = f"{proxy}/v3/products/all?usage_right=b2b_b2c&page_number={page_number}&page_size={page_size}"
-        r = requests.get(url, headers=headers, timeout=60)
-        if r.status_code != 200:
-            _logger.warning(f"❌ Error en página {page_number}: {r.text}")
-            return
+        try:
+            url = f"{proxy}/v3/products/all?usage_right=b2b_b2c&page_number={page_number}&page_size={page_size}"
+            r = requests.get(url, headers=headers, timeout=60)
+            if r.status_code != 200:
+                _logger.warning(f"❌ Error en página {page_number}: {r.text}")
+                # aun así avanzamos para no repetir
+                icp.set_param('toptex_last_page', str(next_page))
+                return
 
-        batch = r.json()
-        if isinstance(batch, dict) and "items" in batch:
-            batch = batch["items"]
+            batch = r.json()
+            if isinstance(batch, dict) and "items" in batch:
+                batch = batch["items"]
 
-        # fin de catálogo: reiniciar ciclo a 1 para próximos runs
-        if not batch:
-            _logger.info("✅ Página vacía. Fin de catálogo detectado. Reinicio a página 1 para próximo ciclo.")
-            icp.set_param('toptex_last_page', '1')
-            return
+            # AVANZAR OFFSET ***ANTES*** DE PROCESAR (garantiza progreso)
+            icp.set_param('toptex_last_page', str(next_page))
+            _logger.info(f"OFFSET PRE-AVANZADO: {next_page}")
 
-        Attr    = self.env['product.attribute']
-        AttrVal = self.env['product.attribute.value']
+            # fin de catálogo: reiniciar ciclo a 1 para próximos runs
+            if not batch:
+                _logger.info("✅ Página vacía. Fin de catálogo detectado. Reinicio a página 1 para próximo ciclo.")
+                icp.set_param('toptex_last_page', '1')
+                return
 
-        color_attr = Attr.search([('name','=','Color')], limit=1) or Attr.create({'name':'Color'})
-        size_attr  = Attr.search([('name','=','Talla')], limit=1) or Attr.create({'name':'Talla'})
+            Attr    = self.env['product.attribute']
+            AttrVal = self.env['product.attribute.value']
 
-        def _ensure_vals(attr, names):
-            out = {}
-            for n in names:
-                if not n:
-                    continue
-                v = AttrVal.search([('name','=',n), ('attribute_id','=',attr.id)], limit=1) \
-                    or AttrVal.create({'name': n, 'attribute_id': attr.id})
-                out[n] = v
-            return out
+            color_attr = Attr.search([('name','=','Color')], limit=1) or Attr.create({'name':'Color'})
+            size_attr  = Attr.search([('name','=','Talla')], limit=1) or Attr.create({'name':'Talla'})
 
-        def _cost_by_sku(sku):
-            """Obtiene coste por SKU usando endpoints de precio; sin fallback a catálogo."""
-            try:
-                r1 = requests.get(f"{proxy}/v3/products/{sku}/price", headers=headers, timeout=20)
-                if r1.status_code == 200:
-                    js = r1.json() or {}
-                    if isinstance(js, dict) and isinstance(js.get('prices'), list):
-                        return _unit_price_from_tiers(js['prices'])
-                    if isinstance(js, list):
-                        # algunas respuestas devuelven lista de objetos con prices
-                        for it in js:
-                            if isinstance(it, dict) and isinstance(it.get('prices'), list):
-                                val = _unit_price_from_tiers(it['prices'])
-                                if val:
-                                    return val
-            except Exception as e:
-                _logger.debug(f"Precio SKU(path) {sku}: {e}")
+            def _ensure_vals(attr, names):
+                out = {}
+                for n in names:
+                    if not n:
+                        continue
+                    v = AttrVal.search([('name','=',n), ('attribute_id','=',attr.id)], limit=1) \
+                        or AttrVal.create({'name': n, 'attribute_id': attr.id})
+                    out[n] = v
+                return out
 
-            try:
-                r2 = requests.get(f"{proxy}/v3/products/price?sku={sku}", headers=headers, timeout=20)
-                if r2.status_code == 200:
-                    js2 = r2.json() or {}
-                    if isinstance(js2, dict) and isinstance(js2.get('items'), list) and js2['items']:
-                        return _unit_price_from_tiers(js2['items'][0].get('prices') or [])
-                    if isinstance(js2, list):
-                        for it in js2:
-                            if isinstance(it, dict) and isinstance(it.get('prices'), list):
-                                val = _unit_price_from_tiers(it['prices'])
-                                if val:
-                                    return val
-            except Exception as e:
-                _logger.debug(f"Precio SKU(query) {sku}: {e}")
-
-            return 0.0
-
-        for data in batch:
-            if not isinstance(data, dict):
-                continue
-
-            catalog_ref = (data.get("catalogReference") or "").strip()
-            if not catalog_ref:
-                continue
-
-            name_data = data.get("designation") or {}
-            designation = (name_data.get("es") or name_data.get("en") or "Producto sin nombre").replace("TopTex", "").strip()
-            full_name = f"{catalog_ref} {designation}".strip()
-
-            # --------- DEDUP FUERTE ----------
-            tmpl = self.search([('default_code', '=', catalog_ref)], limit=1)
-            if not tmpl:
-                tmpl = self.search([('name', 'ilike', catalog_ref + ' %')], limit=1)
-            # ---------------------------------
-
-            # recolectar colores/tallas del JSON
-            colors = data.get("colors") or []
-            all_colors, all_sizes = set(), set()
-            for c in colors:
-                cname = (c.get("colors") or {}).get("es") or (c.get("colors") or {}).get("en") or ""
-                if cname:
-                    all_colors.add(cname)
-                for s in c.get("sizes") or []:
-                    all_sizes.add(s.get("size"))
-
-            color_vals = _ensure_vals(color_attr, all_colors)
-            size_vals  = _ensure_vals(size_attr,  all_sizes)
-
-            # =========== CASO 1: YA EXISTE -> NO DUPLICAR ===========
-            if tmpl:
-                _logger.info(f"↪️ Ya existe: {catalog_ref} / '{full_name}'. Saltando creación.")
-
-                # añadir colores/tallas nuevos a líneas de atributo (genera variantes nuevas)
-                line_color = tmpl.attribute_line_ids.filtered(lambda l: l.attribute_id.id == color_attr.id)
-                line_size  = tmpl.attribute_line_ids.filtered(lambda l: l.attribute_id.id == size_attr.id)
-
-                have_colors = set(line_color.value_ids.mapped('name')) if line_color else set()
-                have_sizes  = set(line_size.value_ids.mapped('name'))  if line_size  else set()
-
-                add_color_ids = [color_vals[n].id for n in all_colors if n not in have_colors]
-                add_size_ids  = [size_vals[n].id  for n in all_sizes  if n not in have_sizes]
-
-                if add_color_ids:
-                    if line_color:
-                        line_color.write({'value_ids': [(4, vid) for vid in add_color_ids]})
-                    else:
-                        self.env['product.template.attribute.line'].create({
-                            'product_tmpl_id': tmpl.id,
-                            'attribute_id': color_attr.id,
-                            'value_ids': [(6, 0, add_color_ids)]
-                        })
-                if add_size_ids:
-                    if line_size:
-                        line_size.write({'value_ids': [(4, vid) for vid in add_size_ids]})
-                    else:
-                        self.env['product.template.attribute.line'].create({
-                            'product_tmpl_id': tmpl.id,
-                            'attribute_id': size_attr.id,
-                            'value_ids': [(6, 0, add_size_ids)]
-                        })
-
-                # Mapear SKU en variantes sin SKU y (opcional) coste SOLO si hay SKU
+            def _cost_by_sku(sku):
+                """Obtiene coste por SKU usando endpoints de precio; sin fallback a catálogo."""
                 try:
-                    inv_items = []
-                    rinv = requests.get(f"{proxy}/v3/products/inventory?catalog_reference={catalog_ref}",
-                                        headers=headers, timeout=30)
-                    if rinv.status_code == 200:
-                        inv_items = (rinv.json() or {}).get("items", []) or []
-
-                    def get_sku(cn, sn):
-                        for it in inv_items:
-                            if it.get("color")==cn and it.get("size")==sn:
-                                return it.get("sku") or ""
-                        return ""
-
-                    for v in tmpl.product_variant_ids:
-                        cval = v.product_template_attribute_value_ids.filtered(lambda x: x.attribute_id.id==color_attr.id)
-                        sval = v.product_template_attribute_value_ids.filtered(lambda x: x.attribute_id.id==size_attr.id)
-                        cname = cval.name if cval else ""
-                        sname = sval.name if sval else ""
-
-                        if not v.default_code:
-                            sku = get_sku(cname, sname)
-                            if sku:
-                                v.default_code = sku
-
-                        # coste SOLO si hay SKU
-                        if v.default_code and (not v.standard_price or float(v.standard_price) == 0.0):
-                            cost = _cost_by_sku(v.default_code)
-                            if cost:
-                                v.standard_price = cost
-                                if not v.lst_price:
-                                    v.lst_price = round(cost*2, 2)
+                    r1 = requests.get(f"{proxy}/v3/products/{sku}/price", headers=headers, timeout=20)
+                    if r1.status_code == 200:
+                        js = r1.json() or {}
+                        if isinstance(js, dict) and isinstance(js.get('prices'), list):
+                            return _unit_price_from_tiers(js['prices'])
+                        if isinstance(js, list):
+                            for it in js:
+                                if isinstance(it, dict) and isinstance(it.get('prices'), list):
+                                    val = _unit_price_from_tiers(it['prices'])
+                                    if val:
+                                        return val
                 except Exception as e:
-                    _logger.warning(f"⚠️ Error en SKUs/costes de {catalog_ref} (existente): {e}")
+                    _logger.debug(f"Precio SKU(path) {sku}: {e}")
 
-                # listo con este producto
-                continue
+                try:
+                    r2 = requests.get(f"{proxy}/v3/products/price?sku={sku}", headers=headers, timeout=20)
+                    if r2.status_code == 200:
+                        js2 = r2.json() or {}
+                        if isinstance(js2, dict) and isinstance(js2.get('items'), list) and js2['items']:
+                            return _unit_price_from_tiers(js2['items'][0].get('prices') or [])
+                        if isinstance(js2, list):
+                            for it in js2:
+                                if isinstance(it, dict) and isinstance(it.get('prices'), list):
+                                    val = _unit_price_from_tiers(it['prices'])
+                                    if val:
+                                        return val
+                except Exception as e:
+                    _logger.debug(f"Precio SKU(query) {sku}: {e}")
 
-            # =========== CASO 2: NO EXISTE -> CREAR TEMPLATE ===========
-            description = (data.get("description") or {}).get("es") or (data.get("description") or {}).get("en") or ""
-            attribute_lines = [
-                {'attribute_id': color_attr.id, 'value_ids': [(6,0,[v.id for v in color_vals.values()])]},
-                {'attribute_id': size_attr.id,  'value_ids': [(6,0,[v.id for v in size_vals.values()])]},
-            ]
-            vals = {
-                'name': full_name,
-                'default_code': catalog_ref,
-                'type': 'consu',
-                'is_storable': True,
-                'description_sale': description,
-                'categ_id': self.env.ref("product.product_category_all").id,
-                'attribute_line_ids': [(0,0,l) for l in attribute_lines],
-            }
-            try:
-                tmpl = self.create(vals)
-                _logger.info(f"✅ Producto creado: {catalog_ref} | {full_name}")
-            except Exception as e:
-                _logger.error(f"❌ Error creando {catalog_ref}: {e}")
-                continue
+                return 0.0
 
-            # imagen principal del template (no toca variantes)
-            try:
-                main_url = None
-                for img in (data.get("images") or []):
-                    if isinstance(img, dict) and img.get("url_image"):
-                        main_url = img["url_image"]; break
-                if not main_url:
-                    for c in (data.get("colors") or []):
-                        pic = _choose_packshot_url(c.get("packshots") or {})
-                        if pic:
-                            main_url = pic; break
-                if main_url:
-                    img_b64 = get_image_binary_from_url(main_url)
-                    if img_b64:
-                        tmpl.image_1920 = img_b64
-            except Exception as e:
-                _logger.warning(f"⚠️ No se pudo asignar imagen al template {catalog_ref}: {e}")
+            for data in batch:
+                # Nunca permitir que un producto bloquee el resto
+                try:
+                    if not isinstance(data, dict):
+                        continue
 
-            # precios + sku -> SKU por inventario; coste SOLO si hay SKU (precio por SKU)
-            try:
-                inv_items = []
-                rinv = requests.get(f"{proxy}/v3/products/inventory?catalog_reference={catalog_ref}",
-                                    headers=headers, timeout=30)
-                if rinv.status_code == 200:
-                    inv_items = (rinv.json() or {}).get("items", []) or []
+                    catalog_ref = (data.get("catalogReference") or "").strip()
+                    if not catalog_ref:
+                        continue
 
-                def get_sku(cn, sn):
-                    for it in inv_items:
-                        if it.get("color")==cn and it.get("size")==sn:
-                            return it.get("sku") or ""
-                    return ""
+                    name_data = data.get("designation") or {}
+                    designation = (name_data.get("es") or name_data.get("en") or "Producto sin nombre").replace("TopTex", "").strip()
+                    full_name = f"{catalog_ref} {designation}".strip()
 
-                for v in tmpl.product_variant_ids:
-                    cval = v.product_template_attribute_value_ids.filtered(lambda x: x.attribute_id.id==color_attr.id)
-                    sval = v.product_template_attribute_value_ids.filtered(lambda x: x.attribute_id.id==size_attr.id)
-                    cname = cval.name if cval else ""
-                    sname = sval.name if sval else ""
-                    sku = get_sku(cname, sname)
-                    if sku:
-                        v.default_code = sku
-                        # coste SOLO si hay SKU
-                        cost = _cost_by_sku(sku)
-                        if cost:
-                            v.standard_price = cost
-                            v.lst_price = round(cost*2, 2)
+                    _logger.info(f"▶ Procesando {catalog_ref} …")
+
+                    # DEDUP: por default_code o por nombre que empieza por la ref
+                    tmpl = self.search([('default_code', '=', catalog_ref)], limit=1)
+                    if not tmpl:
+                        tmpl = self.search([('name', 'ilike', catalog_ref + ' %')], limit=1)
+
+                    # recolectar colores/tallas del JSON
+                    colors = data.get("colors") or []
+                    all_colors, all_sizes = set(), set()
+                    for c in colors:
+                        cname = (c.get("colors") or {}).get("es") or (c.get("colors") or {}).get("en") or ""
+                        if cname:
+                            all_colors.add(cname)
+                        for s in c.get("sizes") or []:
+                            all_sizes.add(s.get("size"))
+
+                    color_vals = _ensure_vals(color_attr, all_colors)
+                    size_vals  = _ensure_vals(size_attr,  all_sizes)
+
+                    if tmpl:
+                        # === EXISTE: ampliar atributos y generar variantes nuevas ===
+                        line_color = tmpl.attribute_line_ids.filtered(lambda l: l.attribute_id.id == color_attr.id)
+                        line_size  = tmpl.attribute_line_ids.filtered(lambda l: l.attribute_id.id == size_attr.id)
+
+                        have_colors = set(line_color.value_ids.mapped('name')) if line_color else set()
+                        have_sizes  = set(line_size.value_ids.mapped('name'))  if line_size  else set()
+
+                        add_color_ids = [color_vals[n].id for n in all_colors if n not in have_colors]
+                        add_size_ids  = [size_vals[n].id  for n in all_sizes  if n not in have_sizes]
+
+                        if add_color_ids:
+                            if line_color:
+                                line_color.write({'value_ids': [(4, vid) for vid in add_color_ids]})
+                            else:
+                                self.env['product.template.attribute.line'].create({
+                                    'product_tmpl_id': tmpl.id,
+                                    'attribute_id': color_attr.id,
+                                    'value_ids': [(6, 0, add_color_ids)]
+                                })
+                        if add_size_ids:
+                            if line_size:
+                                line_size.write({'value_ids': [(4, vid) for vid in add_size_ids]})
+                            else:
+                                self.env['product.template.attribute.line'].create({
+                                    'product_tmpl_id': tmpl.id,
+                                    'attribute_id': size_attr.id,
+                                    'value_ids': [(6, 0, add_size_ids)]
+                                })
+                        # Forzar generación de variantes nuevas
+                        try:
+                            tmpl._create_variant_ids()
+                            tmpl.invalidate_cache(['product_variant_ids'])
+                        except Exception:
+                            pass
+
                     else:
-                        # sin SKU: no establecer coste
-                        v.lst_price = v.lst_price or 9.99
-            except Exception as e:
-                _logger.warning(f"⚠️ Error en precios/SKUs de {catalog_ref}: {e}")
+                        # === NO EXISTE: crear template normal ===
+                        description = (data.get("description") or {}).get("es") or (data.get("description") or {}).get("en") or ""
+                        attribute_lines = [
+                            {'attribute_id': color_attr.id, 'value_ids': [(6,0,[v.id for v in color_vals.values()])]},
+                            {'attribute_id': size_attr.id,  'value_ids': [(6,0,[v.id for v in size_vals.values()])]},
+                        ]
+                        vals = {
+                            'name': full_name,
+                            'default_code': catalog_ref,
+                            'type': 'consu',
+                            'is_storable': True,
+                            'description_sale': description,
+                            'categ_id': self.env.ref("product.product_category_all").id,
+                            'attribute_line_ids': [(0,0,l) for l in attribute_lines],
+                        }
+                        try:
+                            tmpl = self.create(vals)
+                            _logger.info(f"✅ Producto creado: {catalog_ref} | {full_name}")
+                        except Exception as e:
+                            _logger.error(f"❌ Error creando {catalog_ref}: {e}")
+                            continue
 
-        icp.set_param('toptex_last_page', str(page_number + 1))
-        _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
+                        # Imagen principal (no tocar variantes)
+                        try:
+                            main_url = None
+                            for img in (data.get("images") or []):
+                                if isinstance(img, dict) and img.get("url_image"):
+                                    main_url = img["url_image"]; break
+                            if not main_url:
+                                for c in (data.get("colors") or []):
+                                    pic = _choose_packshot_url(c.get("packshots") or {})
+                                    if pic:
+                                        main_url = pic; break
+                            if main_url:
+                                img_b64 = get_image_binary_from_url(main_url)
+                                if img_b64:
+                                    tmpl.image_1920 = img_b64
+                        except Exception as e:
+                            _logger.warning(f"⚠️ No se pudo asignar imagen al template {catalog_ref}: {e}")
+
+                    # === Asignar SKU a variantes sin SKU y coste sólo si hay SKU ===
+                    try:
+                        inv_items = []
+                        rinv = requests.get(f"{proxy}/v3/products/inventory?catalog_reference={catalog_ref}",
+                                            headers=headers, timeout=20)
+                        if rinv.status_code == 200:
+                            inv_items = (rinv.json() or {}).get("items", []) or []
+
+                        def get_sku(cn, sn):
+                            for it in inv_items:
+                                if it.get("color")==cn and it.get("size")==sn:
+                                    return it.get("sku") or ""
+                            return ""
+
+                        for v in tmpl.product_variant_ids:
+                            cval = v.product_template_attribute_value_ids.filtered(lambda x: x.attribute_id.id==color_attr.id)
+                            sval = v.product_template_attribute_value_ids.filtered(lambda x: x.attribute_id.id==size_attr.id)
+                            cname = cval.name if cval else ""
+                            sname = sval.name if sval else ""
+
+                            if not v.default_code:
+                                sku = get_sku(cname, sname)
+                                if sku:
+                                    v.default_code = sku
+                                    # Coste SOLO si hay SKU
+                                    cost = _cost_by_sku(sku)
+                                    if cost:
+                                        v.standard_price = cost
+                                        if not v.lst_price:
+                                            v.lst_price = round(cost*2, 2)
+                    except Exception as e:
+                        _logger.warning(f"⚠️ Error asignando SKUs/costes {catalog_ref}: {e}")
+
+                    _logger.info(f"✔ Procesado {catalog_ref}")
+
+                except Exception as e:
+                    _logger.error(f"❌ Error procesando ref: {data.get('catalogReference')}: {e}")
+                    # seguir con el siguiente producto SIEMPRE
+                    continue
+
+        finally:
+            # Garantiza avance aunque haya fallos en mitad del proceso
+            if str(icp.get_param('toptex_last_page') or '') != str(next_page):
+                icp.set_param('toptex_last_page', str(next_page))
+            _logger.info(f"OFFSET ASEGURADO: {next_page}")
 
     # ---------------------------------------------------------------------
     # Stock: bloque existente (offset + 15 min)
