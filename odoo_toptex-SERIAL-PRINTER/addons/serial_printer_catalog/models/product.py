@@ -111,9 +111,11 @@ class ProductTemplate(models.Model):
         batch = r.json()
         if isinstance(batch, dict) and "items" in batch:
             batch = batch["items"]
+
+        # *** AJUSTE MINIMO: si viene vacía, reiniciar ciclo a página 1 para volver a revisar nuevos productos ***
         if not batch:
-            _logger.info("✅ Sin productos nuevos en esta página.")
-            icp.set_param('toptex_last_page', str(page_number + 1))
+            _logger.info("✅ Página vacía. Reiniciando ciclo a página 1 para revisar posibles nuevos productos.")
+            icp.set_param('toptex_last_page', '1')
             return
 
         processed_refs = set(self.env['product.template'].search([]).mapped('default_code'))
@@ -441,3 +443,104 @@ class ProductTemplate(models.Model):
 
         icp.set_param('toptex_img_last_id', str(new_last if variants else 0))
         _logger.info(f"IMG offset guardado: {new_last if variants else 0}")
+
+    # ---------------------------------------------------------------------
+    # NUEVO: Server Action precio coste (solo añade, no toca lo demás)
+    # ---------------------------------------------------------------------
+    def sync_cost_price_from_api(self):
+        """
+        Actualiza standard_price (coste) de cada variante usando /v3/products/price
+        por catalog_reference + (Color, Talla). Mantiene offset y límite de tiempo.
+        No modifica lst_price (venta) para respetar tarifas existentes.
+        """
+        icp = self.env['ir.config_parameter'].sudo()
+        proxy    = icp.get_param('toptex_proxy_url')
+        api_key  = icp.get_param('toptex_api_key')
+        username = icp.get_param('toptex_username')
+        password = icp.get_param('toptex_password')
+
+        if not all([proxy, api_key, username, password]):
+            _logger.error("❌ Falta configuración para precios de coste.")
+            return
+
+        headers = {"x-api-key": api_key, "Content-Type":"application/json"}
+        try:
+            token = requests.post(f"{proxy}/v3/authenticate",
+                                  json={"username": username, "password": password},
+                                  headers=headers, timeout=30).json().get("token")
+        except Exception as e:
+            _logger.error(f"❌ Error autenticando (coste): {e}")
+            return
+        if not token:
+            _logger.error("❌ Token inválido (coste).")
+            return
+        headers["x-toptex-authorization"] = token.strip()
+
+        # offset por template para minimizar llamadas repetidas al endpoint de precios
+        last_tmpl_id = int(icp.get_param('toptex_cost_last_tmpl_id') or 0)
+        budget       = int(icp.get_param('toptex_cost_time_budget') or 900)  # 15 min por defecto
+        start        = time.monotonic()
+
+        Tmpl = self.env['product.template']
+        Attr = self.env['product.attribute']
+        color_attr = Attr.search([('name','=','Color')], limit=1)
+        size_attr  = Attr.search([('name','=','Talla')], limit=1)
+
+        templates = Tmpl.search([('id','>',last_tmpl_id), ('default_code','!=',False)], order='id', limit=2000)
+        if not templates:
+            templates = Tmpl.search([('default_code','!=',False)], order='id', limit=2000)
+            last_tmpl_id = 0
+
+        new_last = last_tmpl_id
+
+        for tmpl in templates:
+            new_last = tmpl.id
+            catalog_ref = tmpl.default_code
+            if not catalog_ref:
+                continue
+
+            # Obtener matriz de precios del catálogo 1 vez por template
+            price_items = []
+            try:
+                rprice = requests.get(f"{proxy}/v3/products/price?catalog_reference={catalog_ref}",
+                                      headers=headers, timeout=30)
+                if rprice.status_code == 200:
+                    price_items = (rprice.json() or {}).get("items", []) or []
+                else:
+                    _logger.warning(f"⚠️ Precio {catalog_ref}: {rprice.status_code} {rprice.text}")
+            except Exception as e:
+                _logger.warning(f"❌ Error solicitando precios {catalog_ref}: {e}")
+                price_items = []
+
+            # Index (color, size) -> coste
+            price_map = {}
+            for it in price_items:
+                cn = it.get("color") or ""
+                sn = it.get("size") or ""
+                prices = it.get("prices") or []
+                cost = float(prices[0].get("price", 0.0)) if prices else 0.0
+                price_map[(cn, sn)] = cost
+
+            # actualizar cada variante del template
+            for v in tmpl.product_variant_ids:
+                if v.type != 'consu' or not tmpl.is_storable:
+                    continue
+                cval = v.product_template_attribute_value_ids.filtered(lambda x: color_attr and x.attribute_id.id==color_attr.id)
+                sval = v.product_template_attribute_value_ids.filtered(lambda x: size_attr and x.attribute_id.id==size_attr.id)
+                cname = cval.name if cval else ""
+                sname = sval.name if sval else ""
+                cost  = price_map.get((cname, sname), 0.0)
+                try:
+                    v.with_context(disable_standard_price_constraint=True).write({'standard_price': cost})
+                    _logger.info(f"💰 Coste actualizado: {catalog_ref} [{cname}/{sname}] -> {cost}")
+                except Exception as e:
+                    _logger.warning(f"⚠️ No se pudo actualizar coste {catalog_ref} [{cname}/{sname}]: {e}")
+
+            # control de tiempo
+            if time.monotonic() - start > budget:
+                icp.set_param('toptex_cost_last_tmpl_id', str(new_last))
+                _logger.warning(f"⏱️ Tiempo límite alcanzado (coste). Guardado offset tmpl {new_last} y saliendo.")
+                return
+
+        icp.set_param('toptex_cost_last_tmpl_id', str(new_last if templates else 0))
+        _logger.info(f"COST offset guardado (tmpl): {new_last if templates else 0}")
