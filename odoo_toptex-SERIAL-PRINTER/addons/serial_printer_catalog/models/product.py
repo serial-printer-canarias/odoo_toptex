@@ -112,9 +112,9 @@ class ProductTemplate(models.Model):
         if isinstance(batch, dict) and "items" in batch:
             batch = batch["items"]
 
-        # *** AJUSTE MINIMO: si viene vacía, reiniciar ciclo a página 1 para volver a revisar nuevos productos ***
+        # Si la página viene vacía: se entiende como fin de catálogo -> reiniciar a 1
         if not batch:
-            _logger.info("✅ Página vacía. Reiniciando ciclo a página 1 para revisar posibles nuevos productos.")
+            _logger.info("✅ Página vacía. Fin de catálogo detectado. Reinicio a página 1 para próximo ciclo.")
             icp.set_param('toptex_last_page', '1')
             return
 
@@ -127,8 +127,14 @@ class ProductTemplate(models.Model):
                 continue
 
             catalog_ref = data.get("catalogReference")
-            if not catalog_ref or catalog_ref in processed_refs:
+            if not catalog_ref:
                 continue
+
+            # --------- DEDUP GUARD (mínimo, sin tocar el resto) ----------
+            if catalog_ref in processed_refs or self.search([('default_code', '=', catalog_ref)], limit=1):
+                _logger.info(f"↪️ Ya existe template {catalog_ref}. Saltando.")
+                continue
+            # --------------------------------------------------------------
 
             name_data = data.get("designation") or {}
             name = (name_data.get("es") or name_data.get("en") or "Producto sin nombre").replace("TopTex", "").strip()
@@ -248,7 +254,7 @@ class ProductTemplate(models.Model):
         _logger.info(f"OFFSET GUARDADO: {page_number + 1}")
 
     # ---------------------------------------------------------------------
-    # Stock: bloque “que funcionaba” + offset + 15 min (no toca lo demás)
+    # Stock (igual que lo tenías)
     # ---------------------------------------------------------------------
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
@@ -275,7 +281,7 @@ class ProductTemplate(models.Model):
             return
 
         last_id = int(icp.get_param('toptex_stock_last_id') or 0)
-        budget  = int(icp.get_param('toptex_stock_time_budget') or 900)  # 15 min por defecto
+        budget  = int(icp.get_param('toptex_stock_time_budget') or 900)  # 15 min
         start   = time.monotonic()
 
         variants = Product.search([('id','>',last_id), ('default_code','!=',False)], order='id', limit=5000)
@@ -323,7 +329,7 @@ class ProductTemplate(models.Model):
         _logger.info(f"STOCK offset guardado: {new_last if variants else 0}")
 
     # ---------------------------------------------------------------------
-    # Imágenes por variante: SOLO ajuste final (SKU + color) + offset/timeout
+    # Imágenes por variante (igual que lo tenías)
     # ---------------------------------------------------------------------
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
@@ -343,7 +349,7 @@ class ProductTemplate(models.Model):
 
         Variant = self.env['product.product']
         last_id = int(icp.get_param('toptex_img_last_id') or 0)
-        budget  = int(icp.get_param('toptex_img_time_budget') or 900)  # 15 min por defecto
+        budget  = int(icp.get_param('toptex_img_time_budget') or 900)  # 15 min
         start   = time.monotonic()
 
         variants = Variant.search([('id','>',last_id), ('default_code','!=',False)], order='id', limit=6000)
@@ -445,13 +451,13 @@ class ProductTemplate(models.Model):
         _logger.info(f"IMG offset guardado: {new_last if variants else 0}")
 
     # ---------------------------------------------------------------------
-    # NUEVO: Server Action precio coste (solo añade, no toca lo demás)
+    # NUEVO: Server Action precio coste (ya añadido antes)
     # ---------------------------------------------------------------------
     def sync_cost_price_from_api(self):
         """
         Actualiza standard_price (coste) de cada variante usando /v3/products/price
         por catalog_reference + (Color, Talla). Mantiene offset y límite de tiempo.
-        No modifica lst_price (venta) para respetar tarifas existentes.
+        No modifica lst_price (venta).
         """
         icp = self.env['ir.config_parameter'].sudo()
         proxy    = icp.get_param('toptex_proxy_url')
@@ -476,9 +482,9 @@ class ProductTemplate(models.Model):
             return
         headers["x-toptex-authorization"] = token.strip()
 
-        # offset por template para minimizar llamadas repetidas al endpoint de precios
+        # offset por template
         last_tmpl_id = int(icp.get_param('toptex_cost_last_tmpl_id') or 0)
-        budget       = int(icp.get_param('toptex_cost_time_budget') or 900)  # 15 min por defecto
+        budget       = int(icp.get_param('toptex_cost_time_budget') or 900)  # 15 min
         start        = time.monotonic()
 
         Tmpl = self.env['product.template']
@@ -499,7 +505,6 @@ class ProductTemplate(models.Model):
             if not catalog_ref:
                 continue
 
-            # Obtener matriz de precios del catálogo 1 vez por template
             price_items = []
             try:
                 rprice = requests.get(f"{proxy}/v3/products/price?catalog_reference={catalog_ref}",
@@ -512,7 +517,6 @@ class ProductTemplate(models.Model):
                 _logger.warning(f"❌ Error solicitando precios {catalog_ref}: {e}")
                 price_items = []
 
-            # Index (color, size) -> coste
             price_map = {}
             for it in price_items:
                 cn = it.get("color") or ""
@@ -521,7 +525,6 @@ class ProductTemplate(models.Model):
                 cost = float(prices[0].get("price", 0.0)) if prices else 0.0
                 price_map[(cn, sn)] = cost
 
-            # actualizar cada variante del template
             for v in tmpl.product_variant_ids:
                 if v.type != 'consu' or not tmpl.is_storable:
                     continue
@@ -536,7 +539,6 @@ class ProductTemplate(models.Model):
                 except Exception as e:
                     _logger.warning(f"⚠️ No se pudo actualizar coste {catalog_ref} [{cname}/{sname}]: {e}")
 
-            # control de tiempo
             if time.monotonic() - start > budget:
                 icp.set_param('toptex_cost_last_tmpl_id', str(new_last))
                 _logger.warning(f"⏱️ Tiempo límite alcanzado (coste). Guardado offset tmpl {new_last} y saliendo.")
