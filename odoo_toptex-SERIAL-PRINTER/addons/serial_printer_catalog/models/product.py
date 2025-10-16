@@ -13,26 +13,22 @@ from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
-
 # ===================== Utilidades =====================
 
 def _normalize_color_name(name: str) -> str:
-    """Normaliza nombres de color para mejorar el matching."""
     if not name:
         return ""
     s = name.strip().lower()
-    s = re.sub(r"\(.*?\)", "", s)            # quita '(...)'
-    s = s.split("/")[0]                      # quita after '/'
+    s = re.sub(r"\(.*?\)", "", s)
+    s = s.split("/")[0]
     rep = {"á":"a","é":"e","í":"i","ó":"o","ú":"u","-":" ","_":" "}
     for k,v in rep.items():
         s = s.replace(k, v)
     s = re.sub(r"\s+", " ", s).strip()
-    # alias típicos
     alias = {"grey":"gray","graphite grey":"graphite gray","light grey":"light gray"}
     return alias.get(s, s)
 
 def _choose_packshot_url(packshots):
-    """Elige el mejor packshot disponible según prioridad."""
     if not isinstance(packshots, dict):
         return None
     d = {str(k).upper(): v for k, v in packshots.items() if isinstance(k, str)}
@@ -41,14 +37,12 @@ def _choose_packshot_url(packshots):
         node = d.get(key)
         if isinstance(node, dict) and node.get("url_packshot"):
             return node["url_packshot"]
-    # cualquiera válido
     for node in d.values():
         if isinstance(node, dict) and node.get("url_packshot"):
             return node["url_packshot"]
     return None
 
 def get_image_binary_from_url(url):
-    """Descarga imagen y devuelve base64 JPG."""
     try:
         _logger.info(f"🖼️ Descargando imagen desde {url}")
         r = requests.get(url, stream=True, timeout=15)
@@ -69,9 +63,7 @@ def get_image_binary_from_url(url):
     return None
 
 def _norm_ref(s):
-    """Normaliza referencias para evitar duplicados por mayúsculas/espacios."""
     return (s or "").strip().upper()
-
 
 # ===================== Modelo =====================
 
@@ -79,7 +71,7 @@ class ProductTemplate(models.Model):
     _inherit = 'product.template'
 
     # ---------------------------------------------------------------------
-    # Productos (manteniendo todo igual; solo refuerzo anti-duplicados)
+    # Productos (paginado 50) — solo dedup reforzado por nombre/ref
     # ---------------------------------------------------------------------
     @api.model
     def sync_product_from_api(self):
@@ -116,36 +108,52 @@ class ProductTemplate(models.Model):
         if isinstance(batch, dict) and "items" in batch:
             batch = batch["items"]
 
-        # Si la página viene vacía: fin de catálogo -> reinicio
         if not batch:
             _logger.info("✅ Página vacía. Fin de catálogo detectado. Reinicio a página 1 para próximo ciclo.")
             icp.set_param('toptex_last_page', '1')
             return
 
-        # --- DEDUP: cache normalizado por default_code de templates existentes
-        existing_refs = set(_norm_ref(x) for x in self.env['product.template'].search([]).mapped('default_code'))
-
         Attr = self.env['product.attribute']
         AttrVal = self.env['product.attribute.value']
+
+        # cache rapido por ref para esta ejecución
+        existing_refs = set(_norm_ref(x) for x in self.env['product.template'].search([]).mapped('default_code'))
+
+        def _exists_template(catalog_ref, full_name):
+            """Evita duplicados: por default_code exacto o por nombre que empieza por ref."""
+            norm = _norm_ref(catalog_ref)
+            if norm in existing_refs:
+                return True
+            # búsqueda ligera por nombre que contenga la ref
+            candidates = self.search(['|',
+                                      ('default_code', '=', catalog_ref),
+                                      ('name', 'ilike', catalog_ref)],
+                                     limit=10)
+            for t in candidates:
+                name = (t.name or '').strip().upper()
+                ref  = _norm_ref(t.default_code or '')
+                if ref == norm or name.startswith(norm + ' '):
+                    return True
+            return False
 
         for data in batch:
             if not isinstance(data, dict):
                 continue
 
-            catalog_ref = data.get("catalogReference")
+            catalog_ref = (data.get("catalogReference") or "").strip()
             if not catalog_ref:
                 continue
-            norm_ref = _norm_ref(catalog_ref)
-
-            # --------- GUARD reforzado ----------
-            if norm_ref in existing_refs or self.search([('default_code', 'ilike', catalog_ref)], limit=1):
-                _logger.info(f"↪️ Ya existe template {catalog_ref}. Saltando.")
-                continue
-            # ------------------------------------
 
             name_data = data.get("designation") or {}
-            name = (name_data.get("es") or name_data.get("en") or "Producto sin nombre").replace("TopTex", "").strip()
-            full_name = f"{catalog_ref} {name}".strip()
+            designation = (name_data.get("es") or name_data.get("en") or "Producto sin nombre").replace("TopTex", "").strip()
+            full_name = f"{catalog_ref} {designation}".strip()
+
+            # --------- DEDUP (ref + nombre) ----------
+            if _exists_template(catalog_ref, full_name):
+                _logger.info(f"↪️ Ya existe: {catalog_ref} / '{full_name}'. Saltando creación.")
+                continue
+            # -----------------------------------------
+
             description = (data.get("description") or {}).get("es") or (data.get("description") or {}).get("en") or ""
 
             # atributos
@@ -161,14 +169,12 @@ class ProductTemplate(models.Model):
             color_attr = Attr.search([('name','=','Color')], limit=1) or Attr.create({'name':'Color'})
             size_attr  = Attr.search([('name','=','Talla')], limit=1) or Attr.create({'name':'Talla'})
 
-            color_vals = {}
+            color_vals, size_vals = {}, {}
             for cname in all_colors:
                 if not cname: continue
                 val = AttrVal.search([('name','=',cname),('attribute_id','=',color_attr.id)], limit=1) \
                       or AttrVal.create({'name': cname, 'attribute_id': color_attr.id})
                 color_vals[cname] = val
-
-            size_vals = {}
             for sname in all_sizes:
                 if not sname: continue
                 val = AttrVal.search([('name','=',sname),('attribute_id','=',size_attr.id)], limit=1) \
@@ -191,7 +197,7 @@ class ProductTemplate(models.Model):
             }
             try:
                 tmpl = self.create(vals)
-                existing_refs.add(norm_ref)
+                existing_refs.add(_norm_ref(catalog_ref))
                 _logger.info(f"✅ Producto creado: {catalog_ref} | {full_name}")
             except Exception as e:
                 _logger.error(f"❌ Error creando {catalog_ref}: {e}")
@@ -215,7 +221,7 @@ class ProductTemplate(models.Model):
             except Exception as e:
                 _logger.warning(f"⚠️ No se pudo asignar imagen al template {catalog_ref}: {e}")
 
-            # precios + sku (igual que lo tenías)
+            # precios + sku (igual que tenías)
             try:
                 price_items = []
                 rprice = requests.get(f"{proxy}/v3/products/price?catalog_reference={catalog_ref}",
@@ -233,9 +239,8 @@ class ProductTemplate(models.Model):
                     for it in price_items:
                         if it.get("color")==cn and it.get("size")==sn:
                             prices = it.get("prices") or []
-                            if prices:
-                                # tomar el precio más bajo disponible
-                                return float(min(p.get("price", 0.0) for p in prices if isinstance(p, dict)) or 0.0)
+                            # coste = tramo con menor cantidad (unitario)
+                            return _pick_unit_price(prices)
                     return 0.0
 
                 def get_sku(cn, sn):
@@ -289,7 +294,7 @@ class ProductTemplate(models.Model):
             return
 
         last_id = int(icp.get_param('toptex_stock_last_id') or 0)
-        budget  = int(icp.get_param('toptex_stock_time_budget') or 900)  # 15 min por defecto
+        budget  = int(icp.get_param('toptex_stock_time_budget') or 900)
         start   = time.monotonic()
 
         variants = Product.search([('id','>',last_id), ('default_code','!=',False)], order='id', limit=5000)
@@ -357,7 +362,7 @@ class ProductTemplate(models.Model):
 
         Variant = self.env['product.product']
         last_id = int(icp.get_param('toptex_img_last_id') or 0)
-        budget  = int(icp.get_param('toptex_img_time_budget') or 900)  # 15 min por defecto
+        budget  = int(icp.get_param('toptex_img_time_budget') or 900)
         start   = time.monotonic()
 
         variants = Variant.search([('id','>',last_id), ('default_code','!=',False)], order='id', limit=6000)
@@ -416,7 +421,6 @@ class ProductTemplate(models.Model):
             sku = v.default_code
             catref = v.product_tmpl_id.default_code or ""
 
-            # 1) buscar por SKU
             pack_url = None
             data = _fetch_by_sku(sku)
             cmap = _extract_color_map(data or {})
@@ -427,7 +431,6 @@ class ProductTemplate(models.Model):
                     if close:
                         pack_url = cmap.get(close[0])
 
-            # 2) fallback por catalog_reference
             if not pack_url and catref:
                 data2 = _fetch_by_catalog(catref)
                 cmap2 = _extract_color_map(data2 or {})
@@ -449,7 +452,6 @@ class ProductTemplate(models.Model):
                     except Exception as e:
                         _logger.warning(f"⚠️ No se pudo guardar imagen de {sku}: {e}")
 
-            # control de tiempo / offset
             if time.monotonic() - start > budget:
                 icp.set_param('toptex_img_last_id', str(new_last))
                 _logger.warning(f"⏱️ Tiempo límite alcanzado (img). Guardado offset {new_last} y saliendo.")
@@ -459,15 +461,15 @@ class ProductTemplate(models.Model):
         _logger.info(f"IMG offset guardado: {new_last if variants else 0}")
 
     # ---------------------------------------------------------------------
-    # Server Action: precio de coste POR SKU (nuevo orden/robustez)
+    # NUEVO: Server Action — Coste por SKU (elige tramo de menor cantidad)
     # ---------------------------------------------------------------------
     def sync_cost_price_from_api(self):
         """
-        Actualiza standard_price (coste) de cada variante por SKU.
-        Orden de resolución del coste:
-            1) /v3/products/{sku}/price  -> toma el precio con menor quantity
-            2) /v3/products/price?sku=SKU -> idem
-            3) Fallback: /v3/products/price?catalog_reference=CATREF + (Color,Talla)
+        Actualiza standard_price por VARIANTE usando el SKU:
+          1) /v3/products/{sku}/price      (dict o list)
+          2) /v3/products/price?sku=SKU    (dict con items o list)
+          3) Fallback: /v3/products/price?catalog_reference=CAT + (Color,Talla)
+        El precio elegido es el del tramo con menor cantidad (quantity/minQuantity).
         No modifica lst_price.
         """
         icp = self.env['ir.config_parameter'].sudo()
@@ -493,9 +495,8 @@ class ProductTemplate(models.Model):
             return
         headers["x-toptex-authorization"] = token.strip()
 
-        # offset por variante (preciso, porque ahora vamos SKU a SKU)
         last_var_id = int(icp.get_param('toptex_cost_last_var_id') or 0)
-        budget      = int(icp.get_param('toptex_cost_time_budget') or 900)  # 15 min por defecto
+        budget      = int(icp.get_param('toptex_cost_time_budget') or 900)
         start       = time.monotonic()
 
         Variant = self.env['product.product']
@@ -503,65 +504,92 @@ class ProductTemplate(models.Model):
         color_attr = Attr.search([('name','=','Color')], limit=1)
         size_attr  = Attr.search([('name','=','Talla')], limit=1)
 
-        variants = Variant.search([('id','>',last_var_id), ('default_code','!=',False)], order='id', limit=5000)
+        variants = Variant.search([('id','>',last_var_id), ('default_code','!=',False)], order='id', limit=6000)
         if not variants:
-            variants = Variant.search([('default_code','!=',False)], order='id', limit=5000)
+            variants = Variant.search([('default_code','!=',False)], order='id', limit=6000)
             last_var_id = 0
 
         new_last = last_var_id
 
-        def _min_price(prices):
-            """Devuelve el menor price (float) de una lista de tramos."""
-            vals = []
-            for p in prices or []:
-                try:
-                    vals.append(float(p.get('price', 0.0)))
-                except Exception:
+        def _pick_unit_price(prices):
+            """Devuelve el precio del tramo con menor cantidad (quantity/minQuantity)."""
+            if not isinstance(prices, list):
+                return 0.0
+            choice = None
+            best_q = None
+            for p in prices:
+                if not isinstance(p, dict):
                     continue
-            return min(vals) if vals else 0.0
+                q = p.get('quantity') or p.get('minQuantity') or p.get('min_quantity') or 0
+                try:
+                    q = int(q)
+                except Exception:
+                    q = 0
+                try:
+                    pr = float(p.get('price', 0.0))
+                except Exception:
+                    pr = 0.0
+                if best_q is None or q < best_q:
+                    best_q = q
+                    choice = pr
+            return float(choice or 0.0)
+
+        def _extract_price_from_payload(js):
+            """Soporta dict/list y variantes con items[].prices o prices a nivel raíz."""
+            try:
+                # dict con prices a nivel raíz
+                if isinstance(js, dict):
+                    if isinstance(js.get('prices'), list):
+                        return _pick_unit_price(js['prices'])
+                    items = js.get('items')
+                    if isinstance(items, list):
+                        for it in items:
+                            if isinstance(it, dict) and isinstance(it.get('prices'), list):
+                                val = _pick_unit_price(it['prices'])
+                                if val:
+                                    return val
+                # lista de objetos con prices
+                if isinstance(js, list):
+                    for it in js:
+                        if isinstance(it, dict) and isinstance(it.get('prices'), list):
+                            val = _pick_unit_price(it['prices'])
+                            if val:
+                                return val
+            except Exception:
+                pass
+            return 0.0
 
         def _cost_by_sku(sku):
             # 1) /products/{sku}/price
             try:
                 r = requests.get(f"{proxy}/v3/products/{sku}/price", headers=headers, timeout=20)
                 if r.status_code == 200:
-                    js = r.json() or {}
-                    prices = js.get('prices') or js.get('Prices') or []
-                    cost = _min_price(prices)
-                    if cost:
-                        return cost
+                    return _extract_price_from_payload(r.json())
+                _logger.debug(f"Precio SKU(path) {sku}: {r.status_code}")
             except Exception as e:
-                _logger.warning(f"⚠️ SKU price endpoint error ({sku}): {e}")
-
+                _logger.debug(f"Error precio SKU(path) {sku}: {e}")
             # 2) /products/price?sku=SKU
             try:
                 r = requests.get(f"{proxy}/v3/products/price?sku={sku}", headers=headers, timeout=20)
                 if r.status_code == 200:
-                    js = r.json() or {}
-                    items = js.get('items') if isinstance(js, dict) else None
-                    if isinstance(items, list) and items:
-                        # cada item debería tener 'prices'
-                        prices = items[0].get('prices') or []
-                        cost = _min_price(prices)
-                        if cost:
-                            return cost
+                    return _extract_price_from_payload(r.json())
+                _logger.debug(f"Precio SKU(query) {sku}: {r.status_code}")
             except Exception as e:
-                _logger.warning(f"⚠️ SKU price query error ({sku}): {e}")
-
+                _logger.debug(f"Error precio SKU(query) {sku}: {e}")
             return 0.0
 
         def _cost_fallback_catalog(catref, cname, sname):
-            """Fallback por catálogo + (Color,Talla) si por SKU no hay precio."""
             try:
                 r = requests.get(f"{proxy}/v3/products/price?catalog_reference={catref}",
                                  headers=headers, timeout=25)
-                if r.status_code == 200:
-                    items = (r.json() or {}).get('items', []) or []
-                    for it in items:
-                        if it.get('color') == cname and it.get('size') == sname:
-                            return _min_price(it.get('prices') or [])
+                if r.status_code != 200:
+                    return 0.0
+                items = (r.json() or {}).get('items', []) or []
+                for it in items:
+                    if it.get('color') == cname and it.get('size') == sname:
+                        return _pick_unit_price(it.get('prices') or [])
             except Exception as e:
-                _logger.warning(f"⚠️ Fallback catalog price error ({catref}): {e}")
+                _logger.debug(f"Error precio fallback {catref}: {e}")
             return 0.0
 
         for v in variants:
@@ -571,8 +599,6 @@ class ProductTemplate(models.Model):
 
             sku = v.default_code
             catref = v.product_tmpl_id.default_code or ""
-
-            # nombres de atributos para fallback
             cval = v.product_template_attribute_value_ids.filtered(lambda x: color_attr and x.attribute_id.id==color_attr.id)
             sval = v.product_template_attribute_value_ids.filtered(lambda x: size_attr and x.attribute_id.id==size_attr.id)
             cname = cval.name if cval else ""
@@ -583,8 +609,8 @@ class ProductTemplate(models.Model):
                 cost = _cost_fallback_catalog(catref, cname, sname)
 
             try:
-                v.with_context(disable_standard_price_constraint=True).write({'standard_price': cost})
-                _logger.info(f"💰 Coste actualizado por SKU: {sku} -> {cost}")
+                v.with_context(disable_standard_price_constraint=True).write({'standard_price': float(cost or 0.0)})
+                _logger.info(f"💰 Coste actualizado por SKU: {sku} -> {float(cost or 0.0)}")
             except Exception as e:
                 _logger.warning(f"⚠️ No se pudo actualizar coste SKU {sku}: {e}")
 
