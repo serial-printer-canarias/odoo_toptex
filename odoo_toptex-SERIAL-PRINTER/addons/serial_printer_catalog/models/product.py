@@ -5,6 +5,7 @@ import time
 import base64
 import logging
 import requests
+from requests import Session
 from PIL import Image
 from difflib import get_close_matches
 
@@ -39,16 +40,18 @@ def _choose_packshot_url(packshots):
         node = d.get(key)
         if isinstance(node, dict) and node.get("url_packshot"):
             return node["url_packshot"]
+    # cualquiera válido
     for node in d.values():
         if isinstance(node, dict) and node.get("url_packshot"):
             return node["url_packshot"]
     return None
 
-def get_image_binary_from_url(url):
+def get_image_binary_from_url(url, session: Session = None):
     """Descarga imagen y devuelve base64 JPG."""
     try:
-        _logger.info(f"🖼️ Descargando imagen desde {url}")
-        r = requests.get(url, stream=True, timeout=15)
+        _logger.debug(f"🖼️ Descargando imagen desde {url}")
+        s = session or requests
+        r = s.get(url, stream=True, timeout=15)
         if r.status_code == 200 and "image" in (r.headers.get("Content-Type","")):
             img = Image.open(io.BytesIO(r.content))
             if img.mode in ("RGBA","LA"):
@@ -60,9 +63,9 @@ def get_image_binary_from_url(url):
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=90)
             return base64.b64encode(buf.getvalue())
-        _logger.warning(f"⚠️ Contenido no válido como imagen: {url}")
+        _logger.debug(f"⚠️ Contenido no válido como imagen: {url}")
     except Exception as e:
-        _logger.warning(f"❌ Error al procesar imagen: {e}")
+        _logger.debug(f"❌ Error al procesar imagen: {e}")
     return None
 
 def _unit_price_from_tiers(prices):
@@ -97,7 +100,7 @@ class ProductTemplate(models.Model):
 
     # ---------------------------------------------------------------------
     # Productos (paginado 50): DEDUP + variantes nuevas + coste solo si hay SKU
-    # AJUSTE NUEVO: offset de página se guarda SIEMPRE (antes y en finally)
+    # AJUSTES: Session reutilizable + offset garantizado + logs contenidos
     # ---------------------------------------------------------------------
     @api.model
     def sync_product_from_api(self):
@@ -110,16 +113,19 @@ class ProductTemplate(models.Model):
         if not all([username, password, api_key, proxy]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
 
-        headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        auth = requests.post(f"{proxy}/v3/authenticate",
-                             json={"username": username, "password": password},
-                             headers=headers, timeout=30)
+        # Session para acelerar todas las llamadas
+        session = requests.Session()
+        session.headers.update({"x-api-key": api_key, "Content-Type": "application/json"})
+
+        auth = session.post(f"{proxy}/v3/authenticate",
+                            json={"username": username, "password": password},
+                            timeout=20)
         if auth.status_code != 200:
             raise UserError(f"❌ Error autenticando: {auth.status_code} - {auth.text}")
         token = (auth.json() or {}).get("token")
         if not token:
             raise UserError("❌ No se recibió un token válido.")
-        headers["x-toptex-authorization"] = token.strip()
+        session.headers["x-toptex-authorization"] = token.strip()
 
         page_number = int(icp.get_param('toptex_last_page') or 1)
         next_page = page_number + 1
@@ -127,7 +133,7 @@ class ProductTemplate(models.Model):
 
         try:
             url = f"{proxy}/v3/products/all?usage_right=b2b_b2c&page_number={page_number}&page_size={page_size}"
-            r = requests.get(url, headers=headers, timeout=60)
+            r = session.get(url, timeout=45)
             if r.status_code != 200:
                 _logger.warning(f"❌ Error en página {page_number}: {r.text}")
                 # aun así avanzamos para no repetir
@@ -142,7 +148,7 @@ class ProductTemplate(models.Model):
             icp.set_param('toptex_last_page', str(next_page))
             _logger.info(f"OFFSET PRE-AVANZADO: {next_page}")
 
-            # fin de catálogo: reiniciar ciclo a 1 para próximos runs
+            # fin de catálogo: reiniciar a 1
             if not batch:
                 _logger.info("✅ Página vacía. Fin de catálogo detectado. Reinicio a página 1 para próximo ciclo.")
                 icp.set_param('toptex_last_page', '1')
@@ -165,9 +171,9 @@ class ProductTemplate(models.Model):
                 return out
 
             def _cost_by_sku(sku):
-                """Obtiene coste por SKU usando endpoints de precio; sin fallback a catálogo."""
+                """Obtiene coste por SKU; sin fallback a catálogo."""
                 try:
-                    r1 = requests.get(f"{proxy}/v3/products/{sku}/price", headers=headers, timeout=20)
+                    r1 = session.get(f"{proxy}/v3/products/{sku}/price", timeout=12)
                     if r1.status_code == 200:
                         js = r1.json() or {}
                         if isinstance(js, dict) and isinstance(js.get('prices'), list):
@@ -182,7 +188,7 @@ class ProductTemplate(models.Model):
                     _logger.debug(f"Precio SKU(path) {sku}: {e}")
 
                 try:
-                    r2 = requests.get(f"{proxy}/v3/products/price?sku={sku}", headers=headers, timeout=20)
+                    r2 = session.get(f"{proxy}/v3/products/price?sku={sku}", timeout=12)
                     if r2.status_code == 200:
                         js2 = r2.json() or {}
                         if isinstance(js2, dict) and isinstance(js2.get('items'), list) and js2['items']:
@@ -198,6 +204,8 @@ class ProductTemplate(models.Model):
 
                 return 0.0
 
+            created = existed = set_sku = set_cost = set_img = errors = 0
+
             for data in batch:
                 # Nunca permitir que un producto bloquee el resto
                 try:
@@ -212,7 +220,7 @@ class ProductTemplate(models.Model):
                     designation = (name_data.get("es") or name_data.get("en") or "Producto sin nombre").replace("TopTex", "").strip()
                     full_name = f"{catalog_ref} {designation}".strip()
 
-                    _logger.info(f"▶ Procesando {catalog_ref} …")
+                    _logger.debug(f"▶ Procesando {catalog_ref} …")
 
                     # DEDUP: por default_code o por nombre que empieza por la ref
                     tmpl = self.search([('default_code', '=', catalog_ref)], limit=1)
@@ -233,6 +241,7 @@ class ProductTemplate(models.Model):
                     size_vals  = _ensure_vals(size_attr,  all_sizes)
 
                     if tmpl:
+                        existed += 1
                         # === EXISTE: ampliar atributos y generar variantes nuevas ===
                         line_color = tmpl.attribute_line_ids.filtered(lambda l: l.attribute_id.id == color_attr.id)
                         line_size  = tmpl.attribute_line_ids.filtered(lambda l: l.attribute_id.id == size_attr.id)
@@ -286,34 +295,39 @@ class ProductTemplate(models.Model):
                         }
                         try:
                             tmpl = self.create(vals)
+                            created += 1
                             _logger.info(f"✅ Producto creado: {catalog_ref} | {full_name}")
                         except Exception as e:
+                            errors += 1
                             _logger.error(f"❌ Error creando {catalog_ref}: {e}")
                             continue
 
-                        # Imagen principal (no tocar variantes)
+                        # Imagen principal (solo si el template no tiene)
                         try:
-                            main_url = None
-                            for img in (data.get("images") or []):
-                                if isinstance(img, dict) and img.get("url_image"):
-                                    main_url = img["url_image"]; break
-                            if not main_url:
-                                for c in (data.get("colors") or []):
-                                    pic = _choose_packshot_url(c.get("packshots") or {})
-                                    if pic:
-                                        main_url = pic; break
-                            if main_url:
-                                img_b64 = get_image_binary_from_url(main_url)
-                                if img_b64:
-                                    tmpl.image_1920 = img_b64
+                            if not tmpl.image_1920:
+                                main_url = None
+                                for img in (data.get("images") or []):
+                                    if isinstance(img, dict) and img.get("url_image"):
+                                        main_url = img["url_image"]; break
+                                if not main_url:
+                                    for c in (data.get("colors") or []):
+                                        pic = _choose_packshot_url(c.get("packshots") or {})
+                                        if pic:
+                                            main_url = pic; break
+                                if main_url:
+                                    img_b64 = get_image_binary_from_url(main_url, session=session)
+                                    if img_b64:
+                                        tmpl.image_1920 = img_b64
+                                        set_img += 1
                         except Exception as e:
-                            _logger.warning(f"⚠️ No se pudo asignar imagen al template {catalog_ref}: {e}")
+                            _logger.debug(f"⚠️ No se pudo asignar imagen al template {catalog_ref}: {e}")
 
-                    # === Asignar SKU a variantes sin SKU y coste sólo si hay SKU ===
+                    # === Asignar SKU a variantes sin SKU; coste solo si hay SKU ===
                     try:
+                        # Traer inventario una vez por ref
                         inv_items = []
-                        rinv = requests.get(f"{proxy}/v3/products/inventory?catalog_reference={catalog_ref}",
-                                            headers=headers, timeout=20)
+                        rinv = session.get(f"{proxy}/v3/products/inventory?catalog_reference={catalog_ref}",
+                                           timeout=12)
                         if rinv.status_code == 200:
                             inv_items = (rinv.json() or {}).get("items", []) or []
 
@@ -333,21 +347,30 @@ class ProductTemplate(models.Model):
                                 sku = get_sku(cname, sname)
                                 if sku:
                                     v.default_code = sku
+                                    set_sku += 1
                                     # Coste SOLO si hay SKU
-                                    cost = _cost_by_sku(sku)
-                                    if cost:
-                                        v.standard_price = cost
-                                        if not v.lst_price:
-                                            v.lst_price = round(cost*2, 2)
-                    except Exception as e:
-                        _logger.warning(f"⚠️ Error asignando SKUs/costes {catalog_ref}: {e}")
+                                    if (not v.standard_price) or float(v.standard_price) == 0.0:
+                                        cost = _cost_by_sku(sku)
+                                        if cost:
+                                            v.standard_price = cost
+                                            if not v.lst_price:
+                                                v.lst_price = round(cost*2, 2)
+                                            set_cost += 1
 
-                    _logger.info(f"✔ Procesado {catalog_ref}")
+                    except Exception as e:
+                        errors += 1
+                        _logger.debug(f"⚠️ Error asignando SKUs/costes {catalog_ref}: {e}")
+
+                    _logger.debug(f"✔ Procesado {catalog_ref}")
 
                 except Exception as e:
+                    errors += 1
                     _logger.error(f"❌ Error procesando ref: {data.get('catalogReference')}: {e}")
                     # seguir con el siguiente producto SIEMPRE
                     continue
+
+            _logger.info(f"Resumen página {page_number}: creados={created}, existentes={existed}, "
+                         f"sku_asignados={set_sku}, costes_actualizados={set_cost}, imagenes={set_img}, errores={errors}")
 
         finally:
             # Garantiza avance aunque haya fallos en mitad del proceso
@@ -356,7 +379,7 @@ class ProductTemplate(models.Model):
             _logger.info(f"OFFSET ASEGURADO: {next_page}")
 
     # ---------------------------------------------------------------------
-    # Stock: bloque existente (offset + 15 min)
+    # Stock: bloque “que funcionaba” + offset + 15 min (no toca lo demás)
     # ---------------------------------------------------------------------
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
@@ -431,7 +454,7 @@ class ProductTemplate(models.Model):
         _logger.info(f"STOCK offset guardado: {new_last if variants else 0}")
 
     # ---------------------------------------------------------------------
-    # Imágenes por variante: ajuste final (SKU + color) + offset/timeout
+    # Imágenes por variante: SOLO ajuste final (SKU + color) + offset/timeout
     # ---------------------------------------------------------------------
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
@@ -533,7 +556,7 @@ class ProductTemplate(models.Model):
                             pack_url = cmap2.get(close[0])
 
             if not pack_url:
-                _logger.warning(f"❌ Sin packshot para SKU/color: {sku} ({color_name}). Saltando.")
+                _logger.debug(f"❌ Sin packshot para SKU/color: {sku} ({color_name}).")
             else:
                 img_b64 = get_image_binary_from_url(pack_url)
                 if img_b64:
@@ -573,18 +596,19 @@ class ProductTemplate(models.Model):
             _logger.error("❌ Falta configuración para precios de coste.")
             return
 
-        headers = {"x-api-key": api_key, "Content-Type":"application/json"}
+        session = requests.Session()
+        session.headers.update({"x-api-key": api_key, "Content-Type":"application/json"})
         try:
-            token = requests.post(f"{proxy}/v3/authenticate",
-                                  json={"username": username, "password": password},
-                                  headers=headers, timeout=30).json().get("token")
+            token = session.post(f"{proxy}/v3/authenticate",
+                                 json={"username": username, "password": password},
+                                 timeout=20).json().get("token")
         except Exception as e:
             _logger.error(f"❌ Error autenticando (coste): {e}")
             return
         if not token:
             _logger.error("❌ Token inválido (coste).")
             return
-        headers["x-toptex-authorization"] = token.strip()
+        session.headers["x-toptex-authorization"] = token.strip()
 
         last_var_id = int(icp.get_param('toptex_cost_last_var_id') or 0)
         budget      = int(icp.get_param('toptex_cost_time_budget') or 900)  # 15 min
@@ -601,7 +625,7 @@ class ProductTemplate(models.Model):
 
         def _cost_by_sku(sku):
             try:
-                r1 = requests.get(f"{proxy}/v3/products/{sku}/price", headers=headers, timeout=20)
+                r1 = session.get(f"{proxy}/v3/products/{sku}/price", timeout=12)
                 if r1.status_code == 200:
                     js = r1.json() or {}
                     if isinstance(js, dict) and isinstance(js.get('prices'), list):
@@ -615,7 +639,7 @@ class ProductTemplate(models.Model):
             except Exception as e:
                 _logger.debug(f"SKU price(path) {sku}: {e}")
             try:
-                r2 = requests.get(f"{proxy}/v3/products/price?sku={sku}", headers=headers, timeout=20)
+                r2 = session.get(f"{proxy}/v3/products/price?sku={sku}", timeout=12)
                 if r2.status_code == 200:
                     js2 = r2.json() or {}
                     if isinstance(js2, dict) and isinstance(js2.get('items'), list) and js2['items']:
