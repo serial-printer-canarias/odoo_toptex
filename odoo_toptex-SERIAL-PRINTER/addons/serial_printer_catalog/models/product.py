@@ -9,6 +9,7 @@ from requests import Session
 from PIL import Image
 from difflib import get_close_matches
 from contextlib import contextmanager
+import zlib
 
 from odoo import models, api
 from odoo.exceptions import UserError
@@ -54,7 +55,6 @@ def _safe_get(session: Session, url: str, timeout: float = 12.0,
       - reintentos con backoff ante 429/5xx
     """
     global _LAST_API_TS
-    # respetar intervalo mínimo
     wait = (_LAST_API_TS + base_delay) - time.monotonic()
     if wait > 0:
         time.sleep(wait)
@@ -66,7 +66,6 @@ def _safe_get(session: Session, url: str, timeout: float = 12.0,
                 time.sleep(base_delay * (attempt + 1))
                 continue
             raise e
-        # reintentar en límites/errores transitorios
         if r.status_code in (429, 500, 502, 503, 504):
             if attempt < max_retries - 1:
                 time.sleep(base_delay * (attempt + 1.5))
@@ -127,6 +126,54 @@ def _env_invalidate_all(env):
         except Exception:
             pass
 
+# ---- Helpers robustos para offsets en ir.config_parameter ----
+def _safe_set_offset(env, page, index, retries=3):
+    """Guarda offset con savepoint/rollback/retry para evitar SerializationFailure."""
+    for attempt in range(retries):
+        try:
+            with env.cr.savepoint():
+                icp = env['ir.config_parameter'].sudo()
+                icp.set_param('toptex_last_page', str(int(page)))
+                icp.set_param('toptex_last_index', str(int(index)))
+            env.cr.commit()
+            return True
+        except Exception as e:
+            env.cr.rollback()
+            time.sleep(0.2 * (attempt + 1))
+            if attempt == retries - 1:
+                _logger.warning(f"⚠️ No pude guardar offset (p={page}, i={index}): {e}")
+    return False
+
+def _safe_get_offset(env):
+    """Lee offset; si algo va mal, hace rollback y devuelve (1,0)."""
+    try:
+        icp = env['ir.config_parameter'].sudo()
+        pn = int(icp.get_param('toptex_last_page') or 1)
+        ix = int(icp.get_param('toptex_last_index') or 0)
+        if pn <= 0: pn = 1
+        if ix < 0: ix = 0
+        return pn, ix
+    except Exception:
+        env.cr.rollback()
+        return 1, 0
+
+# ---- Singleton por advisory lock (evitar dos ejecuciones simultáneas) ----
+def _hash32(s: str) -> int:
+    return int(zlib.crc32((s or "").encode("utf-8")) & 0xffffffff)
+
+def _acquire_job_lock(env, name="sp:toptex:catalog"):
+    """Lock de sesión (persiste entre commits). Devuelve (got, key)."""
+    k = _hash32(name)
+    env.cr.execute("SELECT pg_try_advisory_lock(%s)", (k,))
+    got = bool(env.cr.fetchone()[0])
+    return got, k
+
+def _release_job_lock(env, key: int):
+    try:
+        env.cr.execute("SELECT pg_advisory_unlock(%s)", (int(key),))
+    except Exception:
+        pass
+
 # ===================== Modelo =====================
 
 class ProductTemplate(models.Model):
@@ -134,7 +181,7 @@ class ProductTemplate(models.Model):
 
     # ---------------------------------------------------------------------
     # Productos: dedup, variantes nuevas, coste SOLO si hay SKU
-    # AJUSTE: time budget + checkpoint + savepoint + offset (página+índice)
+    # AJUSTE: time budget + checkpoint + savepoint + offset (página+índice) + singleton + auto-stop
     # ---------------------------------------------------------------------
     @api.model
     def sync_product_from_api(self):
@@ -143,11 +190,17 @@ class ProductTemplate(models.Model):
         password = icp.get_param('toptex_password')
         api_key  = icp.get_param('toptex_api_key')
         proxy    = icp.get_param('toptex_proxy_url')
-        budget   = int(icp.get_param('toptex_catalog_time_budget') or 780)  # ~13 min
+        budget   = int(icp.get_param('toptex_catalog_time_budget') or 780)  # ~13 min por defecto
         checkpoint_every = int(icp.get_param('toptex_catalog_checkpoint_every') or 5)
 
         if not all([username, password, api_key, proxy]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
+
+        # --- singleton: si otro worker ya lo está ejecutando, salir limpio
+        got_lock, _job_key = _acquire_job_lock(self.env, "sp:toptex:catalog")
+        if not got_lock:
+            _logger.info("🔒 Otro worker está ejecutando el catálogo; salgo sin hacer nada.")
+            return
 
         session = requests.Session()
         session.headers.update({"x-api-key": api_key, "Content-Type": "application/json"})
@@ -156,26 +209,28 @@ class ProductTemplate(models.Model):
                             json={"username": username, "password": password},
                             timeout=20)
         if auth.status_code != 200:
+            _release_job_lock(self.env, _job_key)
             raise UserError(f"❌ Error autenticando: {auth.status_code} - {auth.text}")
         token = (auth.json() or {}).get("token")
         if not token:
+            _release_job_lock(self.env, _job_key)
             raise UserError("❌ No se recibió un token válido.")
         session.headers["x-toptex-authorization"] = token.strip()
 
-        # Offset persistente: página + índice dentro de la página
-        page_number = int(icp.get_param('toptex_last_page') or 1)
-        page_index  = int(icp.get_param('toptex_last_index') or 0)  # 0..(page_size-1)
+        # Offset persistente: página + índice dentro de la página (lectura robusta)
+        page_number, page_index = _safe_get_offset(self.env)
         page_size   = 50
 
         start_ts = time.monotonic()
-        page_done = False  # para “finally”
+        last_saved_page = page_number
+        last_saved_index = page_index
+        page_done = False  # para logging final
 
         try:
             url = f"{proxy}/v3/products/all?usage_right=b2b_b2c&page_number={page_number}&page_size={page_size}"
             r = _safe_get(session, url, timeout=45)
             if r.status_code != 200:
                 _logger.warning(f"❌ Error en página {page_number}: {r.text}")
-                # no avanzamos página para reintentar en la siguiente corrida
                 return
 
             batch = r.json()
@@ -184,8 +239,22 @@ class ProductTemplate(models.Model):
 
             if not batch:
                 _logger.info("✅ Página vacía. Fin de catálogo. Reinicio a 1/0.")
-                icp.set_param('toptex_last_page', '1')
-                icp.set_param('toptex_last_index', '0')
+                _safe_set_offset(self.env, 1, 0)
+
+                # Auto-stop del cron (opcional, por defecto activado)
+                if (icp.get_param('toptex_auto_stop_cron', '1') or '').lower() in ('1', 'true', 'yes'):
+                    try:
+                        actions = self.env['ir.actions.server'].sudo().search([
+                            ('state', '=', 'code'),
+                            ('code', 'ilike', 'sync_product_from_api')
+                        ])
+                        crons = self.env['ir.cron'].sudo().search([('ir_actions_server_id', 'in', actions.ids)])
+                        if crons:
+                            crons.sudo().write({'active': False})
+                            _logger.info("🛑 Cron desactivado automáticamente al terminar catálogo: %s",
+                                         ",".join(str(c.id) for c in crons))
+                    except Exception as e:
+                        _logger.warning(f"⚠️ No se pudo desactivar cron automáticamente: {e}")
                 return
 
             # Atributos
@@ -236,9 +305,8 @@ class ProductTemplate(models.Model):
             for idx, data in enumerate(batch[page_index:], start=page_index):
                 # corte limpio por tiempo
                 if _should_stop(start_ts, budget):
-                    icp.set_param('toptex_last_page', str(page_number))
-                    icp.set_param('toptex_last_index', str(idx))
-                    self.env.cr.commit()
+                    _safe_set_offset(self.env, page_number, idx)
+                    last_saved_page, last_saved_index = page_number, idx
                     _logger.info(f"⏱️ Corte por tiempo. Guardado offset página={page_number}, índice={idx}")
                     return
 
@@ -366,23 +434,22 @@ class ProductTemplate(models.Model):
                 processed += 1
                 # checkpoint cada N productos
                 if processed % checkpoint_every == 0:
-                    icp.set_param('toptex_last_page', str(page_number))
-                    icp.set_param('toptex_last_index', str(idx + 1))
-                    self.env.cr.commit()
-                    _env_invalidate_all(self.env)
+                    if _safe_set_offset(self.env, page_number, idx + 1):
+                        last_saved_page, last_saved_index = page_number, idx + 1
+                        _env_invalidate_all(self.env)
 
             # completamos la página sin cortar por tiempo
+            if _safe_set_offset(self.env, page_number + 1, 0):
+                last_saved_page, last_saved_index = page_number + 1, 0
             page_done = True
-            icp.set_param('toptex_last_page', str(page_number + 1))
-            icp.set_param('toptex_last_index', '0')
-            self.env.cr.commit()
             _logger.info(f"Página {page_number} completada. Nuevo offset -> página={page_number+1}, índice=0")
 
         finally:
+            _release_job_lock(self.env, _job_key)
             if not page_done:
-                _logger.info(f"OFFSET ASEGURADO (parcial): página={icp.get_param('toptex_last_page')}, índice={icp.get_param('toptex_last_index')}")
+                _logger.info(f"OFFSET ASEGURADO (parcial): página={last_saved_page}, índice={last_saved_index}")
             else:
-                _logger.info(f"OFFSET ASEGURADO (página completa): página={icp.get_param('toptex_last_page')}, índice={icp.get_param('toptex_last_index')}")
+                _logger.info(f"OFFSET ASEGURADO (página completa): página={last_saved_page}, índice={last_saved_index}")
 
     # ---------------------------------------------------------------------
     # Stock (igual, con time budget)
