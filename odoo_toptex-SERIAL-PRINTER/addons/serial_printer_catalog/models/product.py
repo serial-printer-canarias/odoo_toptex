@@ -112,6 +112,9 @@ def _unit_price_from_tiers(prices):
 def _norm_ref(s):
     return (s or "").strip().upper()
 
+def _should_stop(start_ts, budget_secs=780):
+    """Corta la ejecución antes de agotar el worker (15 min)."""
+    return (time.monotonic() - start_ts) >= float(budget_secs or 780)
 
 # ===================== Modelo =====================
 
@@ -120,7 +123,7 @@ class ProductTemplate(models.Model):
 
     # ---------------------------------------------------------------------
     # Productos: dedup, variantes nuevas, coste SOLO si hay SKU
-    # AJUSTE: offset asegurado + Session + _safe_get con backoff
+    # AJUSTE: time budget + checkpoint + savepoint + noprefetch + offset por índice
     # ---------------------------------------------------------------------
     @api.model
     def sync_product_from_api(self):
@@ -129,6 +132,8 @@ class ProductTemplate(models.Model):
         password = icp.get_param('toptex_password')
         api_key  = icp.get_param('toptex_api_key')
         proxy    = icp.get_param('toptex_proxy_url')
+        budget   = int(icp.get_param('toptex_catalog_time_budget') or 780)  # ~13 min
+        checkpoint_every = int(icp.get_param('toptex_catalog_checkpoint_every') or 5)
 
         if not all([username, password, api_key, proxy]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
@@ -146,30 +151,33 @@ class ProductTemplate(models.Model):
             raise UserError("❌ No se recibió un token válido.")
         session.headers["x-toptex-authorization"] = token.strip()
 
+        # Offset persistente: página + índice dentro de la página
         page_number = int(icp.get_param('toptex_last_page') or 1)
-        next_page = page_number + 1
-        page_size = 50
+        page_index  = int(icp.get_param('toptex_last_index') or 0)  # 0..(page_size-1)
+        page_size   = 50
+
+        start_ts = time.monotonic()
+        page_done = False  # para “finally”
 
         try:
             url = f"{proxy}/v3/products/all?usage_right=b2b_b2c&page_number={page_number}&page_size={page_size}"
             r = _safe_get(session, url, timeout=45)
             if r.status_code != 200:
                 _logger.warning(f"❌ Error en página {page_number}: {r.text}")
-                icp.set_param('toptex_last_page', str(next_page))
+                # no avanzamos página para reintentar en la siguiente corrida
                 return
 
             batch = r.json()
             if isinstance(batch, dict) and "items" in batch:
                 batch = batch["items"]
 
-            icp.set_param('toptex_last_page', str(next_page))
-            _logger.info(f"OFFSET PRE-AVANZADO: {next_page}")
-
             if not batch:
-                _logger.info("✅ Página vacía. Fin de catálogo. Reinicio a 1.")
+                _logger.info("✅ Página vacía. Fin de catálogo. Reinicio a 1/0.")
                 icp.set_param('toptex_last_page', '1')
+                icp.set_param('toptex_last_index', '0')
                 return
 
+            # Atributos
             Attr    = self.env['product.attribute']
             AttrVal = self.env['product.attribute.value']
             color_attr = Attr.search([('name','=','Color')], limit=1) or Attr.create({'name':'Color'})
@@ -213,131 +221,161 @@ class ProductTemplate(models.Model):
                     _logger.debug(f"Precio SKU(query) {sku}: {e}")
                 return 0.0
 
-            for data in batch:
-                try:
-                    if not isinstance(data, dict):
-                        continue
+            processed = 0
+            with self.env.noprefetch():
+                for idx, data in enumerate(batch[page_index:], start=page_index):
+                    # corte limpio por tiempo
+                    if _should_stop(start_ts, budget):
+                        icp.set_param('toptex_last_page', str(page_number))
+                        icp.set_param('toptex_last_index', str(idx))
+                        self.env.cr.commit()
+                        _logger.info(f"⏱️ Corte por tiempo. Guardado offset página={page_number}, índice={idx}")
+                        return
 
-                    catalog_ref = (data.get("catalogReference") or "").strip()
-                    if not catalog_ref:
-                        continue
-
-                    name_data = data.get("designation") or {}
-                    designation = (name_data.get("es") or name_data.get("en") or "Producto sin nombre").replace("TopTex", "").strip()
-                    full_name = f"{catalog_ref} {designation}".strip()
-
-                    tmpl = self.search([('default_code', '=', catalog_ref)], limit=1)
-                    if not tmpl:
-                        tmpl = self.search([('name', 'ilike', catalog_ref + ' %')], limit=1)
-
-                    colors = data.get("colors") or []
-                    all_colors, all_sizes = set(), set()
-                    for c in colors:
-                        cname = (c.get("colors") or {}).get("es") or (c.get("colors") or {}).get("en") or ""
-                        if cname: all_colors.add(cname)
-                        for s in c.get("sizes") or []:
-                            all_sizes.add(s.get("size"))
-
-                    color_vals = _ensure_vals(color_attr, all_colors)
-                    size_vals  = _ensure_vals(size_attr,  all_sizes)
-
-                    if tmpl:
-                        line_color = tmpl.attribute_line_ids.filtered(lambda l: l.attribute_id.id == color_attr.id)
-                        line_size  = tmpl.attribute_line_ids.filtered(lambda l: l.attribute_id.id == size_attr.id)
-                        have_colors = set(line_color.value_ids.mapped('name')) if line_color else set()
-                        have_sizes  = set(line_size.value_ids.mapped('name'))  if line_size  else set()
-                        add_color_ids = [color_vals[n].id for n in all_colors if n not in have_colors]
-                        add_size_ids  = [size_vals[n].id  for n in all_sizes  if n not in have_sizes]
-                        if add_color_ids:
-                            if line_color:
-                                line_color.write({'value_ids': [(4, vid) for vid in add_color_ids]})
-                            else:
-                                self.env['product.template.attribute.line'].create({
-                                    'product_tmpl_id': tmpl.id,'attribute_id': color_attr.id,
-                                    'value_ids': [(6, 0, add_color_ids)]
-                                })
-                        if add_size_ids:
-                            if line_size:
-                                line_size.write({'value_ids': [(4, vid) for vid in add_size_ids]})
-                            else:
-                                self.env['product.template.attribute.line'].create({
-                                    'product_tmpl_id': tmpl.id,'attribute_id': size_attr.id,
-                                    'value_ids': [(6, 0, add_size_ids)]
-                                })
-                        try:
-                            tmpl._create_variant_ids(); tmpl.invalidate_cache(['product_variant_ids'])
-                        except Exception:
-                            pass
-                    else:
-                        description = (data.get("description") or {}).get("es") or (data.get("description") or {}).get("en") or ""
-                        attribute_lines = [
-                            {'attribute_id': color_attr.id, 'value_ids': [(6,0,[v.id for v in color_vals.values()])]},
-                            {'attribute_id': size_attr.id,  'value_ids': [(6,0,[v.id for v in size_vals.values()])]},
-                        ]
-                        vals = {
-                            'name': full_name,'default_code': catalog_ref,'type': 'consu','is_storable': True,
-                            'description_sale': description,'categ_id': self.env.ref("product.product_category_all").id,
-                            'attribute_line_ids': [(0,0,l) for l in attribute_lines],
-                        }
-                        try:
-                            tmpl = self.create(vals)
-                            _logger.info(f"✅ Producto creado: {catalog_ref} | {full_name}")
-                        except Exception as e:
-                            _logger.error(f"❌ Error creando {catalog_ref}: {e}")
-                            continue
-                        try:
-                            if not tmpl.image_1920:
-                                main_url = None
-                                for img in (data.get("images") or []):
-                                    if isinstance(img, dict) and img.get("url_image"):
-                                        main_url = img["url_image"]; break
-                                if not main_url:
-                                    for c in (data.get("colors") or []):
-                                        pic = _choose_packshot_url(c.get("packshots") or {})
-                                        if pic: main_url = pic; break
-                                if main_url:
-                                    img_b64 = get_image_binary_from_url(main_url, session=session)
-                                    if img_b64: tmpl.image_1920 = img_b64
-                        except Exception as e:
-                            _logger.debug(f"⚠️ Imagen {catalog_ref}: {e}")
-
-                    # SKUs (por inventario de la ref) + coste SOLO si hay SKU
                     try:
-                        inv_items = []
-                        rinv = _safe_get(session, f"{proxy}/v3/products/inventory?catalog_reference={catalog_ref}", timeout=12)
-                        if rinv.status_code == 200:
-                            inv_items = (rinv.json() or {}).get("items", []) or []
-                        def get_sku(cn, sn):
-                            for it in inv_items:
-                                if it.get("color")==cn and it.get("size")==sn:
-                                    return it.get("sku") or ""
-                            return ""
-                        for v in tmpl.product_variant_ids:
-                            cval = v.product_template_attribute_value_ids.filtered(lambda x: x.attribute_id.id==color_attr.id)
-                            sval = v.product_template_attribute_value_ids.filtered(lambda x: x.attribute_id.id==size_attr.id)
-                            cname = cval.name if cval else ""
-                            sname = sval.name if sval else ""
-                            if not v.default_code:
-                                sku = get_sku(cname, sname)
-                                if sku:
-                                    v.default_code = sku
-                                    if (not v.standard_price) or float(v.standard_price) == 0.0:
-                                        cost = _cost_by_sku(sku)
-                                        if cost:
-                                            v.standard_price = cost
-                                            if not v.lst_price:
-                                                v.lst_price = round(cost*2, 2)
-                    except Exception as e:
-                        _logger.debug(f"⚠️ SKUs/costes {catalog_ref}: {e}")
+                        with self.env.cr.savepoint():
+                            if not isinstance(data, dict):
+                                continue
 
-                except Exception as e:
-                    _logger.error(f"❌ Error procesando {data.get('catalogReference')}: {e}")
-                    continue
+                            catalog_ref = (data.get("catalogReference") or "").strip()
+                            if not catalog_ref:
+                                continue
+
+                            name_data = data.get("designation") or {}
+                            designation = (name_data.get("es") or name_data.get("en") or "Producto sin nombre").replace("TopTex", "").strip()
+                            full_name = f"{catalog_ref} {designation}".strip()
+
+                            tmpl = self.search([('default_code', '=', catalog_ref)], limit=1)
+                            if not tmpl:
+                                tmpl = self.search([('name', 'ilike', catalog_ref + ' %')], limit=1)
+
+                            colors = data.get("colors") or []
+                            all_colors, all_sizes = set(), set()
+                            for c in colors:
+                                cname = (c.get("colors") or {}).get("es") or (c.get("colors") or {}).get("en") or ""
+                                if cname: all_colors.add(cname)
+                                for s in c.get("sizes") or []:
+                                    all_sizes.add(s.get("size"))
+
+                            color_vals = _ensure_vals(color_attr, all_colors)
+                            size_vals  = _ensure_vals(size_attr,  all_sizes)
+
+                            if tmpl:
+                                line_color = tmpl.attribute_line_ids.filtered(lambda l: l.attribute_id.id == color_attr.id)
+                                line_size  = tmpl.attribute_line_ids.filtered(lambda l: l.attribute_id.id == size_attr.id)
+                                have_colors = set(line_color.value_ids.mapped('name')) if line_color else set()
+                                have_sizes  = set(line_size.value_ids.mapped('name'))  if line_size  else set()
+                                add_color_ids = [color_vals[n].id for n in all_colors if n not in have_colors]
+                                add_size_ids  = [size_vals[n].id  for n in all_sizes  if n not in have_sizes]
+                                if add_color_ids:
+                                    if line_color:
+                                        line_color.write({'value_ids': [(4, vid) for vid in add_color_ids]})
+                                    else:
+                                        self.env['product.template.attribute.line'].create({
+                                            'product_tmpl_id': tmpl.id,'attribute_id': color_attr.id,
+                                            'value_ids': [(6, 0, add_color_ids)]
+                                        })
+                                if add_size_ids:
+                                    if line_size:
+                                        line_size.write({'value_ids': [(4, vid) for vid in add_size_ids]})
+                                    else:
+                                        self.env['product.template.attribute.line'].create({
+                                            'product_tmpl_id': tmpl.id,'attribute_id': size_attr.id,
+                                            'value_ids': [(6, 0, add_size_ids)]
+                                        })
+                                try:
+                                    tmpl._create_variant_ids(); tmpl.invalidate_cache(['product_variant_ids'])
+                                except Exception:
+                                    pass
+                            else:
+                                description = (data.get("description") or {}).get("es") or (data.get("description") or {}).get("en") or ""
+                                attribute_lines = [
+                                    {'attribute_id': color_attr.id, 'value_ids': [(6,0,[v.id for v in color_vals.values()])]},
+                                    {'attribute_id': size_attr.id,  'value_ids': [(6,0,[v.id for v in size_vals.values()])]},
+                                ]
+                                vals = {
+                                    'name': full_name,'default_code': catalog_ref,'type': 'consu','is_storable': True,
+                                    'description_sale': description,'categ_id': self.env.ref("product.product_category_all").id,
+                                    'attribute_line_ids': [(0,0,l) for l in attribute_lines],
+                                }
+                                try:
+                                    tmpl = self.create(vals)
+                                    _logger.info(f"✅ Producto creado: {catalog_ref} | {full_name}")
+                                except Exception as e:
+                                    _logger.error(f"❌ Error creando {catalog_ref}: {e}")
+                                    continue
+                                try:
+                                    if not tmpl.image_1920:
+                                        main_url = None
+                                        for img in (data.get("images") or []):
+                                            if isinstance(img, dict) and img.get("url_image"):
+                                                main_url = img["url_image"]; break
+                                        if not main_url:
+                                            for c in (data.get("colors") or []):
+                                                pic = _choose_packshot_url(c.get("packshots") or {})
+                                                if pic: main_url = pic; break
+                                        if main_url:
+                                            img_b64 = get_image_binary_from_url(main_url, session=session)
+                                            if img_b64: tmpl.image_1920 = img_b64
+                                except Exception as e:
+                                    _logger.debug(f"⚠️ Imagen {catalog_ref}: {e}")
+
+                            # SKUs (por inventario de la ref) + coste SOLO si hay SKU
+                            try:
+                                inv_items = []
+                                rinv = _safe_get(session, f"{proxy}/v3/products/inventory?catalog_reference={catalog_ref}", timeout=12)
+                                if rinv.status_code == 200:
+                                    inv_items = (rinv.json() or {}).get("items", []) or []
+                                def get_sku(cn, sn):
+                                    for it in inv_items:
+                                        if it.get("color")==cn and it.get("size")==sn:
+                                            return it.get("sku") or ""
+                                    return ""
+                                for v in tmpl.product_variant_ids:
+                                    cval = v.product_template_attribute_value_ids.filtered(lambda x: x.attribute_id.id==color_attr.id)
+                                    sval = v.product_template_attribute_value_ids.filtered(lambda x: x.attribute_id.id==size_attr.id)
+                                    cname = cval.name if cval else ""
+                                    sname = sval.name if sval else ""
+                                    if not v.default_code:
+                                        sku = get_sku(cname, sname)
+                                        if sku:
+                                            v.default_code = sku
+                                            if (not v.standard_price) or float(v.standard_price) == 0.0:
+                                                cost = _cost_by_sku(sku)
+                                                if cost:
+                                                    v.standard_price = cost
+                                                    if not v.lst_price:
+                                                        v.lst_price = round(cost*2, 2)
+                            except Exception as e:
+                                _logger.debug(f"⚠️ SKUs/costes {catalog_ref}: {e}")
+
+                        # fin savepoint
+                    except Exception as e:
+                        _logger.error(f"❌ Error procesando {data.get('catalogReference')}: {e}")
+                        continue
+
+                    processed += 1
+                    # checkpoint cada N productos
+                    if processed % checkpoint_every == 0:
+                        icp.set_param('toptex_last_page', str(page_number))
+                        icp.set_param('toptex_last_index', str(idx + 1))
+                        self.env.cr.commit()
+                        self.env.invalidate_all()
+
+            # completamos la página sin cortar por tiempo
+            page_done = True
+            icp.set_param('toptex_last_page', str(page_number + 1))
+            icp.set_param('toptex_last_index', '0')
+            self.env.cr.commit()
+            _logger.info(f"Página {page_number} completada. Nuevo offset -> página={page_number+1}, índice=0")
 
         finally:
-            if str(icp.get_param('toptex_last_page') or '') != str(next_page):
-                icp.set_param('toptex_last_page', str(next_page))
-            _logger.info(f"OFFSET ASEGURADO: {next_page}")
+            # Coherencia del offset ante cortes o excepciones
+            if not page_done:
+                # ya se guardó el índice en el bucle o en el corte por tiempo
+                _logger.info(f"OFFSET ASEGURADO (parcial): página={icp.get_param('toptex_last_page')}, índice={icp.get_param('toptex_last_index')}")
+            else:
+                _logger.info(f"OFFSET ASEGURADO (página completa): página={icp.get_param('toptex_last_page')}, índice={icp.get_param('toptex_last_index')}")
 
     # ---------------------------------------------------------------------
     # Stock (igual, con time budget)
@@ -548,7 +586,7 @@ class ProductTemplate(models.Model):
             return
 
         session = requests.Session()
-        session.headers.update({"x-api-key": api_key, "Content-Type":"application/json"})
+        session.headers.update({"x-api-key": api_key, "Content-Type": "application/json"})
         try:
             token = session.post(f"{proxy}/v3/authenticate",
                                  json={"username": username, "password": password},
