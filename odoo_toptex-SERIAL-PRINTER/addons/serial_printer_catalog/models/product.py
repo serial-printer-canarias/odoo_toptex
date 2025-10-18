@@ -11,7 +11,7 @@ from difflib import get_close_matches
 from contextlib import contextmanager
 import zlib
 
-from odoo import models, api
+from odoo import models, api, fields
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
@@ -174,6 +174,35 @@ def _release_job_lock(env, key: int):
     except Exception:
         pass
 
+# ---- Mantener vivo el cron (por si quedó con 1 ejecución o nextcall en pasado) ----
+def _keep_cron_alive(env):
+    try:
+        actions = env['ir.actions.server'].sudo().search([
+            ('state', '=', 'code'),
+            ('code', 'ilike', 'sync_product_from_api')
+        ])
+        if not actions:
+            return
+        crons = env['ir.cron'].sudo().search([('ir_actions_server_id', 'in', actions.ids)])
+        if not crons:
+            return
+        # activado + ejecuciones ilimitadas
+        vals = {'active': True}
+        if hasattr(type(crons), '_fields') and 'numbercall' in crons._fields:
+            vals['numbercall'] = -1  # ilimitado
+        crons.sudo().write(vals)
+        # si nextcall quedó atrasado, lo traemos a ahora
+        now = fields.Datetime.now()
+        for c in crons:
+            try:
+                nc = fields.Datetime.to_datetime(c.nextcall) if c.nextcall else None
+            except Exception:
+                nc = None
+            if (not nc) or (nc < now):
+                c.sudo().write({'nextcall': now})
+    except Exception as e:
+        _logger.debug(f"keep_cron_alive: {e}")
+
 # ===================== Modelo =====================
 
 class ProductTemplate(models.Model):
@@ -181,7 +210,7 @@ class ProductTemplate(models.Model):
 
     # ---------------------------------------------------------------------
     # Productos: dedup, variantes nuevas, coste SOLO si hay SKU
-    # AJUSTE: time budget + checkpoint + savepoint + offset (página+índice) + singleton + auto-stop
+    # AJUSTE: time budget + checkpoint + savepoint + offset (página+índice) + singleton + auto-stop + cron alive
     # ---------------------------------------------------------------------
     @api.model
     def sync_product_from_api(self):
@@ -195,6 +224,9 @@ class ProductTemplate(models.Model):
 
         if not all([username, password, api_key, proxy]):
             raise UserError("❌ Faltan credenciales o parámetros del sistema.")
+
+        # mantener vivo el cron (activo, ilimitado, siguiente fecha válida)
+        _keep_cron_alive(self.env)
 
         # --- singleton: si otro worker ya lo está ejecutando, salir limpio
         got_lock, _job_key = _acquire_job_lock(self.env, "sp:toptex:catalog")
