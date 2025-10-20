@@ -467,24 +467,23 @@ class ProductTemplate(models.Model):
                 # checkpoint cada N productos
                 if processed % checkpoint_every == 0:
                     if _safe_set_offset(self.env, page_number, idx + 1):
-                        last_saved_page, last_saved_index = page_number, idx + 1
                         _env_invalidate_all(self.env)
 
             # completamos la página sin cortar por tiempo
             if _safe_set_offset(self.env, page_number + 1, 0):
-                last_saved_page, last_saved_index = page_number + 1, 0
+                pass
             page_done = True
             _logger.info(f"Página {page_number} completada. Nuevo offset -> página={page_number+1}, índice=0")
 
         finally:
             _release_job_lock(self.env, _job_key)
             if not page_done:
-                _logger.info(f"OFFSET ASEGURADO (parcial): página={last_saved_page}, índice={last_saved_index}")
+                _logger.info(f"OFFSET ASEGURADO (parcial): página={page_number}, índice={last_saved_index}")
             else:
-                _logger.info(f"OFFSET ASEGURADO (página completa): página={last_saved_page}, índice={last_saved_index}")
+                _logger.info(f"OFFSET ASEGURADO (página completa): página={page_number+1}, índice=0")
 
     # ---------------------------------------------------------------------
-    # Stock (igual, con time budget)
+    # Stock (AJUSTADO: lock + checkpoints frecuentes + _safe_get + commit)
     # ---------------------------------------------------------------------
     def sync_stock_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
@@ -492,77 +491,100 @@ class ProductTemplate(models.Model):
         api_key  = icp.get_param('toptex_api_key')
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
+        budget   = int(icp.get_param('toptex_stock_time_budget') or 900)
+        checkpoint_every = int(icp.get_param('toptex_stock_checkpoint_every') or 25)
 
-        headers = {"x-api-key": api_key, "Content-Type":"application/json"}
-        token = requests.post(f"{proxy}/v3/authenticate",
-                              json={"username": username, "password": password},
-                              headers=headers, timeout=20).json().get("token")
-        if not token:
-            _logger.error("❌ Error autenticando para stock.")
-            return
-        headers["x-toptex-authorization"] = token.strip()
-
-        Product = self.env['product.product']
-        wh = self.env['stock.warehouse'].search([], limit=1)
-        location = wh.lot_stock_id if wh else self.env['stock.location'].search([('usage','=','internal')], limit=1)
-        if not location:
-            _logger.warning("❌ No hay ubicación interna para crear quants.")
+        # --- lock para evitar solapes
+        got_lock, lock_key = _acquire_job_lock(self.env, "sp:toptex:stock")
+        if not got_lock:
+            _logger.info("🔒 Stock ya en ejecución. Salgo.")
             return
 
-        last_id = int(icp.get_param('toptex_stock_last_id') or 0)
-        budget  = int(icp.get_param('toptex_stock_time_budget') or 900)
-        start   = time.monotonic()
+        try:
+            # sesión y token
+            session = requests.Session()
+            session.headers.update({"x-api-key": api_key, "Content-Type":"application/json"})
+            auth = session.post(f"{proxy}/v3/authenticate",
+                                json={"username": username, "password": password},
+                                timeout=20)
+            token = (auth.json() or {}).get("token") if auth.status_code == 200 else None
+            if not token:
+                _logger.error("❌ Error autenticando para stock.")
+                return
+            session.headers["x-toptex-authorization"] = token.strip()
 
-        variants = Product.search([('id','>',last_id), ('default_code','!=',False)], order='id', limit=5000)
-        if not variants:
-            variants = Product.search([('default_code','!=',False)], order='id', limit=5000)
-            last_id = 0
-
-        new_last = last_id
-        for v in variants:
-            new_last = v.id
-            if v.type != 'consu' or not v.product_tmpl_id.is_storable:
-                continue
-
-            sku = v.default_code
-            r = requests.get(f"{proxy}/v3/products/{sku}/inventory", headers=headers, timeout=20)
-            if r.status_code != 200:
-                _logger.warning(f"❌ Inventario {sku}: {r.status_code} {r.text}")
-                continue
-
-            try:
-                js = r.json()
-                warehouses = js.get("warehouses", []) if isinstance(js, dict) else (js[0].get("warehouses", []) if isinstance(js, list) and js else [])
-                stock = 0
-                for whrow in warehouses:
-                    if isinstance(whrow, dict) and whrow.get("id") == "toptex":
-                        stock = int(whrow.get("stock", 0)); break
-            except Exception as e:
-                _logger.error(f"❌ JSON inventario {sku}: {e}")
-                stock = 0
-
-            quant = self.env['stock.quant'].search([('product_id','=',v.id), ('location_id','=',location.id)], limit=1)
-            if quant:
-                quant.write({'quantity': stock, 'inventory_quantity': stock})
-            else:
-                self.env['stock.quant'].create({
-                    'product_id': v.id,
-                    'location_id': location.id,
-                    'quantity': stock,
-                    'inventory_quantity': stock
-                })
-            _logger.info(f"✅ stock.quant creado/actualizado para {sku} en WH/Stock: {stock}")
-
-            if time.monotonic() - start > budget:
-                icp.set_param('toptex_stock_last_id', str(new_last))
-                _logger.warning(f"⏱️ Tiempo límite alcanzado (stock). Guardado offset {new_last} y saliendo.")
+            Product = self.env['product.product']
+            wh = self.env['stock.warehouse'].search([], limit=1)
+            location = wh.lot_stock_id if wh else self.env['stock.location'].search([('usage','=','internal')], limit=1)
+            if not location:
+                _logger.warning("❌ No hay ubicación interna para crear quants.")
                 return
 
-        icp.set_param('toptex_stock_last_id', str(new_last if variants else 0))
-        _logger.info(f"STOCK offset guardado: {new_last if variants else 0}")
+            last_id = int(icp.get_param('toptex_stock_last_id') or 0)
+            start   = time.monotonic()
+
+            variants = Product.search([('id','>',last_id), ('default_code','!=',False)], order='id', limit=5000)
+            if not variants:
+                variants = Product.search([('default_code','!=',False)], order='id', limit=5000)
+                last_id = 0
+
+            processed = 0
+            new_last = last_id
+
+            for v in variants:
+                new_last = v.id
+                if v.type != 'consu' or not v.product_tmpl_id.is_storable:
+                    continue
+
+                sku = v.default_code
+                r = _safe_get(session, f"{proxy}/v3/products/{sku}/inventory", timeout=20)
+                if not r or r.status_code != 200:
+                    _logger.warning(f"❌ Inventario {sku}: {getattr(r,'status_code',None)} {getattr(r,'text','')}")
+                    continue
+
+                try:
+                    js = r.json()
+                    warehouses = js.get("warehouses", []) if isinstance(js, dict) else (js[0].get("warehouses", []) if isinstance(js, list) and js else [])
+                    stock = 0
+                    for whrow in warehouses:
+                        if isinstance(whrow, dict) and whrow.get("id") == "toptex":
+                            stock = int(whrow.get("stock", 0)); break
+                except Exception as e:
+                    _logger.error(f"❌ JSON inventario {sku}: {e}")
+                    stock = 0
+
+                quant = self.env['stock.quant'].search([('product_id','=',v.id), ('location_id','=',location.id)], limit=1)
+                if quant:
+                    quant.write({'quantity': stock, 'inventory_quantity': stock})
+                else:
+                    self.env['stock.quant'].create({
+                        'product_id': v.id,
+                        'location_id': location.id,
+                        'quantity': stock,
+                        'inventory_quantity': stock
+                    })
+                _logger.info(f"✅ stock.quant creado/actualizado para {sku} en WH/Stock: {stock}")
+
+                processed += 1
+                # checkpoint frecuente
+                if processed % checkpoint_every == 0:
+                    icp.set_param('toptex_stock_last_id', str(new_last))
+                    self.env.cr.commit()
+
+                if time.monotonic() - start > budget:
+                    icp.set_param('toptex_stock_last_id', str(new_last))
+                    self.env.cr.commit()
+                    _logger.warning(f"⏱️ Tiempo límite alcanzado (stock). Guardado offset {new_last} y saliendo.")
+                    return
+
+            icp.set_param('toptex_stock_last_id', str(new_last if variants else 0))
+            self.env.cr.commit()
+            _logger.info(f"STOCK offset guardado: {new_last if variants else 0}")
+        finally:
+            _release_job_lock(self.env, lock_key)
 
     # ---------------------------------------------------------------------
-    # Imágenes por variante (igual)
+    # Imágenes por variante (AJUSTADO: lock + checkpoints + _safe_get + commit)
     # ---------------------------------------------------------------------
     def sync_variant_images_from_api(self):
         icp = self.env['ir.config_parameter'].sudo()
@@ -570,115 +592,135 @@ class ProductTemplate(models.Model):
         api_key  = icp.get_param('toptex_api_key')
         username = icp.get_param('toptex_username')
         password = icp.get_param('toptex_password')
+        budget   = int(icp.get_param('toptex_img_time_budget') or 900)
+        checkpoint_every = int(icp.get_param('toptex_img_checkpoint_every') or 10)
 
-        headers = {"x-api-key": api_key, "Content-Type":"application/json"}
-        token = requests.post(f"{proxy}/v3/authenticate",
-                              json={"username": username, "password": password},
-                              headers=headers, timeout=30).json().get("token")
-        if not token:
-            _logger.error("❌ Error autenticando para imágenes.")
+        # --- lock para evitar solapes
+        got_lock, lock_key = _acquire_job_lock(self.env, "sp:toptex:images")
+        if not got_lock:
+            _logger.info("🔒 Imágenes ya en ejecución. Salgo.")
             return
-        headers["x-toptex-authorization"] = token.strip()
 
-        Variant = self.env['product.product']
-        last_id = int(icp.get_param('toptex_img_last_id') or 0)
-        budget  = int(icp.get_param('toptex_img_time_budget') or 900)
-        start   = time.monotonic()
-
-        variants = Variant.search([('id','>',last_id), ('default_code','!=',False)], order='id', limit=6000)
-        if not variants:
-            variants = Variant.search([('default_code','!=',False)], order='id', limit=6000)
-            last_id = 0
-
-        new_last = last_id
-
-        def _extract_color_map(product_json):
-            cmap = {}
-            if not isinstance(product_json, dict):
-                return cmap
-            for c in (product_json.get("colors") or []):
-                col = (c.get("colors") or {}).get("es") or (c.get("colors") or {}).get("en") or ""
-                url = _choose_packshot_url(c.get("packshots") or {})
-                if not url:
-                    for im in (c.get("images") or []):
-                        if isinstance(im, dict) and im.get("url_image"):
-                            url = im["url_image"]; break
-                if col and url:
-                    cmap[_normalize_color_name(col)] = url
-            return cmap
-
-        def _fetch_by_sku(sku):
-            try:
-                r = requests.get(f"{proxy}/v3/products?sku={sku}&usage_right=b2b_b2c",
-                                 headers=headers, timeout=25)
-                data = r.json() if r.status_code == 200 else None
-                if isinstance(data, list) and data:
-                    return data[0]
-                if isinstance(data, dict) and data:
-                    return data
-            except Exception as e:
-                _logger.warning(f"❌ Error SKU fetch ({sku}): {e}")
-            return None
-
-        def _fetch_by_catalog(catref):
-            try:
-                r = requests.get(f"{proxy}/v3/products?catalog_reference={catref}&usage_right=b2b_b2c",
-                                 headers=headers, timeout=25)
-                data = r.json() if r.status_code == 200 else None
-                if isinstance(data, list) and data:
-                    return data[0]
-                if isinstance(data, dict) and data:
-                    return data
-            except Exception as e:
-                _logger.warning(f"❌ Error catalog fetch ({catref}): {e}")
-            return None
-
-        for v in variants:
-            new_last = v.id
-            pav = v.product_template_attribute_value_ids.filtered(lambda x: x.attribute_id.name.lower()=='color')
-            color_name = pav.name if pav else ""
-            norm_color = _normalize_color_name(color_name)
-            sku = v.default_code
-            catref = v.product_tmpl_id.default_code or ""
-
-            pack_url = None
-            data = _fetch_by_sku(sku)
-            cmap = _extract_color_map(data or {})
-            if cmap:
-                pack_url = cmap.get(norm_color)
-                if not pack_url:
-                    close = get_close_matches(norm_color, list(cmap.keys()), n=1, cutoff=0.85)
-                    if close:
-                        pack_url = cmap.get(close[0])
-
-            if not pack_url and catref:
-                data2 = _fetch_by_catalog(catref)
-                cmap2 = _extract_color_map(data2 or {})
-                if cmap2:
-                    pack_url = cmap2.get(norm_color)
-                    if not pack_url:
-                        close = get_close_matches(norm_color, list(cmap2.keys()), n=1, cutoff=0.85)
-                        if close:
-                            pack_url = cmap2.get(close[0])
-
-            if not pack_url:
-                _logger.debug(f"❌ Sin packshot para SKU/color: {sku} ({color_name}).")
-            else:
-                img_b64 = get_image_binary_from_url(pack_url)
-                if img_b64:
-                    try:
-                        v.write({'image_1920': img_b64})
-                        _logger.info(f"✅ Imagen asignada a variante {sku} ({color_name})")
-                    except Exception as e:
-                        _logger.warning(f"⚠️ No se pudo guardar imagen de {sku}: {e}")
-
-            if time.monotonic() - start > budget:
-                icp.set_param('toptex_img_last_id', str(new_last))
-                _logger.warning(f"⏱️ Tiempo límite alcanzado (img). Guardado offset {new_last} y saliendo.")
+        try:
+            # sesión y token
+            session = requests.Session()
+            session.headers.update({"x-api-key": api_key, "Content-Type":"application/json"})
+            auth = session.post(f"{proxy}/v3/authenticate",
+                                json={"username": username, "password": password},
+                                timeout=30)
+            token = (auth.json() or {}).get("token") if auth.status_code == 200 else None
+            if not token:
+                _logger.error("❌ Error autenticando para imágenes.")
                 return
+            session.headers["x-toptex-authorization"] = token.strip()
 
-        icp.set_param('toptex_img_last_id', str(new_last if variants else 0))
-        _logger.info(f"IMG offset guardado: {new_last if variants else 0}")
+            Variant = self.env['product.product']
+            last_id = int(icp.get_param('toptex_img_last_id') or 0)
+            start   = time.monotonic()
+
+            variants = Variant.search([('id','>',last_id), ('default_code','!=',False)], order='id', limit=6000)
+            if not variants:
+                variants = Variant.search([('default_code','!=',False)], order='id', limit=6000)
+                last_id = 0
+
+            processed = 0
+            new_last = last_id
+
+            def _extract_color_map(product_json):
+                cmap = {}
+                if not isinstance(product_json, dict):
+                    return cmap
+                for c in (product_json.get("colors") or []):
+                    col = (c.get("colors") or {}).get("es") or (c.get("colors") or {}).get("en") or ""
+                    url = _choose_packshot_url(c.get("packshots") or {})
+                    if not url:
+                        for im in (c.get("images") or []):
+                            if isinstance(im, dict) and im.get("url_image"):
+                                url = im["url_image"]; break
+                    if col and url:
+                        cmap[_normalize_color_name(col)] = url
+                return cmap
+
+            def _fetch_by_sku(sku):
+                try:
+                    r = _safe_get(session, f"{proxy}/v3/products?sku={sku}&usage_right=b2b_b2c", timeout=25)
+                    data = r.json() if r and r.status_code == 200 else None
+                    if isinstance(data, list) and data:
+                        return data[0]
+                    if isinstance(data, dict) and data:
+                        return data
+                except Exception as e:
+                    _logger.warning(f"❌ Error SKU fetch ({sku}): {e}")
+                return None
+
+            def _fetch_by_catalog(catref):
+                try:
+                    r = _safe_get(session, f"{proxy}/v3/products?catalog_reference={catref}&usage_right=b2b_b2c", timeout=25)
+                    data = r.json() if r and r.status_code == 200 else None
+                    if isinstance(data, list) and data:
+                        return data[0]
+                    if isinstance(data, dict) and data:
+                        return data
+                except Exception as e:
+                    _logger.warning(f"❌ Error catalog fetch ({catref}): {e}")
+                return None
+
+            for v in variants:
+                new_last = v.id
+                pav = v.product_template_attribute_value_ids.filtered(lambda x: x.attribute_id.name.lower()=='color')
+                color_name = pav.name if pav else ""
+                norm_color = _normalize_color_name(color_name)
+                sku = v.default_code
+                catref = v.product_tmpl_id.default_code or ""
+
+                pack_url = None
+                data = _fetch_by_sku(sku)
+                cmap = _extract_color_map(data or {})
+                if cmap:
+                    pack_url = cmap.get(norm_color)
+                    if not pack_url:
+                        close = get_close_matches(norm_color, list(cmap.keys()), n=1, cutoff=0.85)
+                        if close:
+                            pack_url = cmap.get(close[0])
+
+                if not pack_url and catref:
+                    data2 = _fetch_by_catalog(catref)
+                    cmap2 = _extract_color_map(data2 or {})
+                    if cmap2:
+                        pack_url = cmap2.get(norm_color)
+                        if not pack_url:
+                            close = get_close_matches(norm_color, list(cmap2.keys()), n=1, cutoff=0.85)
+                            if close:
+                                pack_url = cmap2.get(close[0])
+
+                if not pack_url:
+                    _logger.debug(f"❌ Sin packshot para SKU/color: {sku} ({color_name}).")
+                else:
+                    img_b64 = get_image_binary_from_url(pack_url, session=session)
+                    if img_b64:
+                        try:
+                            v.write({'image_1920': img_b64})
+                            _logger.info(f"✅ Imagen asignada a variante {sku} ({color_name})")
+                        except Exception as e:
+                            _logger.warning(f"⚠️ No se pudo guardar imagen de {sku}: {e}")
+
+                processed += 1
+                # checkpoint frecuente
+                if processed % checkpoint_every == 0:
+                    icp.set_param('toptex_img_last_id', str(new_last))
+                    self.env.cr.commit()
+
+                if time.monotonic() - start > budget:
+                    icp.set_param('toptex_img_last_id', str(new_last))
+                    self.env.cr.commit()
+                    _logger.warning(f"⏱️ Tiempo límite alcanzado (img). Guardado offset {new_last} y saliendo.")
+                    return
+
+            icp.set_param('toptex_img_last_id', str(new_last if variants else 0))
+            self.env.cr.commit()
+            _logger.info(f"IMG offset guardado: {new_last if variants else 0}")
+        finally:
+            _release_job_lock(self.env, lock_key)
 
     # ---------------------------------------------------------------------
     # Server Action: coste POR SKU (con _safe_get)
@@ -767,8 +809,10 @@ class ProductTemplate(models.Model):
 
             if time.monotonic() - start > budget:
                 icp.set_param('toptex_cost_last_var_id', str(new_last))
+                self.env.cr.commit()
                 _logger.warning(f"⏱️ Tiempo límite alcanzado (coste SKU). Guardado offset var {new_last} y saliendo.")
                 return
 
         icp.set_param('toptex_cost_last_var_id', str(new_last if variants else 0))
+        self.env.cr.commit()
         _logger.info(f"COST offset guardado (var): {new_last if variants else 0}")
