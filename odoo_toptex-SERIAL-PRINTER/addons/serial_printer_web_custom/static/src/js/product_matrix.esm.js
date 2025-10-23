@@ -55,6 +55,36 @@
     });
     return blocks;
   }
+
+  /* ---- ORDEN FIJO DE TALLAS (xxs→5xl) ---- */
+  const SIZE_ORDER = ['xxs','xs','s','m','l','xl','xxl','xxxl','xxxxl','5xl'];
+  function _sizeKey(name='') {
+    let s = String(name).toLowerCase().trim();
+    s = s.normalize('NFD').replace(/[\u0300-\u036f]/g,'');      // sin acentos
+    s = s.replace(/[\s._-]/g,'');                               // sin separadores
+    if (/(talla)?unica|onesize|unique|unitalla/.test(s)) return 'onesize';
+    if (/^(xxs|2xs|xxsmall|xxsmall|extraextrasmall)$/.test(s)) return 'xxs';
+    if (/^(xs|xsmall|extrasmall)$/.test(s)) return 'xs';
+    if (/^(s|small)$/.test(s)) return 's';
+    if (/^(m|med|medium)$/.test(s)) return 'm';
+    if (/^(l|large)$/.test(s)) return 'l';
+    if (/^(xl|xlarge)$/.test(s)) return 'xl';
+    if (/^(xxl|2xl|2x|xxlarge)$/.test(s)) return 'xxl';
+    if (/^(xxxl|3xl|3x|xxxlarge)$/.test(s)) return 'xxxl';
+    if (/^(xxxxl|4xl|4x|xxxxlarge)$/.test(s)) return 'xxxxl';
+    if (/^(5xl|5x)$/.test(s)) return '5xl';
+    return s || 'zz';
+  }
+  function sortSizes(options) {
+    return options.slice().sort((a, b) => {
+      const ka = _sizeKey(a.name), kb = _sizeKey(b.name);
+      const ia = SIZE_ORDER.indexOf(ka), ib = SIZE_ORDER.indexOf(kb);
+      const ra = ia === -1 ? 999 : ia,   rb = ib === -1 ? 999 : ib;
+      if (ra !== rb) return ra - rb;
+      return String(a.name).localeCompare(String(b.name), undefined, { numeric:true, sensitivity:'base' });
+    });
+  }
+
   function pickColorSize(blocks) {
     const isColor = n => /color|couleur|farbe|colou?r|colore|kleur/i.test(n||'');
     const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n||'');
@@ -66,6 +96,11 @@
     }
     if (!color && blocks.length) color = blocks[0];
     if (!size  && blocks.length > 1) size  = blocks[1];
+
+    // ⬅️ NUEVO: ordenar tallas si existen
+    if (size && Array.isArray(size.options)) {
+      size = { ...size, options: sortSizes(size.options) };
+    }
     return { color, size };
   }
 
@@ -149,8 +184,23 @@
 
     const thead = document.createElement('thead');
     const trh   = document.createElement('tr');
+
+    // sticky para que siempre se vean las tallas
+    trh.style.position = 'sticky';
+    trh.style.top = '0';
+    trh.style.zIndex = '5';
+    trh.style.background = '#fff';
+
     trh.innerHTML = `<th class="sp-sticky-left">Color</th>`;
-    size.options.forEach(s => { const th=document.createElement('th'); th.textContent = s.name; trh.appendChild(th); });
+    size.options.forEach(s => {
+      const th=document.createElement('th');
+      th.textContent = s.name;
+      th.style.position = 'sticky';
+      th.style.top = '0';
+      th.style.zIndex = '5';
+      th.style.background = '#fff';
+      trh.appendChild(th);
+    });
     thead.appendChild(trh);
 
     const cols = size.options.length;
