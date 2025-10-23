@@ -6,6 +6,43 @@
   const warn = (...a) => console.warn('[SP]', ...a);
   const $ = (sel, ctx=document) => ctx.querySelector(sel);
 
+  /* --------- estilos para sticky header/columna --------- */
+  function injectStyles(){
+    if (document.getElementById('sp-matrix-css')) return;
+    const css = `
+      .sp-matrix{ margin-top: .5rem; }
+      .sp-matrix__viewport{
+        max-height: 68vh;           /* alto visible: cabecera siempre a la vista */
+        overflow: auto;             /* scroll interno del grid */
+        border: 1px solid #e5e7eb;
+        border-radius: .5rem;
+        background: #fff;
+      }
+      .sp-matrix__table{ width: 100%; border-collapse: separate; border-spacing: 0; }
+      .sp-matrix__table thead th{
+        position: sticky; top: 0; z-index: 5; background: #fff;
+        box-shadow: 0 1px 0 rgba(0,0,0,.06);
+      }
+      /* primera columna fija (color) */
+      .sp-matrix__table th.sp-sticky-left,
+      .sp-matrix__table td.sp-sticky-left{
+        position: sticky; left: 0; z-index: 4; background: #fff;
+      }
+      .sp-matrix__table thead th.sp-sticky-left{ z-index: 6; } /* cruce cabecera/columna */
+      .sp-matrix__table tbody th.sp-sticky-left{ box-shadow: 1px 0 0 rgba(0,0,0,.06); }
+      .sp-matrix__table td, .sp-matrix__table th{ padding:.5rem; vertical-align: middle; }
+      .sp-cell{ display:flex; flex-direction:column; gap:.25rem; }
+      .sp-meta{ font-size:.85em; opacity:.85; display:flex; gap:.5rem; }
+      .sp-unavailable .sp-price, .sp-unavailable .sp-stock{ opacity:.4; }
+      .sp-color{ display:flex; align-items:center; gap:.5rem; }
+      .sp-color__img{ width:24px; height:24px; object-fit:cover; border-radius:.25rem; background:#f3f4f6; }
+    `;
+    const style = document.createElement('style');
+    style.id = 'sp-matrix-css';
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+
   /* ---------------- helpers ---------------- */
   function getRoot() {
     return $('.o_wsale_product_page .js_product')
@@ -60,10 +97,10 @@
   const SIZE_ORDER = ['xxs','xs','s','m','l','xl','xxl','xxxl','xxxxl','5xl'];
   function _sizeKey(name='') {
     let s = String(name).toLowerCase().trim();
-    s = s.normalize('NFD').replace(/[\u0300-\u036f]/g,'');      // sin acentos
-    s = s.replace(/[\s._-]/g,'');                               // sin separadores
+    s = s.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    s = s.replace(/[\s._-]/g,'');
     if (/(talla)?unica|onesize|unique|unitalla/.test(s)) return 'onesize';
-    if (/^(xxs|2xs|xxsmall|xxsmall|extraextrasmall)$/.test(s)) return 'xxs';
+    if (/^(xxs|2xs|xxsmall|extraextrasmall)$/.test(s)) return 'xxs';
     if (/^(xs|xsmall|extrasmall)$/.test(s)) return 'xs';
     if (/^(s|small)$/.test(s)) return 's';
     if (/^(m|med|medium)$/.test(s)) return 'm';
@@ -96,11 +133,7 @@
     }
     if (!color && blocks.length) color = blocks[0];
     if (!size  && blocks.length > 1) size  = blocks[1];
-
-    // ⬅️ NUEVO: ordenar tallas si existen
-    if (size && Array.isArray(size.options)) {
-      size = { ...size, options: sortSizes(size.options) };
-    }
+    if (size && Array.isArray(size.options)) size = { ...size, options: sortSizes(size.options) };
     return { color, size };
   }
 
@@ -109,11 +142,7 @@
     const res = await fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
-      headers: {
-        'Accept':'application/json',
-        'Content-Type':'application/json',
-        'X-Requested-With':'XMLHttpRequest'
-      },
+      headers: { 'Accept':'application/json','Content-Type':'application/json','X-Requested-With':'XMLHttpRequest' },
       body: JSON.stringify({ jsonrpc:'2.0', method:'call', params, id: Date.now() }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -180,27 +209,13 @@
     anchor.innerHTML = '';
 
     const wrap  = document.createElement('div'); wrap.className = 'sp-matrix';
+    const viewport = document.createElement('div'); viewport.className = 'sp-matrix__viewport';
     const table = document.createElement('table'); table.className = 'sp-matrix__table';
 
     const thead = document.createElement('thead');
     const trh   = document.createElement('tr');
-
-    // sticky para que siempre se vean las tallas
-    trh.style.position = 'sticky';
-    trh.style.top = '0';
-    trh.style.zIndex = '5';
-    trh.style.background = '#fff';
-
     trh.innerHTML = `<th class="sp-sticky-left">Color</th>`;
-    size.options.forEach(s => {
-      const th=document.createElement('th');
-      th.textContent = s.name;
-      th.style.position = 'sticky';
-      th.style.top = '0';
-      th.style.zIndex = '5';
-      th.style.background = '#fff';
-      trh.appendChild(th);
-    });
+    size.options.forEach(s => { const th=document.createElement('th'); th.textContent = s.name; trh.appendChild(th); });
     thead.appendChild(trh);
 
     const cols = size.options.length;
@@ -239,7 +254,8 @@
     });
 
     table.append(thead, tbody);
-    wrap.appendChild(table);
+    viewport.appendChild(table);
+    wrap.appendChild(viewport);
 
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -298,16 +314,12 @@
 
   async function postCartForm(url, payload) {
     const fd = new FormData();
-    // mínimos
     fd.append('product_id', String(payload.product_id));
     fd.append('add_qty', String(payload.add_qty));
-    // contexto útil
     if (payload.product_template_id) fd.append('product_template_id', String(payload.product_template_id));
     if (payload.combination && payload.combination.length) {
-      // no siempre se usa, pero no molesta
       payload.combination.forEach(v => fd.append('combination', String(v)));
     }
-    // vacíos estándar
     fd.append('product_custom_attribute_values', '[]');
     fd.append('no_variant_attribute_values', '[]');
     fd.append('express', 'false');
@@ -359,7 +371,6 @@
       };
 
       let ok = false;
-      // SOLO FORM
       for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
         try { await postCartForm(u, payload); ok = true; break; }
         catch (e) { warn('Fallo FORM', u, e.message); }
@@ -372,7 +383,10 @@
   }
 
   /* ---------------- boot ---------------- */
-  function start(){ if ($('.o_wsale_product_page')) buildMatrix(); }
+  function start(){
+    injectStyles();                             // <- estilos una vez
+    if ($('.o_wsale_product_page')) buildMatrix();
+  }
   (document.readyState === 'loading')
     ? document.addEventListener('DOMContentLoaded', start, { once:true })
     : start();
