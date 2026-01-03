@@ -1,6 +1,6 @@
 {
     'name': 'Serial Printer - Custom Wizard',
-    'version': '18.0.1.0.0',
+    'version': '19.0.1.0.0',
     'summary': 'Personalización de producto con vista previa en carrito',
     'license': 'LGPL-3',
     'category': 'Website/Website',
