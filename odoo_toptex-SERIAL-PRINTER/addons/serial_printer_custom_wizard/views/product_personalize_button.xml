@@ -4,8 +4,7 @@
     <template id="product_personalize_button"
               inherit_id="website_sale.product"
               name="SPW: Personalize Button">
-      <!-- Odoo 19: el form ya no mantiene action="/shop/cart/update" como en v18 -->
-      <xpath expr="//form[contains(@class, 'js_add_cart_variants')]" position="inside">
+      <xpath expr="//div[@id='add_to_cart']" position="inside">
         <div class="mt-2">
           <button type="button" class="btn btn-primary w-100"
                   id="spw_customize_btn" t-att-data-ptmpl-id="product.id">
