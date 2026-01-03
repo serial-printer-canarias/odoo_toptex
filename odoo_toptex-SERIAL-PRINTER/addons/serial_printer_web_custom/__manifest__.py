@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Serial Printer | Web Custom (Matrix)",
-    "version": "18.0.1.0.1",
+    "version": "19.0.1.0.1",
     "category": "Website/Website",
     "summary": "Product matrix (color/size) on product page",
     "author": "Serial Printer",
