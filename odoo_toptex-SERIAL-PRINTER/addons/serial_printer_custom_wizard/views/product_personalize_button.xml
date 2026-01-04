@@ -5,18 +5,20 @@
               inherit_id="website_sale.product"
               name="SPW: Personalize Button">
 
-      <!-- Odoo 19: NO buscar @action, buscar la clase del add-to-cart -->
-      <xpath expr="//form[contains(concat(' ', normalize-space(@class), ' '), ' js_add_cart_variants ')]"
-             position="inside">
+      <!-- Odoo 19: js_add_cart_variants ya no cuelga del <form>; está en un <ul> -->
+      <xpath expr="//ul[contains(concat(' ', normalize-space(@class), ' '), ' js_add_cart_variants ')]"
+             position="after">
+
         <div class="mt-2">
-          <button type="button" class="btn btn-primary w-100"
+          <button type="button"
+                  class="btn btn-primary w-100"
                   id="spw_customize_btn"
                   t-att-data-ptmpl-id="product.id">
-            <i class="fa fa-magic me-1"/><span>Personalizar</span>
+            <span class="fa fa-magic me-1"/><span>Personalizar</span>
           </button>
         </div>
-      </xpath>
 
+      </xpath>
     </template>
   </data>
 </odoo>
