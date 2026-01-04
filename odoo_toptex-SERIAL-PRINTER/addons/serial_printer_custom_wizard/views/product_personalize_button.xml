@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
   <data>
-    <!-- OJO: heredar el template donde realmente existe js_add_cart_variants en Odoo 19 -->
     <template id="product_personalize_button"
               inherit_id="website_sale.variants"
               name="SPW: Personalize Button (Odoo 19)">
       
-      <!-- Insertamos el botón justo después del bloque de variantes -->
-      <xpath expr="//ul[contains(concat(' ', normalize-space(@class), ' '), ' js_add_cart_variants ')]" position="after">
+      <xpath expr="//ul[contains(concat(' ', normalize-space(@class), ' '), ' js_add_cart_variants ')]"
+             position="after">
         <div class="mt-2">
           <button type="button" class="btn btn-primary w-100"
-                  id="spw_customize_btn">
+                  id="spw_customize_btn"
+                  t-att-data-ptmpl-id="product.id">
             <span class="fa fa-magic me-1"/><span>Personalizar</span>
           </button>
         </div>
