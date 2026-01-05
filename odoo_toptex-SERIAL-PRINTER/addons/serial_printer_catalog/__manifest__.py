@@ -1,15 +1,17 @@
-# -*- coding: utf-8 -*-
 {
-    'name': "Serial Printer Catalog",
+    'name': 'Catálogo TopTex',
     'version': '19.0.1.0.0',
-    'summary': "Sync products from TopTex API into Odoo",
-    'description': "Automated product sync from TopTex API. Custom module for Serial Printer Canarias.",
-    'author': "Serial Printer Canarias",
     'category': 'Sales',
-    'depends': ['base'],
+    'summary': 'Importación de productos TopTex',
+    'description': 'Crea productos desde la API de TopTex en el modelo estándar de Odoo',
+    'author': 'Serial Printer',
+    'license': 'LGPL-3',
+    'depends': ['base', 'product', 'stock'],
     'data': [
-        'data/cron_product.xml',
+        'data/cron_product.xml'
     ],
     'installable': True,
     'application': False,
+    'auto_install': False,
 }
+EOF
