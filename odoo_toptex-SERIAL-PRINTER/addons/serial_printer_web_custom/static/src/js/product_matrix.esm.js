@@ -1,345 +1,390 @@
-/* SP Matrix – Odoo 18: precio, stock, foto y carrito (POST clásico) */
+/*
+  Serial Printer Web Custom - Product Matrix (Odoo 18/19)
+  - Injects a Color x Size matrix on product page
+  - Shows stock per variant (best-effort via get_combination_info)
+  - Allows bulk add-to-cart
+*/
 (function () {
-  'use strict';
+  const log = (...a) => console.log('[SP-MATRIX]', ...a);
+  const warn = (...a) => console.warn('[SP-MATRIX]', ...a);
 
-  const log  = (...a) => console.log('[SP]', ...a);
-  const warn = (...a) => console.warn('[SP]', ...a);
-  const $ = (sel, ctx=document) => ctx.querySelector(sel);
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-  /* --------- estilos para sticky header/columna --------- */
-  function injectStyles(){
-    if (document.getElementById('sp-matrix-css')) return;
-    const css = `
-      .sp-matrix{ margin-top: .5rem; }
-      .sp-matrix__viewport{
-        max-height: 68vh;           /* alto visible: cabecera siempre a la vista */
-        overflow: auto;             /* scroll interno del grid */
-        border: 1px solid #e5e7eb;
-        border-radius: .5rem;
-        background: #fff;
-      }
-      .sp-matrix__table{ width: 100%; border-collapse: separate; border-spacing: 0; }
-      .sp-matrix__table thead th{
-        position: sticky; top: 0; z-index: 5; background: #fff;
-        box-shadow: 0 1px 0 rgba(0,0,0,.06);
-      }
-      /* primera columna fija (color) */
-      .sp-matrix__table th.sp-sticky-left,
-      .sp-matrix__table td.sp-sticky-left{
-        position: sticky; left: 0; z-index: 4; background: #fff;
-      }
-      .sp-matrix__table thead th.sp-sticky-left{ z-index: 6; } /* cruce cabecera/columna */
-      .sp-matrix__table tbody th.sp-sticky-left{ box-shadow: 1px 0 0 rgba(0,0,0,.06); }
-      .sp-matrix__table td, .sp-matrix__table th{ padding:.5rem; vertical-align: middle; }
-      .sp-cell{ display:flex; flex-direction:column; gap:.25rem; }
-      .sp-meta{ font-size:.85em; opacity:.85; display:flex; gap:.5rem; }
-      .sp-unavailable .sp-price, .sp-unavailable .sp-stock{ opacity:.4; }
-      .sp-color{ display:flex; align-items:center; gap:.5rem; }
-      .sp-color__img{ width:24px; height:24px; object-fit:cover; border-radius:.25rem; background:#f3f4f6; }
-    `;
-    const style = document.createElement('style');
-    style.id = 'sp-matrix-css';
-    style.textContent = css;
-    document.head.appendChild(style);
-  }
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-  /* ---------------- helpers ---------------- */
   function getRoot() {
-    return $('.o_wsale_product_page .js_product')
-        || $('.js_product')
-        || $('.o_wsale_product_page')
-        || $('[data-main-object="product.template"]')
-        || document.body;
-  }
-  function placeAnchor() {
-    let anchor = document.getElementById('sp-matrix-anchor');
-    if (!anchor) {
-      anchor = document.createElement('div');
-      anchor.id = 'sp-matrix-anchor';
-      anchor.className = 'sp-matrix-anchor';
-    }
-    const root = getRoot();
-    const attrs = root.querySelector('.js_attributes')
-      || root.querySelector('ul.o_wsale_product_attribute')
-      || root.querySelector('[data-attribute_name]')?.closest('.row, ul, div');
-    (attrs || root.querySelector('.product_price, .o_wsale_product_price_section') || root)
-      .after(anchor);
-    return anchor;
+    return (
+      document.querySelector('.o_wsale_product_page') ||
+      document.querySelector('.js_product') ||
+      document
+    );
   }
 
-  /* ---------- lectura de atributos (PTAV) ---------- */
-  function readIdsFromInput(inp) {
-    const d = inp.dataset || {};
-    const ptav = parseInt(
-      d.ptav || d.ptavId || d.productTemplateAttributeValueId ||
-      d.productTemplateAttributeValue || d.ptav_id || d.ptavl || inp.value || '0', 10
-    ) || null;
-    const av = parseInt(d.valueId || d.attributeValueId || '0', 10) || null;
-    return { ptavId: ptav, avId: av, id: ptav || av };
-  }
-  function getBlocks(root) {
-    const blocks = [];
-    const containers = root.querySelectorAll('[data-attribute_name], .o_wsale_product_attribute[data-attribute-name]');
-    containers.forEach(el => {
-      const name = (el.getAttribute('data-attribute_name') || el.getAttribute('data-attribute-name') || '').trim();
-      const options = [];
-      el.querySelectorAll('input[type="radio"],input[type="checkbox"]').forEach(inp => {
-        const o = readIdsFromInput(inp);
-        const label = (inp.closest('label')?.textContent || inp.title || '').trim();
-        if (o.id) options.push({ name: label, ...o });
-      });
-      if (options.length) blocks.push({ name, options, el });
-    });
-    return blocks;
-  }
-
-  /* ---- ORDEN FIJO DE TALLAS (xxs→5xl) ---- */
-  const SIZE_ORDER = ['xxs','xs','s','m','l','xl','xxl','xxxl','xxxxl','5xl'];
-  function _sizeKey(name='') {
-    let s = String(name).toLowerCase().trim();
-    s = s.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-    s = s.replace(/[\s._-]/g,'');
-    if (/(talla)?unica|onesize|unique|unitalla/.test(s)) return 'onesize';
-    if (/^(xxs|2xs|xxsmall|extraextrasmall)$/.test(s)) return 'xxs';
-    if (/^(xs|xsmall|extrasmall)$/.test(s)) return 'xs';
-    if (/^(s|small)$/.test(s)) return 's';
-    if (/^(m|med|medium)$/.test(s)) return 'm';
-    if (/^(l|large)$/.test(s)) return 'l';
-    if (/^(xl|xlarge)$/.test(s)) return 'xl';
-    if (/^(xxl|2xl|2x|xxlarge)$/.test(s)) return 'xxl';
-    if (/^(xxxl|3xl|3x|xxxlarge)$/.test(s)) return 'xxxl';
-    if (/^(xxxxl|4xl|4x|xxxxlarge)$/.test(s)) return 'xxxxl';
-    if (/^(5xl|5x)$/.test(s)) return '5xl';
-    return s || 'zz';
-  }
-  function sortSizes(options) {
-    return options.slice().sort((a, b) => {
-      const ka = _sizeKey(a.name), kb = _sizeKey(b.name);
-      const ia = SIZE_ORDER.indexOf(ka), ib = SIZE_ORDER.indexOf(kb);
-      const ra = ia === -1 ? 999 : ia,   rb = ib === -1 ? 999 : ib;
-      if (ra !== rb) return ra - rb;
-      return String(a.name).localeCompare(String(b.name), undefined, { numeric:true, sensitivity:'base' });
-    });
-  }
-
-  function pickColorSize(blocks) {
-    const isColor = n => /color|couleur|farbe|colou?r|colore|kleur/i.test(n||'');
-    const isSize  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n||'');
-    let color = blocks.find(b => isColor(b.name));
-    let size  = blocks.find(b => isSize(b.name));
-    if (!size && blocks.length === 1) {
-      size = { name: 'One Size', options: [{ id:-1, name:'One Size', ptavId:null }], _synthetic:true };
-      if (!color) color = blocks[0];
-    }
-    if (!color && blocks.length) color = blocks[0];
-    if (!size  && blocks.length > 1) size  = blocks[1];
-    if (size && Array.isArray(size.options)) size = { ...size, options: sortSizes(size.options) };
-    return { color, size };
-  }
-
-  /* ---------------- JSON-RPC (get_combination_info) ---------------- */
-  async function rpc(url, params) {
-    const res = await fetch(url, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Accept':'application/json','Content-Type':'application/json','X-Requested-With':'XMLHttpRequest' },
-      body: JSON.stringify({ jsonrpc:'2.0', method:'call', params, id: Date.now() }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    if (data?.error) throw new Error(data.error.message || 'RPC error');
-    return data.result;
-  }
-
-  function readCtx(root) {
-    const tmplId = parseInt(
-      root.querySelector('[data-product-template-id]')?.dataset.productTemplateId
-      || root.querySelector('input[name="product_template_id"]')?.value
-      || root.getAttribute('data-oe-id') || '0', 10);
-    const pricelistId = parseInt(document.querySelector('[data-pricelist-id]')?.dataset.pricelistId || '0', 10);
-    return { tmplId, pricelistId };
-  }
-  function buildPayload(ptavIds, ctx) {
-    return {
-      product_template_id: ctx.tmplId,
-      product_id: 0,
-      combination: ptavIds,
-      add_qty: 1,
-      parent_combination: [],
-      pricelist_id: ctx.pricelistId || undefined,
-      only_template: false,
-      no_variant_attribute_values: [],
-      product_template_attribute_value_ids: [],
-      is_main_product: true,
-      display_default_code: true,
-      strict: true,
-    };
-  }
-  async function getCombo(ptavIds, root) {
-    const ctx = readCtx(root);
-    const payload = buildPayload(ptavIds, ctx);
-    for (const u of ['/website_sale/get_combination_info', '/shop/get_combination_info']) {
-      try { const r = await rpc(u, payload); if (r) return r; }
-      catch (e) { warn('combo fallo', u, e.message); }
-    }
-    return null;
-  }
-
-  /* ---- extractores ---- */
-  const getVariantId = info => parseInt(info?.product_id ?? info?.variant_id ?? info?.id ?? info?.product?.id ?? 0, 10) || 0;
-  function getPrice(info){
-    const v=[info?.price,info?.list_price,info?.website_price,info?.price_reduce,info?.price_with_tax,info?.price_without_discount].find(x=>typeof x==='number');
-    return (typeof v==='number')?v:null;
-  }
-  function getStock(info){
-    const v=[info?.stock_quantity,info?.virtual_available,info?.qty_available,info?.free_qty,info?.available_quantity,info?.stock,info?.stock_qty].find(x=>typeof x==='number');
-    if(typeof v==='number')return v; if(info?.is_out_of_stock===true)return 0; return null;
-  }
-  function fmtPrice(v){ try{const lang=document.documentElement.lang||'es-ES'; const curr=$('[data-website-currency-code]')?.dataset.websiteCurrencyCode||'EUR'; return new Intl.NumberFormat(lang,{style:'currency',currency:curr}).format(v);}catch{ return (Math.round(v*100)/100).toFixed(2); } }
-
-  /* ---------------- UI ---------------- */
-  async function buildMatrix() {
-    const root = getRoot();
-    const blocks = getBlocks(root);
-    if (!blocks.length) return;
-    const { color, size } = pickColorSize(blocks);
-    if (!color || !size) return;
-
-    const anchor = placeAnchor();
-    anchor.innerHTML = '';
-
-    const wrap  = document.createElement('div'); wrap.className = 'sp-matrix';
-    const viewport = document.createElement('div'); viewport.className = 'sp-matrix__viewport';
-    const table = document.createElement('table'); table.className = 'sp-matrix__table';
-
-    const thead = document.createElement('thead');
-    const trh   = document.createElement('tr');
-    trh.innerHTML = `<th class="sp-sticky-left">Color</th>`;
-    size.options.forEach(s => { const th=document.createElement('th'); th.textContent = s.name; trh.appendChild(th); });
-    thead.appendChild(trh);
-
-    const cols = size.options.length;
-    if (cols >= 10)      table.style.minWidth = '1340px';
-    else if (cols >= 8)  table.style.minWidth = '1160px';
-    else if (cols >= 6)  table.style.minWidth = '980px';
-    else                 table.style.minWidth = 'auto';
-
-    const tbody = document.createElement('tbody');
-    color.options.forEach(c => {
-      const tr = document.createElement('tr');
-      tr.dataset.colorPtav = c.ptavId || '';
-      tr.dataset.colorId   = c.id || '';
-      tr.innerHTML = `
-        <th class="sp-sticky-left">
-          <div class="sp-color">
-            <img class="sp-color__img" alt="">
-            <span class="sp-color__name">${c.name || ''}</span>
-          </div>
-        </th>`;
-      size.options.forEach(s => {
-        const td = document.createElement('td');
-        td.dataset.sizePtav = s.ptavId || '';
-        td.dataset.sizeId   = s.id || '';
-        td.innerHTML = `
-          <div class="sp-cell">
-            <input class="sp-qty" type="number" min="0" step="1">
-            <div class="sp-meta">
-              <span class="sp-price">—</span>
-              <span class="sp-stock">—</span>
-            </div>
-          </div>`;
-        tr.appendChild(td);
-      });
-      tbody.appendChild(tr);
-    });
-
-    table.append(thead, tbody);
-    viewport.appendChild(table);
-    wrap.appendChild(viewport);
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'btn btn-primary mt-2 sp-add-to-cart';
-    btn.textContent = 'Añadir selección';
-    wrap.appendChild(btn);
-
-    anchor.appendChild(wrap);
-
-    await hydrate(wrap, root);
-
-    btn.addEventListener('click', (ev)=>{ ev.preventDefault(); addAllToCart(wrap); }, {capture:true});
-  }
-
-  async function hydrate(container, root) {
-    const cells = Array.from(container.querySelectorAll('td'));
-    const queue = cells.slice();
-    async function worker() {
-      while (queue.length) {
-        const td = queue.shift();
-        const colorPtav = parseInt(td.closest('tr')?.dataset.colorPtav || td.closest('tr')?.dataset.colorId || '0', 10);
-        const sizePtav  = parseInt(td.dataset.sizePtav || td.dataset.sizeId || '0', 10);
-        const combo = sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav];
-
-        const info = await getCombo(combo, root).catch(e => (warn('combo error', e.message), null));
-        if (!info) { td.classList.add('sp-unavailable'); continue; }
-
-        const variantId = getVariantId(info);
-        if (variantId) td.querySelector('.sp-qty').dataset.variantId = String(variantId);
-
-        const price = getPrice(info);
-        if (price != null) td.querySelector('.sp-price').textContent = fmtPrice(price);
-
-        const stock = getStock(info);
-        if (stock != null) td.querySelector('.sp-stock').textContent = `Stock: ${stock}`;
-
-        const img = td.closest('tr').querySelector('.sp-color__img');
-        if (img && !img.src) {
-          img.src = `/web/image/product.product/${variantId || 0}/image_256`;
-          img.onerror = () => { img.src = `/web/image/product.template/${readCtx(root).tmplId}/image_256`; };
-        }
-      }
-    }
-    await Promise.all(new Array(6).fill(0).map(worker));
-  }
-
-  /* ---------------- carrito: SOLO FORM /cart/update ---------------- */
   function getCsrf() {
     return (
-      document.querySelector('meta[name="csrf-token"]')?.content ||
-      (window.odoo && window.odoo.csrf_token) ||
+      document.querySelector('meta[name="csrf_token"]')?.getAttribute('content') ||
+      document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+      window.odoo?.csrf_token ||
       document.querySelector('input[name="csrf_token"]')?.value ||
       ''
     );
   }
 
+  function readCtx(root) {
+    // Try many places; theme differences
+    const el =
+      root.querySelector('[data-product-template-id]') ||
+      root.querySelector('.js_product[data-product-template-id]') ||
+      root.querySelector('.js_product') ||
+      root;
+    const ds = el?.dataset || {};
+    const tmplId = parseInt(ds.productTemplateId || ds.product_template_id || ds.productTemplate || '0', 10);
+    const productId = parseInt(ds.productProductId || ds.product_product_id || ds.productProduct || '0', 10);
+    return { tmplId, productId };
+  }
+
+  function readIdsFromInput(inp) {
+    // Odoo usually stores ptav id in input.value. Some themes store value_id in dataset.
+    const ptav = parseInt(inp.value || '0', 10);
+    const av = parseInt(inp.dataset.value_id || inp.dataset.valueId || inp.dataset.valueid || '0', 10);
+    const id = ptav || av;
+    return { id, ptavId: ptav || null, avId: av || null };
+  }
+
+  function getBlocks(root) {
+    const blocks = [];
+    // Odoo 19: <li name="variant_attribute" data-attribute-name="..." data-attribute-display-type="...">
+    // Odoo <=18: legacy selectors kept as fallback.
+    const containers = root.querySelectorAll(
+      '[name="variant_attribute"][data-attribute-name], .variant_attribute[data-attribute-name], .o_wsale_product_attribute[data-attribute-name], [data-attribute_name]'
+    );
+    containers.forEach(el => {
+      const name = (
+        el.dataset.attributeName
+        || el.getAttribute('data-attribute-name')
+        || el.dataset.attribute_name
+        || el.getAttribute('data-attribute_name')
+        || ''
+      ).toString().trim();
+
+      const displayType = (
+        el.dataset.attributeDisplayType
+        || el.getAttribute('data-attribute-display-type')
+        || el.dataset.displayType
+        || el.getAttribute('data-display-type')
+        || ''
+      ).toString().trim();
+
+      const options = [];
+      el.querySelectorAll('input[type="radio"],input[type="checkbox"]').forEach(inp => {
+        const o = readIdsFromInput(inp);
+        const labelEl = inp.closest('label');
+        let label = (labelEl ? labelEl.textContent : '') || inp.title || inp.getAttribute('aria-label') || '';
+        label = String(label).replace(/\s+/g, ' ').trim();
+        if (o.id) options.push({ name: label, ...o });
+      });
+
+      if (options.length) blocks.push({ name, displayType, options, el });
+    });
+    return blocks;
+  }
+
+  function sortSizes(opts) {
+    const order = [
+      'XXS', '2XS', 'XS', 'S', 'M', 'L', 'XL', '2XL', 'XXL', '3XL', 'XXXL', '4XL', '5XL', '6XL',
+      '28', '30', '32', '34', '36', '38', '40', '42', '44', '46', '48', '50', '52', '54',
+    ];
+    const norm = (s) => (s || '').toString().trim().toUpperCase();
+    return [...opts].sort((a, b) => {
+      const A = norm(a.name);
+      const B = norm(b.name);
+      const ia = order.indexOf(A);
+      const ib = order.indexOf(B);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      // numeric sizes
+      const na = parseInt(A, 10);
+      const nb = parseInt(B, 10);
+      if (!isNaN(na) && !isNaN(nb)) return na - nb;
+      return A.localeCompare(B);
+    });
+  }
+
+  function pickColorSize(blocks) {
+    const isColorName = n => /color|couleur|farbe|colou?r|colore|kleur/i.test(n||'');
+    const isSizeName  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n||'');
+
+    const isColor = b => ['color', 'image'].includes(String(b.displayType||'').toLowerCase()) || isColorName(b.name);
+    const isSize  = b => isSizeName(b.name);
+
+    let color = blocks.find(isColor);
+    let size  = blocks.find(isSize);
+
+    // Si solo hay 1 atributo (ej: solo Color), creamos "Talla única" para poder mostrar matriz y sumar al carrito.
+    if (!size && blocks.length === 1) {
+      size = { name: 'One Size', options: [{ id:-1, name:'One Size', ptavId:null }], _synthetic:true };
+      if (!color) color = blocks[0];
+    }
+
+    // Fallback simple
+    if (!color && blocks.length) color = blocks[0];
+    if (!size  && blocks.length > 1) size  = blocks[1];
+
+    if (size && Array.isArray(size.options)) size = { ...size, options: sortSizes(size.options) };
+    return { color, size };
+  }
+
+  /* ---------------- JSON-RPC helpers ---------------- */
+  async function rpc(url, params) {
+    const payload = { jsonrpc: '2.0', method: 'call', params: params || {}, id: Date.now() };
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    const data = await res.json().catch(() => null);
+    if (data?.error) {
+      const msg = data.error?.data?.message || data.error?.message || 'RPC error';
+      throw new Error(msg);
+    }
+    return (data && data.result !== undefined) ? data.result : data;
+  }
+
   async function postCartForm(url, payload) {
     const fd = new FormData();
-    fd.append('product_id', String(payload.product_id));
-    fd.append('add_qty', String(payload.add_qty));
-    if (payload.product_template_id) fd.append('product_template_id', String(payload.product_template_id));
-    if (payload.combination && payload.combination.length) {
-      payload.combination.forEach(v => fd.append('combination', String(v)));
-    }
-    fd.append('product_custom_attribute_values', '[]');
-    fd.append('no_variant_attribute_values', '[]');
-    fd.append('express', 'false');
-    if (payload.csrf_token) fd.append('csrf_token', payload.csrf_token);
+    Object.entries(payload || {}).forEach(([k, v]) => {
+      if (v === undefined || v === null) return;
+      if (Array.isArray(v)) {
+        v.forEach(x => fd.append(k, String(x)));
+      } else {
+        fd.append(k, String(v));
+      }
+    });
+    const res = await fetch(url, { method: 'POST', body: fd, credentials: 'same-origin' });
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    return true;
+  }
 
-    const r = await fetch(url, { method: 'POST', credentials: 'same-origin', body: fd });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return r;
+  /* ---------------- combination + stock ---------------- */
+  async function getComboInfo(tmplId, productId, ptavIds) {
+    const params = {
+      product_template_id: tmplId,
+      product_id: productId || 0,
+      combination: ptavIds || [],
+      add_qty: 1,
+      pricelist_id: 0,
+      parent_combination: [],
+      only_template: false,
+    };
+
+    for (const u of ['/website_sale/get_combination_info', '/shop/get_combination_info']) {
+      try {
+        const r = await rpc(u, params);
+        if (r && typeof r === 'object') return r;
+      } catch (e) {
+        // try next
+      }
+    }
+    return null;
+  }
+
+  function getStockFromComboInfo(info) {
+    if (!info) return null;
+    const cand = [
+      info.free_qty,
+      info.qty_available,
+      info.virtual_available,
+      info.stock_quantity,
+      info.available_threshold,
+      info.available_qty,
+    ];
+    for (const v of cand) {
+      if (typeof v === 'number') return v;
+      if (typeof v === 'string' && v.trim() !== '' && !isNaN(parseFloat(v))) return parseFloat(v);
+    }
+    return null;
+  }
+
+  /* ---------------- DOM rendering ---------------- */
+  function placeAnchor() {
+    // Anchor rendered by QWeb (preferred). If missing, create it right after the variants block.
+    let anchor = document.getElementById('sp-matrix-anchor');
+    if (anchor) return anchor;
+
+    anchor = document.createElement('div');
+    anchor.id = 'sp-matrix-anchor';
+    anchor.className = 'sp-matrix-anchor';
+    anchor.dataset.spMatrixAnchor = '1';
+
+    const root = getRoot();
+    const variants =
+      root.querySelector('ul.js_add_cart_variants')
+      || root.querySelector('ul.o_wsale_product_page_variants');
+
+    if (variants && variants.parentNode) {
+      variants.parentNode.insertBefore(anchor, variants.nextSibling);
+      return anchor;
+    }
+
+    (root.querySelector('.product_price, .o_wsale_product_price_section')
+      || root.querySelector('.o_wsale_product_page')
+      || root
+    ).appendChild(anchor);
+
+    return anchor;
+  }
+
+  function buildTable(color, size) {
+    const container = document.createElement('div');
+    container.className = 'sp-matrix card card-body shadow-sm';
+
+    const title = document.createElement('div');
+    title.className = 'd-flex align-items-center justify-content-between mb-2';
+    title.innerHTML = `
+      <div class="fw-bold">Stock por variante</div>
+      <button type="button" class="btn btn-primary btn-sm" data-sp-add-all="1">
+        <i class="fa fa-shopping-cart me-1"></i> Añadir selección
+      </button>
+    `;
+    container.appendChild(title);
+
+    const tableWrap = document.createElement('div');
+    tableWrap.className = 'table-responsive';
+    container.appendChild(tableWrap);
+
+    const table = document.createElement('table');
+    table.className = 'table table-sm align-middle sp-matrix__table';
+    tableWrap.appendChild(table);
+
+    const thead = document.createElement('thead');
+    thead.innerHTML = `
+      <tr>
+        <th style="min-width:160px">${(color?.name || 'Color')}</th>
+        ${size.options.map(s => `<th class="text-center" style="min-width:90px">${s.name || ''}</th>`).join('')}
+      </tr>
+    `;
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    table.appendChild(tbody);
+
+    for (const c of color.options) {
+      const tr = document.createElement('tr');
+      tr.dataset.colorId = String(c.id || 0);
+      tr.dataset.colorPtav = String(c.ptavId || c.id || 0);
+
+      const td0 = document.createElement('td');
+      td0.innerHTML = `
+        <div class="d-flex align-items-center gap-2">
+          <div class="sp-color__img rounded border bg-light" style="width:32px;height:32px;overflow:hidden"></div>
+          <div class="sp-color__name small">${c.name || ''}</div>
+        </div>
+      `;
+      tr.appendChild(td0);
+
+      for (const s of size.options) {
+        const td = document.createElement('td');
+        td.className = 'text-center';
+        td.dataset.sizeId = String(s.id || 0);
+        td.dataset.sizePtav = String(s.ptavId || s.id || 0);
+
+        td.innerHTML = `
+          <div class="d-flex flex-column align-items-center gap-1">
+            <div class="sp-stock badge text-bg-secondary" data-sp-stock="1">...</div>
+            <input class="form-control form-control-sm sp-qty text-center" type="number" min="0" step="1" value="0" style="width:70px"/>
+          </div>
+        `;
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+
+    return container;
   }
 
   async function ensureVariantIdFromCell(inp, root) {
-    let vid = parseInt(inp.dataset.variantId || '0', 10);
-    if (vid) return vid;
     const td = inp.closest('td');
     const tr = inp.closest('tr');
-    const sizePtav  = parseInt(td?.dataset.sizePtav || td?.dataset.sizeId || '0', 10);
-    const colorPtav = parseInt(tr?.dataset.colorPtav || tr?.dataset.colorId || '0', 10);
-    const combo = (sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav]).filter(n => n > 0);
-    const info = await getCombo(combo, root).catch(() => null);
-    return getVariantId(info || {});
+    if (!td || !tr) return 0;
+
+    if (td.dataset.variantId) return parseInt(td.dataset.variantId || '0', 10);
+
+    const ctx = readCtx(root);
+    const sizePtav = parseInt(td.dataset.sizePtav || td.dataset.sizeId || '0', 10);
+    const colorPtav = parseInt(tr.dataset.colorPtav || tr.dataset.colorId || '0', 10);
+    const ptavIds = (sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav]).filter(n => n > 0);
+
+    const info = await getComboInfo(ctx.tmplId, ctx.productId, ptavIds);
+    const vid = parseInt(info?.product_id || info?.product_product_id || info?.variant_id || '0', 10);
+    if (vid) {
+      td.dataset.variantId = String(vid);
+      return vid;
+    }
+    return 0;
+  }
+
+  async function renderStocks(root, matrixEl, color, size) {
+    const ctx = readCtx(root);
+    const rows = $$('.sp-matrix__table tbody tr', matrixEl);
+
+    for (const tr of rows) {
+      const colorPtav = parseInt(tr.dataset.colorPtav || tr.dataset.colorId || '0', 10);
+      const tds = $$('td', tr).slice(1);
+
+      // set color image best-effort using any size cell
+      let anyVariantId = 0;
+
+      for (const td of tds) {
+        const sizePtav = parseInt(td.dataset.sizePtav || td.dataset.sizeId || '0', 10);
+        const ptavIds = (sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav]).filter(n => n > 0);
+
+        const info = await getComboInfo(ctx.tmplId, ctx.productId, ptavIds);
+        const stock = getStockFromComboInfo(info);
+        const badge = $('.sp-stock', td);
+        if (badge) {
+          if (stock === null) {
+            badge.textContent = '-';
+            badge.className = 'sp-stock badge text-bg-secondary';
+          } else if (stock <= 0) {
+            badge.textContent = '0';
+            badge.className = 'sp-stock badge text-bg-danger';
+          } else if (stock < 10) {
+            badge.textContent = String(Math.round(stock));
+            badge.className = 'sp-stock badge text-bg-warning';
+          } else {
+            badge.textContent = String(Math.round(stock));
+            badge.className = 'sp-stock badge text-bg-success';
+          }
+        }
+
+        const vid = parseInt(info?.product_id || '0', 10);
+        if (vid) {
+          td.dataset.variantId = String(vid);
+          if (!anyVariantId) anyVariantId = vid;
+        }
+
+        // throttle (API calls)
+        await sleep(40);
+      }
+
+      // Fill color image using variant image route if possible
+      if (anyVariantId) {
+        const imgBox = $('.sp-color__img', tr);
+        if (imgBox && !imgBox.querySelector('img')) {
+          const img = document.createElement('img');
+          img.alt = '';
+          img.style.width = '100%';
+          img.style.height = '100%';
+          img.style.objectFit = 'cover';
+          img.src = `/web/image/product.product/${anyVariantId}/image_128`;
+          imgBox.appendChild(img);
+        }
+      }
+    }
   }
 
   async function addAllToCart(container) {
@@ -347,6 +392,25 @@
     const root   = getRoot();
     const ctx    = readCtx(root);
     const csrf   = getCsrf();
+
+    async function cartUpdateJson(product_id, add_qty) {
+      const payload = {
+        product_id,
+        add_qty,
+        display: false,
+        product_custom_attribute_values: [],
+        no_variant_attribute_values: [],
+      };
+      for (const u of ['/shop/cart/update_json', '/website_sale/cart/update_json']) {
+        try {
+          await rpc(u, payload);
+          return true;
+        } catch (e) {
+          warn('Fallo update_json', u, e.message);
+        }
+      }
+      return false;
+    }
 
     let count = 0;
     for (const inp of inputs) {
@@ -356,26 +420,31 @@
       const product_id = await ensureVariantIdFromCell(inp, root);
       if (!product_id) { warn('Sin variant_id para celda', inp); continue; }
 
-      const td = inp.closest('td');
-      const tr = inp.closest('tr');
-      const sizePtav  = parseInt(td?.dataset.sizePtav || td?.dataset.sizeId || '0', 10);
-      const colorPtav = parseInt(tr?.dataset.colorPtav || tr?.dataset.colorId || '0', 10);
-      const combination = (sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav]).filter(n => n > 0);
+      // 1) Preferimos update_json (no depende de CSRF ni de estructura del form)
+      let ok = await cartUpdateJson(product_id, qty);
 
-      const payload = {
-        product_id,
-        add_qty: qty,
-        product_template_id: ctx.tmplId || undefined,
-        combination,
-        csrf_token: csrf || undefined,
-      };
+      // 2) Fallback: POST clásico al form
+      if (!ok) {
+        const td = inp.closest('td');
+        const tr = inp.closest('tr');
+        const sizePtav  = parseInt(td?.dataset.sizePtav || td?.dataset.sizeId || '0', 10);
+        const colorPtav = parseInt(tr?.dataset.colorPtav || tr?.dataset.colorId || '0', 10);
+        const combination = (sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav]).filter(n => n > 0);
 
-      let ok = false;
-      for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
-        try { await postCartForm(u, payload); ok = true; break; }
-        catch (e) { warn('Fallo FORM', u, e.message); }
+        const payload = {
+          product_id,
+          add_qty: qty,
+          product_template_id: ctx.tmplId || undefined,
+          combination,
+          csrf_token: csrf || undefined,
+        };
+        for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
+          try { await postCartForm(u, payload); ok = true; break; }
+          catch (e) { warn('Fallo FORM', u, e.message); }
+        }
       }
-      if (!ok) warn('NO se pudo añadir', payload);
+
+      if (!ok) warn('NO se pudo añadir', {product_id, qty});
       else count++;
     }
 
@@ -383,11 +452,32 @@
   }
 
   /* ---------------- boot ---------------- */
-  function start(){
-    injectStyles();                             // <- estilos una vez
-    if ($('.o_wsale_product_page')) buildMatrix();
+  async function boot() {
+    const root = getRoot();
+    const blocks = getBlocks(root);
+    if (!blocks.length) return;
+
+    const { color, size } = pickColorSize(blocks);
+    if (!color || !size || !color.options?.length || !size.options?.length) return;
+
+    const anchor = placeAnchor();
+    if (!anchor) return;
+
+    anchor.innerHTML = '';
+    const table = buildTable(color, size);
+    anchor.appendChild(table);
+
+    // wire click
+    table.querySelector('[data-sp-add-all]')?.addEventListener('click', () => addAllToCart(table));
+
+    // render stock
+    try {
+      await renderStocks(root, table, color, size);
+    } catch (e) {
+      warn('renderStocks error', e);
+    }
   }
-  (document.readyState === 'loading')
-    ? document.addEventListener('DOMContentLoaded', start, { once:true })
-    : start();
+
+  // wait DOM + variants widget
+  document.addEventListener('DOMContentLoaded', () => boot());
 })();
