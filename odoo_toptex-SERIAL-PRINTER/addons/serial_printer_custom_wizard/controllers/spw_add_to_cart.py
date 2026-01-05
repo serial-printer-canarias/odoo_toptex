@@ -1,164 +1,136 @@
 # -*- coding: utf-8 -*-
-from odoo import http, _
+from odoo import http
 from odoo.http import request
-from base64 import b64decode
-import time
-import re
+import base64
+import json
+from datetime import datetime
 
-def _to_int(v, dflt=0):
+
+def _safe_int(v, default=0):
     try:
         return int(v)
     except Exception:
-        return dflt
+        return default
 
 
-class SpwCartController(http.Controller):
+class SpwAddToCart(http.Controller):
 
-    # ====== 1) Crear/actualizar línea con metadatos ======
-    @http.route(['/spw/add_to_cart_meta'], type='json', auth='public', methods=['POST'], csrf=False)
-    def spw_add_to_cart_meta(self, **kw):
-        """Crea o actualiza una línea en el carrito y guarda metadatos simples
-        (técnica, color SVG, notas). Devuelve line_id y la URL del carrito."""
-        vals = request.jsonrequest or {}
-        variant_id = _to_int(vals.get('variant_id'))
-        qty        = _to_int(vals.get('qty', 1), 1)
-        tech       = (vals.get('tech') or '').strip()
-        svg_color  = (vals.get('svg_color') or '').strip()
-        notes      = (vals.get('notes') or '').strip()
+    def _read_payload(self, post):
+        # 1) JSON body (fetch con Content-Type: application/json)
+        if request.httprequest.mimetype == 'application/json':
+            try:
+                raw = request.httprequest.get_data(cache=False, as_text=True) or '{}'
+                return json.loads(raw) or {}
+            except Exception:
+                return {}
+        # 2) Form-urlencoded / multipart
+        return post or {}
 
-        if not variant_id or qty <= 0:
-            return {'ok': False, 'message': _('Bad payload')}
+    # ----------- API: añade al carrito + guarda metadatos -----------
+    @http.route('/spw/add_to_cart_meta', type='http', auth='public', website=True, csrf=False, methods=['POST'])
+    def spw_add_to_cart_meta(self, **post):
+        vals = self._read_payload(post)
+
+        variant_id = _safe_int(vals.get('variant_id') or vals.get('product_id'))
+        qty = float(vals.get('qty') or vals.get('add_qty') or 1)
+
+        tech = (vals.get('tech') or '').strip()
+        svg_color = (vals.get('svg_color') or '').strip()
+        notes = (vals.get('notes') or '').strip()
+
+        if not variant_id:
+            return request.make_json_response({'ok': False, 'error': 'variant_id missing'}, status=400)
 
         order = request.website.sale_get_order(force_create=True)
-        product = request.env['product.product'].sudo().browse(variant_id).exists()
-        if not product:
-            return {'ok': False, 'message': _('Product not found')}
+        res = order._cart_update(product_id=variant_id, add_qty=qty)
 
-        # _cart_update crea/actualiza línea
-        res = order._cart_update(product_id=product.id, add_qty=qty)
-        line_id = res.get('line_id')
-        if not line_id:
-            return {'ok': False, 'message': _('Could not add line')}
+        line_id = res.get('line_id') if isinstance(res, dict) else None
+        line_id = _safe_int(line_id)
 
-        line = request.env['sale.order.line'].sudo().browse(line_id)
+        if line_id:
+            line = request.env['sale.order.line'].sudo().browse(line_id).exists()
+            if line:
+                line.write({
+                    'spw_tech': tech,
+                    'spw_svg_color': svg_color,
+                    'spw_notes': notes,
+                })
 
-        # Guarda metadatos "últimos" en campos simples (no listas)
-        line_vals = {
-            'spw_tech': tech or False,
-            'spw_svg_color': svg_color or False,
-            'spw_notes': notes or False,
-        }
-        line.sudo().write(line_vals)
+        return request.make_json_response({
+            'ok': True,
+            'line_id': line_id,
+            'cart_url': '/shop/cart',
+        })
 
-        # Asegurar que la descripción visible incluya Técnica/Color como histórico (una línea por personalización)
-        # No duplicamos si ya existe la pareja exacta.
-        base_name = (line.name or '').strip()
-        tech_line  = f"Técnica: {tech}" if tech else ""
-        color_line = f"Color SVG: {svg_color}" if svg_color else ""
-        block = "\n".join([s for s in [tech_line, color_line] if s])
-        if block and block not in base_name:
-            new_name = (base_name + ("\n" if base_name else "") + block).strip()
-            line.sudo().write({'name': new_name})
+    # ----------- API: adjunta PNG a la línea -----------
+    @http.route('/spw/attach_png', type='http', auth='public', website=True, csrf=False, methods=['POST'])
+    def spw_attach_png(self, **post):
+        vals = self._read_payload(post)
 
-        return {'ok': True, 'line_id': line_id, 'cart_url': '/shop/cart'}
+        line_id = _safe_int(vals.get('line_id'))
+        png_b64 = (vals.get('png_b64') or '').strip()
 
-    # ====== 2) Adjuntar PNG a la línea (acumulando) ======
-    @http.route(['/spw/attach_png'], type='json', auth='public', methods=['POST'], csrf=False)
-    def spw_attach_png(self, **kw):
-        """Adjunta un PNG (en base64) a la línea del carrito y guarda la
-        referencia más reciente en spw_png_attachment_id. NO borra anteriores."""
-        data = request.jsonrequest or {}
-        line_id = _to_int(data.get('line_id'))
-        png_b64 = (data.get('png_b64') or '').strip()
         if not line_id or not png_b64:
-            return {'ok': False, 'message': _('Missing data')}
+            return request.make_json_response({'ok': False, 'error': 'line_id/png_b64 missing'}, status=400)
 
         line = request.env['sale.order.line'].sudo().browse(line_id).exists()
         if not line:
-            return {'ok': False, 'message': _('Line not found')}
+            return request.make_json_response({'ok': False, 'error': 'line not found'}, status=404)
 
-        att_name = f"spw_line_{line.id}_{int(time.time())}.png"
-        att_vals = {
-            'name': att_name,
-            'res_model': 'sale.order.line',
-            'res_id': line.id,
+        raw = base64.b64decode(png_b64)
+        att = request.env['ir.attachment'].sudo().create({
+            'name': f"spw_{line_id}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.png",
             'type': 'binary',
+            'datas': base64.b64encode(raw),
             'mimetype': 'image/png',
-            'datas': png_b64,  # ya viene en base64
-        }
-        att = request.env['ir.attachment'].sudo().create(att_vals)
-        # guardamos el último para compatibilidad
-        line.sudo().write({'spw_png_attachment_id': att.id})
-        return {'ok': True, 'attachment_id': att.id}
+            'res_model': 'sale.order.line',
+            'res_id': line_id,
+        })
+        line.write({'spw_png_attachment_id': att.id})
 
-    # Fallback por POST clásico (si el fetch JSON no funciona)
-    @http.route(['/spw/attach_png_http'], type='http', auth='public', methods=['POST'], csrf=False)
-    def spw_attach_png_http(self, **post):
-        try:
-            result = self.spw_attach_png()
-            return request.make_json_response(result)
-        except Exception as e:
-            return request.make_json_response({'ok': False, 'message': str(e)})
+        return request.make_json_response({
+            'ok': True,
+            'line_id': line_id,
+            'attachment_id': att.id,
+        })
 
-    @http.route(['/spw/add_to_cart_meta_http'], type='http', auth='public', methods=['POST'], csrf=False)
-    def spw_add_to_cart_meta_http(self, **post):
-        try:
-            result = self.spw_add_to_cart_meta()
-            return request.make_json_response(result)
-        except Exception as e:
-            return request.make_json_response({'ok': False, 'message': str(e)})
-
-    # ====== 3) PREVIEWs: i-ésimo PNG y JSON con todas las personalizaciones ======
-
-    def _attachments_for_line(self, line):
-        return request.env['ir.attachment'].sudo().search([
-            ('res_model', '=', 'sale.order.line'),
-            ('res_id', '=', line.id),
-            ('mimetype', '=', 'image/png'),
-            ('name', 'ilike', 'spw_line_%'),
-        ], order='id ASC')
-
-    def _parse_blocks_from_name(self, name_text):
-        """Devuelve listas indexadas de técnicas y colores encontradas en line.name."""
-        txt = name_text or ''
-        techs  = re.findall(r'Técnica\s*:\s*([^\n\r]+)', txt)
-        colors = re.findall(r'Color\s*SVG\s*:\s*(#[0-9a-fA-F]{3,8})', txt)
-        return techs, colors
-
-    @http.route(['/spw/line_preview/<int:line_id>/<int:i>.png',
-                 '/spw/line_preview/<int:line_id>.png'], type='http', auth='public', methods=['GET'], csrf=False)
-    def spw_line_preview(self, line_id, i=1, **kw):
-        """Devuelve el PNG N (1-indexado) de la línea; si no hay, imagen 1x1."""
+    # ----------- API: metadatos para preview del carrito -----------
+    @http.route('/spw/line_personalizations/<int:line_id>', type='http', auth='public', website=True, csrf=False)
+    def spw_line_personalizations(self, line_id, **kw):
         line = request.env['sale.order.line'].sudo().browse(line_id).exists()
         if not line:
+            return request.make_json_response({'ok': False, 'personalizations': []}, status=404)
+
+        pers = [{
+            'tech': line.spw_tech or '',
+            'svg_color': line.spw_svg_color or '',
+            'notes': line.spw_notes or '',
+            'png_url': f"/spw/line_preview/{line.id}.png" if line.spw_png_attachment_id else '',
+        }]
+        return request.make_json_response({'ok': True, 'personalizations': pers})
+
+    # ----------- Preview PNG -----------
+    @http.route(['/spw/line_preview/<int:line_id>.png', '/spw/line_preview/<int:line_id>/<int:i>.png'],
+                type='http', auth='public', website=True, csrf=False)
+    def spw_line_preview(self, line_id, i=0, **kw):
+        line = request.env['sale.order.line'].sudo().browse(line_id).exists()
+        att = line.spw_png_attachment_id if line else False
+        if not att:
             return request.not_found()
 
-        atts = self._attachments_for_line(line)
-        att = atts[i-1] if (i and i-1 < len(atts)) else (line.sudo().spw_png_attachment_id or (atts[:1] and atts[:1][0]))
-        if not att:
-            tiny = b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAEklEQVR42mP8/5+hHgAHggJ/2k7O6wAAAABJRU5ErkJggg==")
-            return request.make_response(tiny, headers=[('Content-Type', 'image/png')])
+        raw = base64.b64decode(att.datas or b'')
+        headers = [
+            ('Content-Type', 'image/png'),
+            ('Content-Length', str(len(raw))),
+            ('Cache-Control', 'no-cache, no-store, must-revalidate'),
+        ]
+        return request.make_response(raw, headers=headers)
 
-        data = b64decode(att.datas)
-        return request.make_response(data, headers=[('Content-Type', 'image/png')])
+    # ----------- Legacy endpoints -----------
+    @http.route('/spw/add_to_cart_meta_http', type='http', auth='public', website=True, csrf=False, methods=['POST'])
+    def spw_add_to_cart_meta_http(self, **post):
+        return self.spw_add_to_cart_meta(**post)
 
-    @http.route(['/spw/line_personalizations/<int:line_id>'], type='http', auth='public', methods=['GET'], csrf=False)
-    def spw_line_personalizations(self, line_id, **kw):
-        """JSON con [{img, color, tech}] para pintar en el carrito en vertical."""
-        line = request.env['sale.order.line'].sudo().browse(line_id).exists()
-        if not line:
-            return request.make_json_response({'ok': False, 'items': []})
-
-        atts  = self._attachments_for_line(line)
-        techs, colors = self._parse_blocks_from_name(line.name or "")
-
-        n = max(len(atts), len(techs), len(colors), 1)
-        items = []
-        ts = int(time.time())
-        for idx in range(n):
-            img_url = '/spw/line_preview/%d/%d.png?v=%d' % (line.id, idx+1, ts)
-            tech = (techs[idx] if idx < len(techs) else (techs[-1] if techs else "")) or ""
-            col  = (colors[idx] if idx < len(colors) else (colors[-1] if colors else "")) or ""
-            items.append({'img': img_url, 'tech': tech, 'color': col})
-
-        return request.make_json_response({'ok': True, 'items': items})
+    @http.route('/spw/attach_png_http', type='http', auth='public', website=True, csrf=False, methods=['POST'])
+    def spw_attach_png_http(self, **post):
+        return self.spw_attach_png(**post)
