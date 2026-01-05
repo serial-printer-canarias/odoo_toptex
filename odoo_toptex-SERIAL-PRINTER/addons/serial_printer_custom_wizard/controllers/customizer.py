@@ -36,4 +36,3 @@ class SpwCustomizer(http.Controller):
             ('Cache-Control', 'no-cache, no-store, must-revalidate'),
         ]
         return request.make_response(raw, headers=headers)
-EOF
