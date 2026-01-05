@@ -1,10 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-  <template id="sp_matrix_anchor_product"
-            inherit_id="website_sale.product"
-            name="SP Matrix Anchor (product)"
+  <template id="sp_matrix_anchor"
+            inherit_id="website_sale.variants"
+            name="SP Matrix Anchor (Odoo 19)"
             priority="99">
-    <xpath expr="//div[contains(@class, 'o_wsale_product_page')]" position="inside">
-      <div id="sp-matrix-anchor" class="sp-matrix-anchor" data-sp-matrix-anchor="1"/>
+    <xpath expr="//ul[contains(@t-attf-class, 'js_add_cart_variants')]" position="after">
+      <div id="sp-matrix-anchor" class="sp-matrix-anchor mt-3" data-sp-matrix-anchor="1"/>
     </xpath>
   </template>
 </odoo>
