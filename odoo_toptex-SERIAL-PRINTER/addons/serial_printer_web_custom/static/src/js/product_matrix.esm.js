@@ -5,6 +5,8 @@
   - Allows bulk add-to-cart
 */
 (function () {
+  'use strict';
+
   const log = (...a) => console.log('[SP-MATRIX]', ...a);
   const warn = (...a) => console.warn('[SP-MATRIX]', ...a);
 
@@ -17,6 +19,7 @@
     return (
       document.querySelector('.o_wsale_product_page') ||
       document.querySelector('.js_product') ||
+      document.querySelector('#wrapwrap') ||
       document
     );
   }
@@ -38,9 +41,29 @@
       root.querySelector('.js_product[data-product-template-id]') ||
       root.querySelector('.js_product') ||
       root;
+
     const ds = el?.dataset || {};
-    const tmplId = parseInt(ds.productTemplateId || ds.product_template_id || ds.productTemplate || '0', 10);
-    const productId = parseInt(ds.productProductId || ds.product_product_id || ds.productProduct || '0', 10);
+
+    // product template
+    const tmplId = parseInt(
+      ds.productTemplateId ||
+      ds.product_template_id ||
+      ds.productTemplate ||
+      root.querySelector('input[name="product_template_id"]')?.value ||
+      '0',
+      10
+    ) || 0;
+
+    // current variant (if available)
+    const productId = parseInt(
+      ds.productProductId ||
+      ds.product_product_id ||
+      ds.productProduct ||
+      root.querySelector('input[name="product_id"]')?.value ||
+      '0',
+      10
+    ) || 0;
+
     return { tmplId, productId };
   }
 
@@ -52,41 +75,69 @@
     return { id, ptavId: ptav || null, avId: av || null };
   }
 
+  function normalizeLabel(s) {
+    return String(s || '').replace(/\s+/g, ' ').trim();
+  }
+
   function getBlocks(root) {
     const blocks = [];
+
     // Odoo 19: <li name="variant_attribute" data-attribute-name="..." data-attribute-display-type="...">
     // Odoo <=18: legacy selectors kept as fallback.
     const containers = root.querySelectorAll(
       '[name="variant_attribute"][data-attribute-name], .variant_attribute[data-attribute-name], .o_wsale_product_attribute[data-attribute-name], [data-attribute_name]'
     );
+
     containers.forEach(el => {
       const name = (
-        el.dataset.attributeName
-        || el.getAttribute('data-attribute-name')
-        || el.dataset.attribute_name
-        || el.getAttribute('data-attribute_name')
-        || ''
+        el.dataset.attributeName ||
+        el.getAttribute('data-attribute-name') ||
+        el.dataset.attribute_name ||
+        el.getAttribute('data-attribute_name') ||
+        ''
       ).toString().trim();
 
       const displayType = (
-        el.dataset.attributeDisplayType
-        || el.getAttribute('data-attribute-display-type')
-        || el.dataset.displayType
-        || el.getAttribute('data-display-type')
-        || ''
+        el.dataset.attributeDisplayType ||
+        el.getAttribute('data-attribute-display-type') ||
+        el.dataset.displayType ||
+        el.getAttribute('data-display-type') ||
+        ''
       ).toString().trim();
 
       const options = [];
+
+      // 1) Inputs (radio/checkbox)
       el.querySelectorAll('input[type="radio"],input[type="checkbox"]').forEach(inp => {
         const o = readIdsFromInput(inp);
         const labelEl = inp.closest('label');
-        let label = (labelEl ? labelEl.textContent : '') || inp.title || inp.getAttribute('aria-label') || '';
-        label = String(label).replace(/\s+/g, ' ').trim();
+        const label = normalizeLabel((labelEl ? labelEl.textContent : '') || inp.title || inp.getAttribute('aria-label') || '');
         if (o.id) options.push({ name: label, ...o });
       });
 
-      if (options.length) blocks.push({ name, displayType, options, el });
+      // 2) Selects (display_type = select)
+      el.querySelectorAll('select.js_variant_change, select.css_attribute_select, select').forEach(sel => {
+        sel.querySelectorAll('option').forEach(opt => {
+          const id = parseInt(opt.value || '0', 10);
+          if (!id) return;
+          const label = normalizeLabel(opt.textContent);
+          options.push({ id, ptavId: id, avId: null, name: label });
+        });
+      });
+
+      // De-dup by id (because some themes duplicate nodes)
+      const seen = new Set();
+      const uniq = [];
+      for (const o of options) {
+        const k = String(o.id || 0);
+        if (!o.id || seen.has(k)) continue;
+        seen.add(k);
+        uniq.push(o);
+      }
+
+      if (uniq.length) blocks.push({ name, displayType, options: uniq, el });
     });
+
     return blocks;
   }
 
@@ -104,7 +155,6 @@
       if (ia !== -1 && ib !== -1) return ia - ib;
       if (ia !== -1) return -1;
       if (ib !== -1) return 1;
-      // numeric sizes
       const na = parseInt(A, 10);
       const nb = parseInt(B, 10);
       if (!isNaN(na) && !isNaN(nb)) return na - nb;
@@ -113,10 +163,10 @@
   }
 
   function pickColorSize(blocks) {
-    const isColorName = n => /color|couleur|farbe|colou?r|colore|kleur/i.test(n||'');
-    const isSizeName  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n||'');
+    const isColorName = n => /color|couleur|farbe|colou?r|colore|kleur/i.test(n || '');
+    const isSizeName  = n => /size|talla|taille|größe|grosse|taglia|maat/i.test(n || '');
 
-    const isColor = b => ['color', 'image'].includes(String(b.displayType||'').toLowerCase()) || isColorName(b.name);
+    const isColor = b => ['color', 'image'].includes(String(b.displayType || '').toLowerCase()) || isColorName(b.name);
     const isSize  = b => isSizeName(b.name);
 
     let color = blocks.find(isColor);
@@ -124,13 +174,13 @@
 
     // Si solo hay 1 atributo (ej: solo Color), creamos "Talla única" para poder mostrar matriz y sumar al carrito.
     if (!size && blocks.length === 1) {
-      size = { name: 'One Size', options: [{ id:-1, name:'One Size', ptavId:null }], _synthetic:true };
+      size = { name: 'One Size', options: [{ id: -1, name: 'One Size', ptavId: null }], _synthetic: true };
       if (!color) color = blocks[0];
     }
 
     // Fallback simple
     if (!color && blocks.length) color = blocks[0];
-    if (!size  && blocks.length > 1) size  = blocks[1];
+    if (!size && blocks.length > 1) size = blocks[1];
 
     if (size && Array.isArray(size.options)) size = { ...size, options: sortSizes(size.options) };
     return { color, size };
@@ -158,11 +208,8 @@
     const fd = new FormData();
     Object.entries(payload || {}).forEach(([k, v]) => {
       if (v === undefined || v === null) return;
-      if (Array.isArray(v)) {
-        v.forEach(x => fd.append(k, String(x)));
-      } else {
-        fd.append(k, String(v));
-      }
+      if (Array.isArray(v)) v.forEach(x => fd.append(k, String(x)));
+      else fd.append(k, String(v));
     });
     const res = await fetch(url, { method: 'POST', body: fd, credentials: 'same-origin' });
     if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
@@ -171,6 +218,8 @@
 
   /* ---------------- combination + stock ---------------- */
   async function getComboInfo(tmplId, productId, ptavIds) {
+    if (!tmplId) return null;
+
     const params = {
       product_template_id: tmplId,
       product_id: productId || 0,
@@ -210,8 +259,17 @@
   }
 
   /* ---------------- DOM rendering ---------------- */
+  function findVariantsUl(root) {
+    return (
+      root.querySelector('ul.js_add_cart_variants') ||
+      root.querySelector('ul.o_wsale_product_page_variants') ||
+      document.querySelector('ul.js_add_cart_variants') ||
+      document.querySelector('ul.o_wsale_product_page_variants')
+    );
+  }
+
   function placeAnchor() {
-    // Anchor rendered by QWeb (preferred). If missing, create it right after the variants block.
+    // Prefer anchor rendered by QWeb. If missing, create it right after the variants block.
     let anchor = document.getElementById('sp-matrix-anchor');
     if (anchor) return anchor;
 
@@ -221,18 +279,16 @@
     anchor.dataset.spMatrixAnchor = '1';
 
     const root = getRoot();
-    const variants =
-      root.querySelector('ul.js_add_cart_variants')
-      || root.querySelector('ul.o_wsale_product_page_variants');
+    const variants = findVariantsUl(root);
 
     if (variants && variants.parentNode) {
       variants.parentNode.insertBefore(anchor, variants.nextSibling);
       return anchor;
     }
 
-    (root.querySelector('.product_price, .o_wsale_product_price_section')
-      || root.querySelector('.o_wsale_product_page')
-      || root
+    (root.querySelector('.product_price, .o_wsale_product_price_section') ||
+      root.querySelector('.o_wsale_product_page') ||
+      root
     ).appendChild(anchor);
 
     return anchor;
@@ -327,7 +383,7 @@
     return 0;
   }
 
-  async function renderStocks(root, matrixEl, color, size) {
+  async function renderStocks(root, matrixEl) {
     const ctx = readCtx(root);
     const rows = $$('.sp-matrix__table tbody tr', matrixEl);
 
@@ -335,7 +391,6 @@
       const colorPtav = parseInt(tr.dataset.colorPtav || tr.dataset.colorId || '0', 10);
       const tds = $$('td', tr).slice(1);
 
-      // set color image best-effort using any size cell
       let anyVariantId = 0;
 
       for (const td of tds) {
@@ -345,6 +400,7 @@
         const info = await getComboInfo(ctx.tmplId, ctx.productId, ptavIds);
         const stock = getStockFromComboInfo(info);
         const badge = $('.sp-stock', td);
+
         if (badge) {
           if (stock === null) {
             badge.textContent = '-';
@@ -367,11 +423,9 @@
           if (!anyVariantId) anyVariantId = vid;
         }
 
-        // throttle (API calls)
-        await sleep(40);
+        await sleep(30);
       }
 
-      // Fill color image using variant image route if possible
       if (anyVariantId) {
         const imgBox = $('.sp-color__img', tr);
         if (imgBox && !imgBox.querySelector('img')) {
@@ -387,30 +441,31 @@
     }
   }
 
+  async function cartUpdateJson(product_id, add_qty) {
+    const payload = {
+      product_id,
+      add_qty,
+      set_qty: 0,
+      display: false,
+      product_custom_attribute_values: [],
+      no_variant_attribute_values: [],
+    };
+    for (const u of ['/shop/cart/update_json', '/website_sale/cart/update_json']) {
+      try {
+        await rpc(u, payload);
+        return true;
+      } catch (e) {
+        warn('Fallo update_json', u, e.message);
+      }
+    }
+    return false;
+  }
+
   async function addAllToCart(container) {
     const inputs = container.querySelectorAll('.sp-qty');
-    const root   = getRoot();
-    const ctx    = readCtx(root);
-    const csrf   = getCsrf();
-
-    async function cartUpdateJson(product_id, add_qty) {
-      const payload = {
-        product_id,
-        add_qty,
-        display: false,
-        product_custom_attribute_values: [],
-        no_variant_attribute_values: [],
-      };
-      for (const u of ['/shop/cart/update_json', '/website_sale/cart/update_json']) {
-        try {
-          await rpc(u, payload);
-          return true;
-        } catch (e) {
-          warn('Fallo update_json', u, e.message);
-        }
-      }
-      return false;
-    }
+    const root = getRoot();
+    const ctx = readCtx(root);
+    const csrf = getCsrf();
 
     let count = 0;
     for (const inp of inputs) {
@@ -420,62 +475,126 @@
       const product_id = await ensureVariantIdFromCell(inp, root);
       if (!product_id) { warn('Sin variant_id para celda', inp); continue; }
 
-      // 1) Preferimos update_json (no depende de CSRF ni de estructura del form)
-      let ok = await cartUpdateJson(product_id, qty);
+      // 1) Preferimos update_json (Odoo 19, robusto)
+      const okJson = await cartUpdateJson(product_id, qty);
+      if (okJson) { count++; continue; }
 
       // 2) Fallback: POST clásico al form
-      if (!ok) {
-        const td = inp.closest('td');
-        const tr = inp.closest('tr');
-        const sizePtav  = parseInt(td?.dataset.sizePtav || td?.dataset.sizeId || '0', 10);
-        const colorPtav = parseInt(tr?.dataset.colorPtav || tr?.dataset.colorId || '0', 10);
-        const combination = (sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav]).filter(n => n > 0);
+      const td = inp.closest('td');
+      const tr = inp.closest('tr');
+      const sizePtav = parseInt(td?.dataset.sizePtav || td?.dataset.sizeId || '0', 10);
+      const colorPtav = parseInt(tr?.dataset.colorPtav || tr?.dataset.colorId || '0', 10);
+      const combination = (sizePtav > 0 ? [colorPtav, sizePtav] : [colorPtav]).filter(n => n > 0);
 
-        const payload = {
-          product_id,
-          add_qty: qty,
-          product_template_id: ctx.tmplId || undefined,
-          combination,
-          csrf_token: csrf || undefined,
-        };
-        for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
-          try { await postCartForm(u, payload); ok = true; break; }
-          catch (e) { warn('Fallo FORM', u, e.message); }
-        }
+      const payload = {
+        product_id,
+        add_qty: qty,
+        product_template_id: ctx.tmplId || undefined,
+        combination,
+        csrf_token: csrf || undefined,
+      };
+
+      let ok = false;
+      for (const u of ['/shop/cart/update', '/website_sale/cart/update']) {
+        try { await postCartForm(u, payload); ok = true; break; }
+        catch (e) { warn('Fallo FORM', u, e.message); }
       }
 
-      if (!ok) warn('NO se pudo añadir', {product_id, qty});
+      if (!ok) warn('NO se pudo añadir', { product_id, qty });
       else count++;
     }
 
     if (count > 0) window.location.reload();
   }
 
-  /* ---------------- boot ---------------- */
-  async function boot() {
+  async function bootOnce() {
     const root = getRoot();
+    const ctx = readCtx(root);
+
+    // Si todavía no hay bloque de variantes, no arrancamos
+    const variantsUl = findVariantsUl(root);
+    if (!variantsUl) return false;
+
     const blocks = getBlocks(root);
-    if (!blocks.length) return;
+    if (!blocks.length) return false;
 
     const { color, size } = pickColorSize(blocks);
-    if (!color || !size || !color.options?.length || !size.options?.length) return;
+    if (!color || !size || !color.options?.length || !size.options?.length) return false;
 
     const anchor = placeAnchor();
-    if (!anchor) return;
+    if (!anchor) return false;
 
+    // Render
     anchor.innerHTML = '';
     const table = buildTable(color, size);
     anchor.appendChild(table);
 
-    // wire click
+    // events
     table.querySelector('[data-sp-add-all]')?.addEventListener('click', () => addAllToCart(table));
 
-    // render stock
+    // stock
     try {
-      await renderStocks(root, table, color, size);
+      if (ctx.tmplId) await renderStocks(root, table);
+      else warn('tmplId=0, no se puede consultar get_combination_info todavía');
     } catch (e) {
       warn('renderStocks error', e);
     }
+
+    return true;
+  }
+
+  let _booting = false;
+  async function bootWithRetry() {
+    if (_booting) return;
+    _booting = true;
+
+    // Reintentos para Odoo 19 (DOM de variantes puede cargarse después)
+    for (let i = 0; i < 30; i++) {
+      try {
+        const ok = await bootOnce();
+        if (ok) { _booting = false; return; }
+      } catch (e) {
+        warn('boot error', e);
+      }
+      await sleep(250);
+    }
+    _booting = false;
+  }
+
+  function attachObserver() {
+    const root = getRoot();
+    const target = root === document ? document.body : root;
+    if (!target || target.__spMatrixObs) return;
+    target.__spMatrixObs = true;
+
+    const obs = new MutationObserver(() => {
+      const variantsUl = findVariantsUl(getRoot());
+      if (variantsUl && !document.getElementById('sp-matrix-anchor')) {
+        // si llega el UL primero, ancla y render
+        placeAnchor();
+      }
+      bootWithRetry();
+    });
+
+    obs.observe(target, { childList: true, subtree: true });
+  }
+
+  // --- init ---
+  log('loaded');
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      attachObserver();
+      bootWithRetry();
+    });
+  } else {
+    attachObserver();
+    bootWithRetry();
+  }
+
+  window.addEventListener('pageshow', () => bootWithRetry());
+})();
+
   }
 
   // wait DOM + variants widget
