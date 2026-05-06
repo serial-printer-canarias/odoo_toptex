@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="portal_personalization_form" name="Serial Printer Personalization Form">
+        <t t-call="website.layout">
+            <div class="container my-5">
+                <style>
+                    .sp-blue { color:#1f3cff; }
+                    .sp-btn { background:#1f3cff; color:white; border-radius:12px; padding:10px 16px; border:0; font-weight:700; }
+                    .sp-card { border:1px solid #d9e1f2; border-radius:24px; padding:20px; background:white; margin-bottom:20px; }
+                    .sp-soft { background:#f6f8ff; }
+                    .sp-preview { max-height:130px; max-width:100%; object-fit:contain; }
+                    .sp-pill { border:1px solid #d9e1f2; background:#eef3ff; border-radius:999px; padding:4px 10px; display:inline-block; font-size:12px; font-weight:700; }
+                </style>
+                <div class="sp-card">
+                    <h1 class="sp-blue">Ficha de personalización</h1>
+                    <p>Cliente: <strong><t t-esc="personalization.partner_id.name"/></strong></p>
+                    <p>Referencia: <strong><t t-esc="personalization.name"/></strong></p>
+                    <p>Rellena la personalización de cada producto. Si una prenda lleva pecho, espalda y cuello, sube el archivo correspondiente en cada ubicación.</p>
+                </div>
+                <t t-foreach="personalization.group_ids" t-as="group">
+                    <div class="sp-card">
+                        <div class="row">
+                            <div class="col-md-2">
+                                <t t-if="group.product_image_1920">
+                                    <img t-att-src="'/web/image/sp.personalization.group/%s/product_image_1920' % group.id" style="max-width:100%; border-radius:18px;"/>
+                                </t>
+                            </div>
+                            <div class="col-md-8">
+                                <h3><t t-esc="group.product_name"/></h3>
+                                <p>Ref. <strong><t t-esc="group.product_ref"/></strong> · Color prenda: <strong><t t-esc="group.color_name"/></strong></p>
+                                <p>Cantidad: <strong><t t-esc="group.qty_total"/></strong> · Tallas: <strong><t t-esc="group.size_summary"/></strong></p>
+                            </div>
+                            <div class="col-md-2 text-end">
+                                <form method="post">
+                                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                    <input type="hidden" name="action" value="add_marking"/>
+                                    <input type="hidden" name="group_id" t-att-value="group.id"/>
+                                    <button class="sp-btn" type="submit">Añadir marcaje</button>
+                                </form>
+                            </div>
+                        </div>
+                        <t t-foreach="group.marking_ids" t-as="marking">
+                            <form method="post" enctype="multipart/form-data" class="sp-soft mt-4 p-4" style="border-radius:20px;">
+                                <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                <input type="hidden" name="action" value="save_marking"/>
+                                <input type="hidden" name="marking_id" t-att-value="marking.id"/>
+                                <h4>Marcaje:<input type="text" name="name" t-att-value="marking.name" class="form-control"/></h4>
+                                <div class="row mt-3">
+                                    <div class="col-md-3"><label>Técnica</label><select name="technique" class="form-control"><t t-foreach="technique_options" t-as="opt"><option t-att-value="opt[0]" t-att-selected="opt[0] == marking.technique"><t t-esc="opt[1]"/></option></t></select></div>
+                                    <div class="col-md-3"><label>Posición</label><select name="position" class="form-control"><t t-foreach="position_options" t-as="opt"><option t-att-value="opt[0]" t-att-selected="opt[0] == marking.position"><t t-esc="opt[1]"/></option></t></select><small>Guarda para actualizar las ubicaciones.</small></div>
+                                    <div class="col-md-3"><label>Color tinta/hilo</label><select name="print_color" class="form-control"><t t-foreach="color_options" t-as="opt"><option t-att-value="opt[0]" t-att-selected="opt[0] == marking.print_color"><t t-esc="opt[1]"/></option></t></select></div>
+                                    <div class="col-md-3"><label>Tamaño</label><select name="size_mode" class="form-control"><t t-foreach="size_mode_options" t-as="opt"><option t-att-value="opt[0]" t-att-selected="opt[0] == marking.size_mode"><t t-esc="opt[1]"/></option></t></select></div>
+                                </div>
+                                <div class="row mt-3">
+                                    <div class="col-md-3"><label>Ancho cm</label><input type="number" step="0.1" name="width_cm" t-att-value="marking.width_cm" class="form-control"/></div>
+                                    <div class="col-md-3"><label>Alto cm</label><input type="number" step="0.1" name="height_cm" t-att-value="marking.height_cm" class="form-control"/></div>
+                                </div>
+                                <h5 class="mt-4">Reparto de tallas</h5>
+                                <div class="row">
+                                    <t t-foreach="marking.size_line_ids" t-as="size_line">
+                                        <div class="col-md-2"><label><t t-esc="size_line.size_name"/></label><input type="number" step="1" class="form-control" t-att-name="'size_qty_%s' % size_line.id" t-att-value="size_line.qty"/></div>
+                                    </t>
+                                </div>
+                                <h5 class="mt-4">Archivos por ubicación</h5>
+                                <div class="row">
+                                    <t t-foreach="marking.placement_ids" t-as="placement">
+                                        <div class="col-md-4">
+                                            <div class="sp-card">
+                                                <h6><t t-esc="placement.placement_label"/></h6>
+                                                <t t-if="placement.preview_image"><img t-att-src="'/web/image/sp.personalization.placement/%s/preview_image' % placement.id" class="sp-preview"/></t>
+                                                <t t-else=""><p class="text-muted">Sin preview</p></t>
+                                                <label class="mt-2">Archivo producción</label><input type="file" class="form-control" t-att-name="'production_%s' % placement.id"/>
+                                                <label class="mt-2">Preview visible</label><input type="file" class="form-control" t-att-name="'preview_%s' % placement.id"/>
+                                                <small>Producción: <t t-esc="placement.production_filename or 'pendiente'"/></small>
+                                            </div>
+                                        </div>
+                                    </t>
+                                </div>
+                                <div class="mt-3"><label>Observaciones</label><textarea name="notes" class="form-control" rows="3"><t t-esc="marking.notes or ''"/></textarea></div>
+                                <button type="submit" class="sp-btn mt-3">Guardar marcaje</button>
+                            </form>
+                        </t>
+                    </div>
+                </t>
+                <form method="post" class="sp-card">
+                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                    <input type="hidden" name="action" value="confirm"/>
+                    <label>Notas generales del cliente</label>
+                    <textarea name="customer_notes" class="form-control" rows="4"><t t-esc="personalization.customer_notes or ''"/></textarea>
+                    <button type="submit" class="sp-btn mt-3">Enviar ficha a Serial Printer</button>
+                </form>
+            </div>
+        </t>
+    </template>
+</odoo>

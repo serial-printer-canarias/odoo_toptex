@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="group_sp_personalization_user" model="res.groups">
+        <field name="name">Serial Printer Personalización / Usuario</field>
+        <!-- Sin category_id para compatibilidad Odoo 18/19: algunos entornos no tienen el XMLID sales_team.module_category_sales_sales -->
+    </record>
+</odoo>
