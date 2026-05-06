@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+{
+    "name": "Serial Printer Sale Personalization",
+    "version": "18.0.1.0.0",
+    "summary": "Ficha de personalización textil desde presupuesto/factura con logos, tallas, colores y PDF taller",
+    "author": "Serial Printer",
+    "website": "https://www.serial-printer.com",
+    "category": "Sales",
+    "license": "LGPL-3",
+    "depends": [
+        "base",
+        "sale_management",
+        "account",
+        "website",
+        "portal",
+        "mail",
+    ],
+    "data": [
+        "security/security.xml",
+        "security/ir.model.access.csv",
+        "data/mail_templates.xml",
+        "reports/personalization_report.xml",
+        "reports/report_templates.xml",
+        "views/personalization_views.xml",
+        "views/sale_order_views.xml",
+        "views/portal_templates.xml",
+    ],
+    "installable": True,
+    "application": False,
+}
