@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="report_sp_personalization_document">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="doc">
+                <t t-call="web.external_layout">
+                    <div class="page">
+                        <style>
+                            .sp-blue{color:#1f3cff;}.sp-box{border:1px solid #d9e1f2;border-radius:8px;padding:10px;margin-bottom:12px;}.sp-soft{background:#f6f8ff;}.sp-img{max-height:120px;max-width:100%;object-fit:contain;}.sp-logo{max-height:100px;max-width:100%;object-fit:contain;}table.sp-table{width:100%;border-collapse:collapse;}table.sp-table td,table.sp-table th{border:1px solid #d9e1f2;padding:6px;font-size:12px;}
+                        </style>
+                        <h2 class="sp-blue">Ficha de taller - Personalización</h2>
+                        <div class="sp-box">
+                            <strong>Ficha:</strong> <span t-esc="doc.name"/><br/>
+                            <strong>Cliente:</strong> <span t-esc="doc.partner_id.name"/><br/>
+                            <strong>Presupuesto:</strong> <span t-esc="doc.sale_order_id.name or '-'"/><br/>
+                            <strong>Factura:</strong> <span t-esc="doc.account_move_id.name or '-'"/>
+                        </div>
+                        <t t-foreach="doc.group_ids" t-as="group">
+                            <div class="sp-box sp-soft">
+                                <table style="width:100%;"><tr><td style="width:20%;"><t t-if="group.product_image_1920"><img t-att-src="'/web/image/sp.personalization.group/%s/product_image_1920' % group.id" class="sp-img"/></t></td><td><h3><span t-esc="group.product_name"/></h3><p>Ref. <strong t-esc="group.product_ref"/> · Color prenda: <strong t-esc="group.color_name"/></p><p>Cantidad: <strong t-esc="group.qty_total"/> · Tallas: <strong t-esc="group.size_summary"/></p></td></tr></table>
+                            </div>
+                            <t t-foreach="group.marking_ids" t-as="marking">
+                                <div class="sp-box">
+                                    <h4 class="sp-blue">Marcaje: <span t-esc="marking.name"/></h4>
+                                    <table class="sp-table"><tr><th>Técnica</th><th>Posición</th><th>Color</th><th>Tamaño</th><th>Cantidad</th></tr><tr><td t-esc="dict(marking._fields['technique'].selection).get(marking.technique)"/><td t-esc="dict(marking._fields['position'].selection).get(marking.position)"/><td t-esc="dict(marking._fields['print_color'].selection).get(marking.print_color)"/><td><span t-esc="dict(marking._fields['size_mode'].selection).get(marking.size_mode)"/><t t-if="marking.width_cm or marking.height_cm"> - <span t-esc="marking.width_cm or '-'"/> x <span t-esc="marking.height_cm or '-'"/> cm</t></td><td t-esc="marking.qty_total"/></tr></table>
+                                    <h5>Tallas</h5>
+                                    <table class="sp-table"><tr><t t-foreach="marking.size_line_ids" t-as="s"><th t-esc="s.size_name"/></t></tr><tr><t t-foreach="marking.size_line_ids" t-as="s"><td t-esc="s.qty"/></t></tr></table>
+                                    <h5>Archivos y previews por ubicación</h5>
+                                    <table class="sp-table"><tr><th>Ubicación</th><th>Preview logo</th><th>Archivo producción</th><th>Archivo preview</th></tr><t t-foreach="marking.placement_ids" t-as="placement"><tr><td><strong t-esc="placement.placement_label"/></td><td><t t-if="placement.preview_image"><img t-att-src="'/web/image/sp.personalization.placement/%s/preview_image' % placement.id" class="sp-logo"/></t><t t-else="">Sin preview</t></td><td t-esc="placement.production_filename or 'pendiente'"/><td t-esc="placement.preview_filename or 'pendiente'"/></tr></t></table>
+                                    <t t-if="marking.notes"><p><strong>Observaciones:</strong> <span t-esc="marking.notes"/></p></t>
+                                </div>
+                            </t>
+                        </t>
+                        <t t-if="doc.customer_notes"><div class="sp-box"><strong>Notas cliente:</strong><p t-esc="doc.customer_notes"/></div></t>
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+</odoo>
