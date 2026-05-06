@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+  <data>
+    <template id="product_personalize_button"
+              inherit_id="website_sale.variants"
+              name="SPW: Personalize Button (Odoo 19)">
+
+      <xpath expr="//ul[contains(@t-attf-class, 'js_add_cart_variants') or contains(concat(' ', normalize-space(@class), ' '), ' js_add_cart_variants ')]"
+             position="after">
+        <div class="mt-2">
+          <button type="button" class="btn btn-primary w-100"
+                  id="spw_customize_btn"
+                  t-att-data-ptmpl-id="product.id">
+            <span class="fa fa-magic me-1"/><span>Personalizar</span>
+          </button>
+        </div>
+      </xpath>
+
+    </template>
+  </data>
+</odoo>
