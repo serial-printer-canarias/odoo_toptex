@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_sale_order_form_sp_personalization" model="ir.ui.view">
+        <field name="name">sp.personalization.sale.order.form</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button name="action_create_personalization_order" type="object" string="Crear personalización" class="btn-primary"/>
+                <button name="action_open_personalization_portal" type="object" string="Formulario personalización"/>
+                <button name="action_send_personalization_email" type="object" string="Enviar personalización"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_account_move_form_sp_personalization" model="ir.ui.view">
+        <field name="name">sp.personalization.account.move.form</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="account.view_move_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button name="action_create_personalization_order_from_invoice" type="object" string="Crear personalización" class="btn-primary" invisible="move_type not in ('out_invoice','out_refund')"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
