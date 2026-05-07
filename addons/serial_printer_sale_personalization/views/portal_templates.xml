@@ -1,0 +1,315 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="portal_personalization_form" name="Serial Printer Personalization Form">
+        <t t-call="website.layout">
+            <div class="sp-personalization">
+                <style>
+                    .sp-personalization{background:#f6f8ff;color:#101828;padding:26px 0}
+                    .sp-wrap{max-width:1120px;margin:0 auto;padding:0 16px}
+                    .sp-head,.sp-group,.sp-marking,.sp-notes{background:#fff;border:1px solid #d9e1f2;border-radius:20px}
+                    .sp-head{padding:18px 20px;margin-bottom:14px}
+                    .sp-head h1{margin:0;color:#1f3cff;font-weight:900;font-size:30px;letter-spacing:0}
+                    .sp-meta{color:#667085;font-size:13px;margin-top:6px}
+                    .sp-group{margin-bottom:14px;overflow:hidden}
+                    .sp-group-main{display:grid;grid-template-columns:92px 1fr 90px;gap:14px;align-items:center;padding:14px 16px}
+                    .sp-code{display:inline-block;border-radius:999px;background:#eef3ff;color:#132a99;font-weight:900;font-size:12px;padding:4px 9px}
+                    .sp-garment-pill{display:inline-flex;align-items:center;gap:7px;border:1px solid #d9e1f2;border-radius:999px;background:#fff;color:#344054;font-weight:900;font-size:12px;padding:4px 9px;margin-left:6px}
+                    .sp-garment-dot{display:inline-block;width:14px;height:14px;border-radius:999px;border:1px solid #98a2b3}
+                    .sp-name{font-size:18px;font-weight:900;margin:6px 0 2px}
+                    .sp-line{font-size:13px;color:#475467;margin:0}
+                    .sp-total{text-align:right}.sp-total strong{display:block;font-size:28px;color:#1f3cff;line-height:1;font-weight:900}
+                    .sp-thumb{height:82px;border-radius:16px;border:1px solid #d9e1f2;background:#f8faff;display:flex;align-items:center;justify-content:center;overflow:hidden}
+                    .sp-thumb img{max-width:100%;max-height:82px;object-fit:contain}
+                    .sp-actions{display:flex;gap:8px;flex-wrap:wrap;background:#f8faff;border-top:1px solid #d9e1f2;padding:10px 16px}
+                    .sp-btn{border:0;border-radius:12px;background:#1f3cff;color:#fff;font-weight:900;padding:9px 12px}
+                    .sp-btn-light{border:1px solid #d9e1f2;border-radius:12px;background:#fff;color:#101828;font-weight:900;padding:9px 12px}
+                    .sp-btn-danger{border:1px solid #fecaca;border-radius:12px;background:#fff1f2;color:#991b1b;font-weight:900;padding:9px 12px}
+                    .sp-status{margin:12px 16px 0;padding:9px 11px;border-radius:13px;font-size:13px;font-weight:900;background:#eef3ff;color:#132a99;border:1px solid #d9e1f2}
+                    .sp-status.ok{background:#f0fdf4;color:#166534;border-color:#bbf7d0}.sp-status.warn{background:#fef2f2;color:#991b1b;border-color:#fecaca}
+                    .sp-marking{margin:12px 16px 16px;padding:14px}
+                    .sp-marking-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+                    .sp-marking-head h3{font-size:17px;margin:0;font-weight:900}
+                    .sp-editor{display:grid;grid-template-columns:minmax(330px,380px) minmax(0,1fr);gap:18px;align-items:start}
+                    .sp-mockups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;min-width:0}
+                    .sp-mockup-box{min-width:0;border:1px solid #d9e1f2;border-radius:18px;background:#f8faff;padding:10px;text-align:center}
+                    .sp-mockup-label{font-size:11px;font-weight:900;text-transform:uppercase;color:#667085;margin-bottom:8px}
+                    .sp-garment{position:relative;margin:0 auto}
+                    .sp-photo-mockup{position:relative;margin:0 auto;width:136px;height:150px;display:flex;align-items:center;justify-content:center}
+                    .sp-product-photo{max-width:136px;max-height:150px;object-fit:contain;filter:drop-shadow(0 10px 18px rgba(15,23,42,.12))}
+                    .sp-shirt{width:88px;height:126px;border-radius:18px 18px 20px 20px;background:#132a99}
+                    .sp-shirt:before,.sp-shirt:after{content:"";position:absolute;top:24px;width:42px;height:42px;border-radius:18px;background:inherit}
+                    .sp-shirt:before{left:-28px}.sp-shirt:after{right:-28px}
+                    .sp-shirt .neck{position:absolute;top:0;left:50%;width:34px;height:18px;transform:translateX(-50%);border-radius:0 0 18px 18px;background:#f8faff}
+                    .sp-cap{width:128px;height:76px;border-radius:68px 68px 18px 18px;background:linear-gradient(90deg,#f8fafc,#b91c1c,#1e3a8a)}
+                    .sp-cap:after{content:"";position:absolute;left:30px;bottom:-10px;width:68px;height:22px;border-radius:0 0 40px 40px;background:#132a99}
+                    .sp-black{background:#132a99}.sp-navy{background:#18243a}.sp-beige{background:#c9b79a}.sp-default{background:#334155}.sp-tricolor{background:linear-gradient(90deg,#f8fafc,#b91c1c,#1e3a8a)}
+                    .sp-logo-token{position:absolute;border:2px solid currentColor;color:#1f3cff;background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:8px;font-weight:900;box-shadow:0 4px 10px rgba(15,23,42,.12)}
+                    .sp-logo-token img{width:100%;height:100%;object-fit:contain;padding:2px}
+                    .sp-logo-token.front_left{left:14px;top:36px;width:34px;height:26px}
+                    .sp-logo-token.front_center{left:50%;top:42px;width:42px;height:30px;transform:translateX(-50%)}
+                    .sp-logo-token.back{left:50%;top:48px;width:52px;height:34px;transform:translateX(-50%)}
+                    .sp-logo-token.neck{left:50%;top:15px;width:34px;height:18px;transform:translateX(-50%)}
+                    .sp-logo-token.right_sleeve{right:-22px;top:38px;width:28px;height:26px}
+                    .sp-logo-token.left_sleeve{left:-22px;top:38px;width:28px;height:26px}
+                    .sp-logo-token.cap_front{left:50%;top:30px;width:42px;height:30px;transform:translateX(-50%)}
+                    .sp-logo-token.cap_side{right:18px;top:30px;width:34px;height:28px}
+                    .sp-photo-mockup .sp-logo-token.front_left{left:35%;top:38%;width:24%;height:16%}
+                    .sp-photo-mockup .sp-logo-token.front_center{left:50%;top:40%;width:28%;height:17%;transform:translateX(-50%)}
+                    .sp-photo-mockup .sp-logo-token.back{left:50%;top:38%;width:34%;height:20%;transform:translateX(-50%)}
+                    .sp-photo-mockup .sp-logo-token.neck{left:50%;top:22%;width:22%;height:11%;transform:translateX(-50%)}
+                    .sp-photo-mockup .sp-logo-token.right_sleeve{right:18%;top:38%;width:18%;height:16%}
+                    .sp-photo-mockup .sp-logo-token.left_sleeve{left:18%;top:38%;width:18%;height:16%}
+                    .sp-photo-mockup .sp-logo-token.cap_front{left:50%;top:38%;width:30%;height:18%;transform:translateX(-50%)}
+                    .sp-photo-mockup .sp-logo-token.cap_side{right:24%;top:40%;width:22%;height:16%}
+                    .sp-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+                    .sp-field-wide{grid-column:1/-1}
+                    .sp-field label,.sp-subtitle{display:block;font-size:11px;font-weight:900;color:#667085;text-transform:uppercase;margin-bottom:5px}
+                    .sp-field input,.sp-field select,.sp-field textarea{width:100%;border:1px solid #d9e1f2;border-radius:11px;background:#fff;padding:9px;color:#101828;font-size:13px}
+                    .sp-field textarea{min-height:72px}
+                    .sp-color-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;max-height:168px;overflow:auto;border:1px solid #d9e1f2;border-radius:12px;background:#fff;padding:8px}
+                    .sp-color-chip{display:flex;align-items:center;gap:8px;min-height:36px;border:1px solid #d9e1f2;border-radius:10px;background:#f8faff;padding:7px 9px;font-size:11px;font-weight:900;color:#344054;cursor:pointer;line-height:1.15}
+                    .sp-color-chip.active,.sp-color-chip:has(.sp-color-radio:checked){border-color:#1f3cff;background:#eef3ff;color:#132a99}
+                    .sp-color-radio{display:none!important}
+                    .sp-color-sample{display:inline-block!important;width:18px!important;height:18px!important;min-width:18px!important;border-radius:999px!important;border:1px solid #98a2b3!important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.55);vertical-align:middle}
+                    .sp-sizes{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+                    .sp-files{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:10px}
+                    .sp-file{border:1px solid #d9e1f2;border-radius:14px;background:#fff;padding:10px}
+                    .sp-file strong{color:#132a99;font-size:13px}
+                    .sp-file-preview{height:74px;background:#eef3ff;border:1px dashed #d9e1f2;border-radius:10px;display:flex;align-items:center;justify-content:center;margin:7px 0;overflow:hidden;font-size:12px;color:#667085}
+                    .sp-file-preview img{max-width:100%;max-height:70px;object-fit:contain}
+                    .sp-small{font-size:11px;color:#667085;margin:4px 0 0}
+                    .sp-notes{padding:14px;margin-top:14px}
+                    .sp-footer{position:sticky;bottom:12px;margin-top:14px;border-radius:16px;background:#1f3cff;color:#fff;padding:12px 14px;display:flex;justify-content:space-between;gap:10px;align-items:center;box-shadow:0 12px 28px rgba(31,60,255,.22)}
+                    @media(max-width:900px){.sp-group-main{grid-template-columns:1fr}.sp-total{text-align:left}.sp-editor{grid-template-columns:1fr}.sp-fields,.sp-files{grid-template-columns:1fr}.sp-sizes{grid-template-columns:repeat(2,minmax(0,1fr))}.sp-color-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+                </style>
+                <div class="sp-wrap">
+                    <section class="sp-head">
+                        <h1>Personalización textil</h1>
+                        <div class="sp-meta">
+                            <strong><t t-esc="personalization.partner_id.name"/></strong>
+                            <t t-if="personalization.source_display_name"> · <t t-esc="personalization.source_display_name"/></t>
+                            · <t t-esc="personalization.name"/>
+                        </div>
+                    </section>
+
+                    <form method="post" enctype="multipart/form-data">
+                        <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+
+                        <t t-foreach="personalization.group_ids" t-as="group">
+                            <section class="sp-group">
+                                <div class="sp-group-main">
+                                    <div class="sp-thumb">
+                                        <t t-if="group.product_image_1920">
+                                            <img t-att-src="'/personalizacion/%s/grupo/%s/imagen' % (personalization.access_token, group.id)"/>
+                                        </t>
+                                        <t t-else="">
+                                            <div t-att-class="'sp-shirt sp-%s' % (group.garment_color_key or 'default')"><span class="neck"/></div>
+                                        </t>
+                                    </div>
+                                    <div>
+                                        <span class="sp-code"><t t-esc="group.product_ref or '-'"/></span>
+                                        <span class="sp-garment-pill">
+                                            <span class="sp-garment-dot" t-att-style="'background-color:%s' % group.garment_color_hex"/>
+                                            <t t-esc="group.color_name"/>
+                                        </span>
+                                        <h2 class="sp-name"><t t-esc="group.product_name"/></h2>
+                                        <p class="sp-line"><t t-esc="group.size_summary"/></p>
+                                    </div>
+                                    <div class="sp-total">
+                                        <strong><t t-esc="group.qty_total_display"/></strong>
+                                        <span class="sp-small">uds</span>
+                                    </div>
+                                </div>
+
+                                <div class="sp-actions">
+                                    <button class="sp-btn" type="submit" name="group_action" t-att-value="'personalize_group:%s' % group.id">Personalizar</button>
+                                    <button class="sp-btn-light" type="submit" name="group_action" t-att-value="'split_two:%s' % group.id">2 logos</button>
+                                    <button class="sp-btn-danger" type="submit" name="group_action" t-att-value="'mark_no:%s' % group.id">No personalizar</button>
+                                </div>
+
+                                <t t-if="group.status == 'no'">
+                                    <div class="sp-status ok">No personalizar este grupo.</div>
+                                </t>
+                                <t t-elif="not group.marking_ids">
+                                    <div class="sp-status">Pendiente de decidir.</div>
+                                </t>
+                                <t t-else="">
+                                    <div t-att-class="'sp-status %s' % ('ok' if group.qty_status_ok else 'warn')"><t t-esc="group.qty_status_text"/></div>
+                                </t>
+
+                                <t t-foreach="group.marking_ids" t-as="marking">
+                                    <section class="sp-marking">
+                                        <div class="sp-marking-head">
+                                            <h3><t t-esc="marking.name"/> · <t t-esc="marking.qty_total_display"/> uds</h3>
+                                            <button class="sp-btn" type="submit" name="marking_action" t-att-value="'save_marking:%s' % marking.id">Guardar</button>
+                                        </div>
+
+                                        <div class="sp-editor">
+                                            <div class="sp-mockups">
+                                                <div class="sp-mockup-box">
+                                                    <div class="sp-mockup-label">Delante</div>
+                                                    <t t-if="group.product_image_1920">
+                                                        <div class="sp-photo-mockup">
+                                                            <img class="sp-product-photo" t-att-src="'/personalizacion/%s/grupo/%s/imagen' % (personalization.access_token, group.id)"/>
+                                                            <t t-foreach="marking.placement_ids" t-as="placement">
+                                                                <t t-if="placement.side in ('front', 'side')">
+                                                                    <div t-att-class="'sp-logo-token %s' % placement.placement_key" t-att-data-logo-preview="placement.id" t-att-style="'border-color:%s;color:%s' % (marking.print_color_hex or '#1f3cff', marking.print_color_hex or '#1f3cff')">
+                                                                        <t t-if="placement.logo_preview_available"><img t-att-src="'/personalizacion/%s/ubicacion/%s/preview' % (personalization.access_token, placement.id)"/></t>
+                                                                        <t t-else="">LOGO</t>
+                                                                    </div>
+                                                                </t>
+                                                            </t>
+                                                        </div>
+                                                    </t>
+                                                    <t t-elif="group.group_type == 'cap'">
+                                                        <div class="sp-garment sp-cap">
+                                                            <t t-foreach="marking.placement_ids" t-as="placement">
+                                                                <t t-if="placement.side in ('front', 'side')">
+                                                                    <div t-att-class="'sp-logo-token %s' % placement.placement_key" t-att-data-logo-preview="placement.id" t-att-style="'border-color:%s;color:%s' % (marking.print_color_hex or '#1f3cff', marking.print_color_hex or '#1f3cff')">
+                                                                        <t t-if="placement.logo_preview_available"><img t-att-src="'/personalizacion/%s/ubicacion/%s/preview' % (personalization.access_token, placement.id)"/></t>
+                                                                        <t t-else="">LOGO</t>
+                                                                    </div>
+                                                                </t>
+                                                            </t>
+                                                        </div>
+                                                    </t>
+                                                    <t t-else="">
+                                                        <div t-att-class="'sp-garment sp-shirt sp-%s' % (group.garment_color_key or 'default')">
+                                                            <span class="neck"/>
+                                                            <t t-foreach="marking.placement_ids" t-as="placement">
+                                                                <t t-if="placement.side == 'front'">
+                                                                    <div t-att-class="'sp-logo-token %s' % placement.placement_key" t-att-data-logo-preview="placement.id" t-att-style="'border-color:%s;color:%s' % (marking.print_color_hex or '#1f3cff', marking.print_color_hex or '#1f3cff')">
+                                                                        <t t-if="placement.logo_preview_available"><img t-att-src="'/personalizacion/%s/ubicacion/%s/preview' % (personalization.access_token, placement.id)"/></t>
+                                                                        <t t-else="">LOGO</t>
+                                                                    </div>
+                                                                </t>
+                                                            </t>
+                                                        </div>
+                                                    </t>
+                                                </div>
+
+                                                <div class="sp-mockup-box" t-if="group.group_type != 'cap' and marking.position in ('back','front_back','neck','front_back_neck')">
+                                                    <div class="sp-mockup-label">Espalda</div>
+                                                    <t t-if="group.product_image_1920">
+                                                        <div class="sp-photo-mockup">
+                                                            <img class="sp-product-photo" t-att-src="'/personalizacion/%s/grupo/%s/imagen' % (personalization.access_token, group.id)"/>
+                                                            <t t-foreach="marking.placement_ids" t-as="placement">
+                                                                <t t-if="placement.side == 'back'">
+                                                                    <div t-att-class="'sp-logo-token %s' % placement.placement_key" t-att-data-logo-preview="placement.id" t-att-style="'border-color:%s;color:%s' % (marking.print_color_hex or '#1f3cff', marking.print_color_hex or '#1f3cff')">
+                                                                        <t t-if="placement.logo_preview_available"><img t-att-src="'/personalizacion/%s/ubicacion/%s/preview' % (personalization.access_token, placement.id)"/></t>
+                                                                        <t t-else="">LOGO</t>
+                                                                    </div>
+                                                                </t>
+                                                            </t>
+                                                        </div>
+                                                    </t>
+                                                    <t t-else="">
+                                                        <div t-att-class="'sp-garment sp-shirt sp-%s' % (group.garment_color_key or 'default')">
+                                                            <span class="neck"/>
+                                                            <t t-foreach="marking.placement_ids" t-as="placement">
+                                                                <t t-if="placement.side == 'back'">
+                                                                    <div t-att-class="'sp-logo-token %s' % placement.placement_key" t-att-data-logo-preview="placement.id" t-att-style="'border-color:%s;color:%s' % (marking.print_color_hex or '#1f3cff', marking.print_color_hex or '#1f3cff')">
+                                                                        <t t-if="placement.logo_preview_available"><img t-att-src="'/personalizacion/%s/ubicacion/%s/preview' % (personalization.access_token, placement.id)"/></t>
+                                                                        <t t-else="">LOGO</t>
+                                                                    </div>
+                                                                </t>
+                                                            </t>
+                                                        </div>
+                                                    </t>
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <div class="sp-fields">
+                                                    <div class="sp-field sp-field-wide"><label>Nombre marcaje</label><input type="text" t-att-name="'marking_%s_name' % marking.id" t-att-value="marking.name"/></div>
+                                                    <div class="sp-field"><label>Técnica</label><select t-att-name="'marking_%s_technique' % marking.id"><t t-foreach="technique_options" t-as="opt"><option t-att-value="opt[0]" t-att-selected="opt[0] == marking.technique"><t t-esc="opt[1]"/></option></t></select></div>
+                                                    <div class="sp-field"><label>Posición</label><select t-att-name="'marking_%s_position' % marking.id"><t t-foreach="position_options" t-as="opt"><option t-att-value="opt[0]" t-att-selected="opt[0] == marking.position"><t t-esc="opt[1]"/></option></t></select></div>
+                                                    <div class="sp-field"><label>Tamaño</label><select t-att-name="'marking_%s_size_mode' % marking.id"><t t-foreach="size_mode_options" t-as="opt"><option t-att-value="opt[0]" t-att-selected="opt[0] == marking.size_mode"><t t-esc="opt[1]"/></option></t></select></div>
+                                                    <div class="sp-field"><label>Ancho cm</label><input type="number" step="0.1" t-att-name="'marking_%s_width_cm' % marking.id" t-att-value="marking.width_cm or ''"/></div>
+                                                    <div class="sp-field"><label>Alto cm</label><input type="number" step="0.1" t-att-name="'marking_%s_height_cm' % marking.id" t-att-value="marking.height_cm or ''"/></div>
+                                                    <div class="sp-field sp-field-wide"><label>Color tinta/hilo</label><div class="sp-color-grid"><t t-foreach="color_options" t-as="opt"><label t-att-class="'sp-color-chip %s' % ('active' if opt[0] == marking.print_color else '')"><input class="sp-color-radio" type="radio" t-att-name="'marking_%s_print_color' % marking.id" t-att-value="opt[0]" t-att-checked="opt[0] == marking.print_color"/><span class="sp-color-sample" t-att-style="'background-color:%s' % color_hex_map.get(opt[0], '#111111')"/><span t-esc="opt[1]"/></label></t></div></div>
+                                                </div>
+
+                                                <div class="mt-3"><div class="sp-subtitle">Tallas de este marcaje</div><div class="sp-sizes"><t t-foreach="marking.size_ids" t-as="size_line"><div class="sp-field"><label><t t-esc="size_line.size_name"/></label><input type="number" step="1" min="0" t-att-name="'size_qty_%s' % size_line.id" t-att-value="size_line.qty"/></div></t></div></div>
+
+                                                <div class="sp-files"><t t-foreach="marking.placement_ids" t-as="placement"><div class="sp-file"><strong><t t-esc="placement.placement_label"/></strong><div class="sp-file-preview" t-att-data-logo-preview="placement.id"><t t-if="placement.logo_preview_available"><img t-att-src="'/personalizacion/%s/ubicacion/%s/preview' % (personalization.access_token, placement.id)"/></t><t t-else="">Sin preview</t></div><div class="sp-field"><label>Producción AI/PDF/EPS</label><input type="file" accept=".pdf,.ai,.eps,.svg,.png,.jpg,.jpeg,.webp" t-att-name="'production_%s' % placement.id" t-att-data-preview-target="placement.id"/></div><div class="sp-field mt-2"><label>Preview visual PNG/JPG/SVG</label><input type="file" accept=".png,.jpg,.jpeg,.webp,.svg" t-att-name="'preview_%s' % placement.id" t-att-data-preview-target="placement.id"/></div></div></t></div>
+
+                                                <div class="sp-field mt-3"><label>Notas</label><textarea t-att-name="'marking_%s_notes' % marking.id"><t t-esc="marking.notes or ''"/></textarea></div>
+                                            </div>
+                                        </div>
+                                    </section>
+                                </t>
+
+                                <t t-if="group.marking_ids">
+                                    <div class="m-3">
+                                        <button class="sp-btn-light" type="submit" name="group_action" t-att-value="'add_marking:%s' % group.id">+ Otro marcaje</button>
+                                    </div>
+                                </t>
+                            </section>
+                        </t>
+
+                        <section class="sp-notes">
+                            <div class="sp-field">
+                                <label>Notas generales</label>
+                                <textarea name="customer_notes"><t t-esc="personalization.customer_notes or ''"/></textarea>
+                            </div>
+                            <button type="submit" class="sp-btn mt-3" name="action" value="save_all">Guardar todo</button>
+                            <button type="submit" class="sp-btn mt-3" name="action" value="confirm">Enviar ficha</button>
+                        </section>
+                    </form>
+
+                    <div class="sp-footer">
+                        <strong><t t-esc="personalization.group_count"/> grupos · <t t-esc="personalization.marking_count"/> marcajes</strong>
+                        <span>Cliente y taller ven lo mismo.</span>
+                    </div>
+                    <script>
+                        document.addEventListener("change", function (event) {
+                            var input = event.target;
+                            if (input.classList &amp;&amp; input.classList.contains("sp-color-radio")) {
+                                var grid = input.closest(".sp-color-grid");
+                                if (grid) {
+                                    grid.querySelectorAll(".sp-color-chip").forEach(function (chip) { chip.classList.remove("active"); });
+                                }
+                                if (input.closest(".sp-color-chip")) {
+                                    input.closest(".sp-color-chip").classList.add("active");
+                                    var sample = input.closest(".sp-color-chip").querySelector(".sp-color-sample");
+                                    var marking = input.closest(".sp-marking");
+                                    if (sample &amp;&amp; marking) {
+                                        marking.querySelectorAll(".sp-logo-token").forEach(function (token) {
+                                            token.style.borderColor = sample.style.backgroundColor;
+                                            token.style.color = sample.style.backgroundColor;
+                                        });
+                                    }
+                                }
+                                return;
+                            }
+                            if (!input.dataset || !input.dataset.previewTarget || !input.files || !input.files[0]) { return; }
+                            var file = input.files[0];
+                            if (!file.type || file.type.indexOf("image/") !== 0) { return; }
+                            var reader = new FileReader();
+                            reader.onload = function () {
+                                document.querySelectorAll("[data-logo-preview='" + input.dataset.previewTarget + "']").forEach(function (target) {
+                                    target.innerHTML = "";
+                                    var image = document.createElement("img");
+                                    image.src = String(reader.result || "");
+                                    image.alt = "Logo preview";
+                                    target.appendChild(image);
+                                });
+                            };
+                            reader.readAsDataURL(file);
+                        });
+                    </script>
+                </div>
+            </div>
+        </t>
+    </template>
+
+    <template id="portal_sale_order_personalization_button" inherit_id="sale.sale_order_portal_content" name="Sale Portal Personalization Button">
+        <xpath expr="//div[@id='intro_row']" position="inside">
+            <a class="btn btn-primary ms-auto d-print-none"
+               t-att-href="'/personalizacion/presupuesto/%s?access_token=%s' % (sale_order.id, sale_order.access_token)">
+                <i class="fa fa-paint-brush me-1"/> Personalización textil
+            </a>
+        </xpath>
+    </template>
+</odoo>
