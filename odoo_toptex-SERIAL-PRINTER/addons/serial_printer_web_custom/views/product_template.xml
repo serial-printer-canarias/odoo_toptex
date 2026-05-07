@@ -1,8 +1,0 @@
-<odoo>
-  <template id="sp_product_page_hook" inherit_id="website_sale.product">
-    <t t-set="tmpl" t-value="product and product.product_tmpl_id or (product_tmpl if 'product_tmpl' in locals() else False)"/>
-    <xpath expr="//div[contains(@class,'o_wsale_product_page')]" position="attributes">
-      <attribute name="data-product-template-id" t-att-value="tmpl and tmpl.id or 0"/>
-    </xpath>
-  </template>
-</odoo>

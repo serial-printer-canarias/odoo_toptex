@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<odoo>
-    <menuitem id="menu_image_root"
-              name="Imágenes"
-              parent="menu_serial_printer_root"
-              sequence="80"/>
-</odoo>

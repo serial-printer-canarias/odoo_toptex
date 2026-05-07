@@ -1,4 +1,0 @@
-/* serial_printer_web_custom/static/src/css/product_matrix.css */
-.sp-matrix-table th { white-space: nowrap; }
-.sp-matrix-table td { min-width: 90px; }
-.sp-matrix-table input.sp-qty { max-width: 100px; margin: 0 auto; text-align: center; }

@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<odoo>
-    <!-- Stub seguro: no hereda de ninguna vista, por lo que no rompe el update
-         y nos permite seguir usando el inyector JS del carrito. -->
-    <template id="spw_cart_line_preview_safe"
-              name="SPW Cart line: preview + color (safe stub)">
-        <t t-set="spw_cart_preview_stub">1</t>
-    </template>
-</odoo>
