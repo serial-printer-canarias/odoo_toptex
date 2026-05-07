@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <menuitem id="menu_serial_printer_token"
+              name="Token API"
+              parent="menu_serial_printer_catalog"
+              sequence="90"
+              action="action_serial_printer_token"/>
+</odoo>

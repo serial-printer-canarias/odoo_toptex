@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+  <!-- Inyección inline; no heredamos bundles para evitar errores de update -->
+  <template id="spw_cart_preview_inline_multi"
+            name="SPW Cart preview inline (multi)"
+            inherit_id="website.layout"
+            priority="60">
+    <xpath expr="//body" position="inside">
+      <script type="text/javascript"><![CDATA[
+      (function(){
+        'use strict';
+
+        function onReady(cb){
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', cb, { once: true });
+          } else cb();
+        }
+        function onCart(){ return /\/shop\/cart/.test(location.pathname); }
+
+        // --- Selectores robustos
+        var LINE_SEL = [
+          '.o_cart_product',
+          '.o_wsale_cart_item',
+          '.js_cart_lines tr',
+          '.cart_line'
+        ].join(',');
+        var INFO_SEL = [
+          '.o_wsale_product_information',
+          '.o_wsale_cart_description',
+          '.o_wsale_cart_item_description',
+          '.product-name',
+          '.oe_subdescription'
+        ].join(',');
+
+        // --- Utils
+        var exts = ['png','webp','jpg','jpeg'];
+        function ts(){ return Date.now(); }
+        function addQuery(url, params){
+          var u = new URL(url, location.origin);
+          Object.keys(params||{}).forEach(function(k){ u.searchParams.set(k, params[k]); });
+          return u.pathname + (u.search?u.search:'');
+        }
+
+        function getLineId(line){
+          if(!line) return null;
+          var c = (line.hasAttribute && line.hasAttribute('data-line-id')) ? line :
+                  line.querySelector('[data-line-id]') ||
+                  line.querySelector('input[name="line_id"]') ||
+                  line.querySelector('button[data-line-id], a[data-line-id]');
+          var val = (c && (c.getAttribute && (c.getAttribute('data-line-id')||c.getAttribute('data-id')))) || (c && c.value) || null;
+          return (val && /^\d+$/.test(String(val))) ? String(val) : null;
+        }
+
+        // Devuelve tantas “personalizaciones” como colores SVG encuentre (SVG: #xxxxxx).
+        // Si no encuentra, devuelve una entrada para que al menos intente 1 imagen.
+        function parsePersonalizations(text){
+          if(!text) return [{idx:0, hex:null}];
+          var out=[], re=/SVG\s*:\s*#([0-9a-fA-F]{3,8})/g, m, i=0;
+          while((m=re.exec(text))) out.push({idx:i++, hex:'#'+m[1]});
+          return out.length ? out : [{idx:0, hex:null}];
+        }
+
+        // Construye candidatos de URL PARA CADA ÍNDICE (1..N)
+        function buildUrlCandidates(lineId, idx){
+          var n = idx + 1;
+          var bases = [
+            // rutas que ya te funcionaban
+            '/spw/line_preview/'+lineId+'-'+n,
+            '/spw/line_preview/'+lineId+'/'+n,
+            '/spw/line_preview/'+lineId+'_'+n,
+            '/spw/line_preview/'+lineId,
+            // variantes que hemos visto en otras instancias
+            '/spw/preview/'+lineId+'-'+n,
+            '/spw/preview/'+lineId+'/'+n,
+            '/spw/preview/'+lineId+'_'+n,
+            '/spw/preview/'+lineId,
+            '/spw/line/'+lineId+'/preview/'+n,
+            '/spw/line/'+lineId+'/preview'
+          ];
+
+          var urls = [];
+
+          // 1) patrones indexados con extensión
+          bases.forEach(function(b){
+            exts.forEach(function(ext){
+              urls.push(addQuery(b+'.'+ext, { v:ts() }));
+            });
+          });
+
+          // 2) patrón sin índice en path pero con query ?i=n
+          exts.forEach(function(ext){
+            urls.push(addQuery('/spw/line_preview/'+lineId+'.'+ext, { i:n, v:ts() }));
+          });
+          urls.push(addQuery('/spw/line_preview/'+lineId, { i:n, v:ts() }));
+
+          // 3) último recurso: misma url pero marcando fallback por índice
+          exts.forEach(function(ext){
+            urls.push(addQuery('/spw/line_preview/'+lineId+'.'+ext, { i:n, fb:1, v:ts() }));
+          });
+
+          // Deduplicar
+          return Array.from(new Set(urls));
+        }
+
+        function ensureWrap(info){
+          var wrap = info.querySelector('.spw-cart-preview');
+          if(!wrap){
+            wrap = document.createElement('div');
+            wrap.className = 'spw-cart-preview';
+            wrap.style.cssText = 'display:flex;align-items:flex-start;gap:12px;margin-top:8px;flex-wrap:wrap';
+
+            var imgs = document.createElement('div');
+            imgs.className = 'spw-imgs';
+            imgs.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start';
+
+            var pills = document.createElement('div');
+            pills.className = 'spw-pills';
+            pills.style.cssText = 'display:flex;flex-direction:column;gap:8px;align-items:center';
+
+            wrap.appendChild(imgs);
+            wrap.appendChild(pills);
+            info.appendChild(wrap);
+          }
+          return wrap;
+        }
+
+        // Carga el 1º candidato que responda; si no, elimina el <img>
+        function tryLoad(img, candidates){
+          var k=0;
+          function next(){
+            if(k>=candidates.length){ img.remove(); return; }
+            var url=candidates[k++]; img.onerror=next; img.onload=null; img.src=url;
+          }
+          next();
+        }
+
+        function renderLine(line){
+          var info = (line.querySelector && line.querySelector(INFO_SEL)) || line;
+          if(!info) return;
+
+          var lineId = getLineId(line);
+          if(!lineId) return;
+
+          // idempotencia por línea
+          if(line.dataset.spwRenderedFor === lineId) return;
+
+          var wrap = ensureWrap(info);
+          var imgsWrap = wrap.querySelector('.spw-imgs');
+          var pillsWrap = wrap.querySelector('.spw-pills');
+          imgsWrap.innerHTML = ''; pillsWrap.innerHTML = '';
+
+          var persos = parsePersonalizations(info.textContent || '');
+
+          persos.forEach(function(p){
+            // píldora
+            var pill = document.createElement('span');
+            pill.title = p.hex || '—';
+            pill.style.cssText = 'width:14px;height:14px;border-radius:9999px;border:1px solid #e5e7eb;display:inline-block';
+            if(p.hex) pill.style.background = p.hex;
+            pillsWrap.appendChild(pill);
+
+            // imagen
+            var img = new Image();
+            img.alt='Personalización';
+            img.loading='lazy';
+            img.style.cssText='max-width:120px;height:auto;border:1px solid #e5e7eb;border-radius:6px';
+            imgsWrap.appendChild(img);
+
+            var candidates = buildUrlCandidates(lineId, p.idx);
+            tryLoad(img, candidates);
+          });
+
+          line.dataset.spwRenderedFor = lineId;
+        }
+
+        function initial(){ document.querySelectorAll(LINE_SEL).forEach(renderLine); }
+        function observe(){
+          var root = document.querySelector('#o_cart') ||
+                     document.querySelector('.o_wsale_cart_summary') ||
+                     document.querySelector('.js_cart_lines') ||
+                     document.body;
+          new MutationObserver(function(ms){
+            ms.forEach(function(m){
+              (m.addedNodes||[]).forEach(function(n){
+                if(n.nodeType===1){
+                  if(n.matches && n.matches(LINE_SEL)) renderLine(n);
+                  else n.querySelectorAll && n.querySelectorAll(LINE_SEL).forEach(renderLine);
+                }
+              });
+            });
+          }).observe(root, {childList:true, subtree:true});
+        }
+
+        function boot(){
+          if(!onCart()) return;
+          initial(); observe();
+          console.log('[SPW] injector multi listo (fotos + pildoras por línea)');
+        }
+
+        onReady(boot);
+      })();
+      ]]></script>
+    </xpath>
+  </template>
+</odoo>

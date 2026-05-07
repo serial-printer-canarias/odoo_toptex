@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <menuitem id="menu_serial_printer_variants"
+              name="Variantes"
+              parent="menu_serial_printer_root"
+              sequence="15"/>
+
+    <record id="action_serial_printer_variants" model="ir.actions.act_window">
+        <field name="name">Variantes</field>
+        <field name="res_model">serial.printer.variant</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="submenu_serial_printer_variants_list"
+              name="Lista de variantes"
+              parent="menu_serial_printer_variants"
+              action="action_serial_printer_variants"
+              sequence="1"/>
+</odoo>
