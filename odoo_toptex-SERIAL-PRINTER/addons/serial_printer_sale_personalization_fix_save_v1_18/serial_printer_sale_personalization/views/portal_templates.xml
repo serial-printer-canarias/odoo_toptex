@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="portal_personalization_form" name="Serial Printer Personalization Form">
+        <t t-call="website.layout">
+            <div class="container my-5">
+                <style>
+                    .sp-card{border:1px solid #d9e1f2;border-radius:20px;padding:18px;background:#fff;margin-bottom:18px}
+                    .sp-soft{background:#f6f8ff;border-radius:16px;padding:16px;margin-top:16px}
+                    .sp-btn{background:#1f3cff;color:#fff;border:0;border-radius:12px;padding:10px 16px;font-weight:700}
+                    .sp-btn-light{background:#fff;color:#132a99;border:1px solid #d9e1f2;border-radius:12px;padding:10px 16px;font-weight:700}
+                    .sp-btn-danger{background:#fff1f2;color:#991b1b;border:1px solid #fecaca;border-radius:12px;padding:10px 16px;font-weight:700}
+                    .sp-preview{max-height:130px;max-width:100%;object-fit:contain}
+                    .sp-dot{display:inline-block;width:14px;height:14px;border-radius:50%;border:1px solid #94a3b8;vertical-align:-2px;margin-right:6px}
+                    .sp-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+                    .sp-filebox{border:1px solid #d9e1f2;border-radius:16px;background:#fff;padding:12px;height:100%}
+                    .sp-file-preview{min-height:110px;border:1px dashed #d9e1f2;border-radius:12px;background:#eef3ff;display:flex;align-items:center;justify-content:center;padding:8px;margin-bottom:10px;color:#64748b;font-size:13px;font-weight:700;text-align:center}
+                    .sp-file-preview img{max-height:100px;max-width:100%;object-fit:contain}
+                    .sp-status{border-radius:12px;padding:10px 12px;font-size:13px;font-weight:800;background:#fff7ed;color:#9a3412;margin-top:10px}
+                    .sp-status.ok{background:#ecfdf5;color:#047857}
+                    .sp-toolbar{position:sticky;bottom:12px;z-index:20;background:#1f3cff;color:#fff;border-radius:18px;padding:14px 16px;display:flex;gap:12px;justify-content:space-between;align-items:center;box-shadow:0 12px 30px rgba(15,23,42,.18)}
+                </style>
+
+                <div class="sp-card">
+                    <h1 style="color:#1f3cff">Ficha de personalización</h1>
+                    <p>Cliente: <strong><t t-esc="personalization.partner_id.name"/></strong></p>
+                    <p>Referencia: <strong><t t-esc="personalization.name"/></strong></p>
+                    <p class="text-muted">Rellena todo y pulsa <strong>Guardar todo</strong> o <strong>Guardar todo y enviar ficha</strong>. Así queda registrado para el PDF de taller.</p>
+                </div>
+
+                <form method="post" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+
+                    <t t-foreach="personalization.group_ids" t-as="group">
+                        <div class="sp-card">
+                            <div class="row align-items-center">
+                                <div class="col-md-2">
+                                    <t t-if="group.product_image_1920">
+                                        <img t-att-src="'/personalizacion/%s/grupo/%s/imagen' % (personalization.access_token, group.id)" style="max-width:100%;border-radius:14px"/>
+                                    </t>
+                                </div>
+                                <div class="col-md-7">
+                                    <h3><t t-esc="group.product_name"/></h3>
+                                    <p>Ref. <strong><t t-esc="group.product_ref"/></strong> · Color prenda: <strong><t t-esc="group.color_name"/></strong></p>
+                                    <p>Cantidad: <strong><t t-esc="group.qty_total_display or group.qty_total"/></strong> · Tallas: <strong><t t-esc="group.size_summary"/></strong></p>
+                                    <t t-if="group.status == 'no'"><div class="sp-status ok">No personalizar este grupo.</div></t>
+                                    <t t-elif="group.marking_ids"><div t-att-class="'sp-status %s' % ('ok' if group.qty_status_ok else '')"><t t-esc="group.qty_status_text"/></div></t>
+                                    <t t-else=""><div class="sp-status">Pendiente de definir.</div></t>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="sp-actions">
+                                        <button type="submit" class="sp-btn" name="action" t-att-value="'personalize_group:%s' % group.id">Personalizar</button>
+                                        <button type="submit" class="sp-btn-light" name="action" t-att-value="'split_two:%s' % group.id">2 logos</button>
+                                        <button type="submit" class="sp-btn-danger" name="action" t-att-value="'mark_no:%s' % group.id">No personalizar</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <t t-foreach="group.marking_ids" t-as="marking">
+                                <div class="sp-soft">
+                                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                                        <h4 class="m-0"><t t-esc="marking.name"/> · <t t-esc="marking.qty_total_display or marking.qty_total"/> uds</h4>
+                                        <button type="submit" class="sp-btn" name="action" value="save_all">Guardar todo</button>
+                                    </div>
+
+                                    <div class="row">
+                                        <div class="col-md-3">
+                                            <label>Nombre marcaje</label>
+                                            <input class="form-control" t-att-name="'marking_%s_name' % marking.id" t-att-value="marking.name"/>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label>Técnica</label>
+                                            <select t-att-name="'marking_%s_technique' % marking.id" class="form-control">
+                                                <t t-foreach="technique_options" t-as="opt"><option t-att-value="opt[0]" t-att-selected="opt[0] == marking.technique"><t t-esc="opt[1]"/></option></t>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label>Posición</label>
+                                            <select t-att-name="'marking_%s_position' % marking.id" class="form-control">
+                                                <t t-foreach="position_options" t-as="opt"><option t-att-value="opt[0]" t-att-selected="opt[0] == marking.position"><t t-esc="opt[1]"/></option></t>
+                                            </select>
+                                            <small>Guarda para actualizar ubicaciones si cambias pecho/espalda/cuello.</small>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label>Color tinta/hilo</label>
+                                            <select t-att-name="'marking_%s_print_color' % marking.id" class="form-control">
+                                                <t t-foreach="color_options" t-as="opt">
+                                                    <option t-att-value="opt[0]" t-att-selected="opt[0] == marking.print_color"><t t-esc="opt[1]"/></option>
+                                                </t>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="row mt-3">
+                                        <div class="col-md-3">
+                                            <label>Tamaño</label>
+                                            <select t-att-name="'marking_%s_size_mode' % marking.id" class="form-control">
+                                                <t t-foreach="size_mode_options" t-as="opt"><option t-att-value="opt[0]" t-att-selected="opt[0] == marking.size_mode"><t t-esc="opt[1]"/></option></t>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3"><label>Ancho cm</label><input type="number" step="0.1" t-att-name="'marking_%s_width_cm' % marking.id" class="form-control" t-att-value="marking.width_cm"/></div>
+                                        <div class="col-md-3"><label>Alto cm</label><input type="number" step="0.1" t-att-name="'marking_%s_height_cm' % marking.id" class="form-control" t-att-value="marking.height_cm"/></div>
+                                        <div class="col-md-3"><label>Color elegido</label><div class="form-control"><span class="sp-dot" t-att-style="'background:%s' % marking.print_color_hex"/> <t t-esc="dict(marking._fields['print_color'].selection).get(marking.print_color)"/></div></div>
+                                    </div>
+
+                                    <h5 class="mt-4">Reparto de tallas</h5>
+                                    <div class="row">
+                                        <t t-foreach="marking.size_ids" t-as="size_line">
+                                            <div class="col-md-2"><label><t t-esc="size_line.size_name"/></label><input type="number" step="1" min="0" class="form-control" t-att-name="'size_qty_%s' % size_line.id" t-att-value="size_line.qty"/></div>
+                                        </t>
+                                    </div>
+
+                                    <h5 class="mt-4">Archivos por ubicación</h5>
+                                    <div class="row">
+                                        <t t-foreach="marking.placement_ids" t-as="placement">
+                                            <div class="col-md-4 mb-3">
+                                                <div class="sp-filebox">
+                                                    <h6><t t-esc="placement.placement_label"/></h6>
+                                                    <div class="sp-file-preview" t-att-data-logo-preview="placement.id">
+                                                        <t t-if="placement.logo_preview_available"><img t-att-src="'/personalizacion/%s/ubicacion/%s/preview' % (personalization.access_token, placement.id)"/></t>
+                                                        <t t-else="">Sin preview</t>
+                                                    </div>
+                                                    <label>Archivo producción AI/PDF/EPS/SVG</label>
+                                                    <input type="file" class="form-control" accept=".pdf,.ai,.eps,.svg,.png,.jpg,.jpeg,.webp" t-att-name="'production_%s' % placement.id" t-att-data-preview-target="placement.id"/>
+                                                    <small>Actual: <t t-esc="placement.production_filename or 'pendiente'"/></small>
+                                                    <label class="mt-2">Preview visible PNG/JPG/SVG</label>
+                                                    <input type="file" class="form-control" accept=".png,.jpg,.jpeg,.webp,.svg" t-att-name="'preview_%s' % placement.id" t-att-data-preview-target="placement.id"/>
+                                                    <small>Actual: <t t-esc="placement.preview_filename or 'pendiente'"/></small>
+                                                </div>
+                                            </div>
+                                        </t>
+                                    </div>
+
+                                    <div class="mt-3">
+                                        <label>Observaciones</label>
+                                        <textarea t-att-name="'marking_%s_notes' % marking.id" class="form-control" rows="3"><t t-esc="marking.notes or ''"/></textarea>
+                                    </div>
+                                </div>
+                            </t>
+
+                            <t t-if="group.marking_ids">
+                                <button type="submit" class="sp-btn-light mt-3" name="action" t-att-value="'add_marking:%s' % group.id">+ Otro marcaje</button>
+                            </t>
+                        </div>
+                    </t>
+
+                    <div class="sp-card">
+                        <label>Notas generales</label>
+                        <textarea name="customer_notes" class="form-control" rows="4"><t t-esc="personalization.customer_notes or ''"/></textarea>
+                    </div>
+
+                    <div class="sp-toolbar">
+                        <div><strong><t t-esc="personalization.group_count"/> grupos · <t t-esc="personalization.marking_count"/> marcajes</strong><br/><small>Cliente y taller ven lo mismo.</small></div>
+                        <div class="sp-actions">
+                            <button type="submit" class="sp-btn-light" name="action" value="save_all">Guardar todo</button>
+                            <button type="submit" class="sp-btn" name="action" value="confirm">Guardar todo y enviar ficha</button>
+                        </div>
+                    </div>
+                </form>
+
+                <script>
+                    document.addEventListener("change", function (event) {
+                        var input = event.target;
+                        if (!input.dataset || !input.dataset.previewTarget || !input.files || !input.files[0]) {
+                            return;
+                        }
+                        var file = input.files[0];
+                        if (!file.type || file.type.indexOf("image/") !== 0) {
+                            return;
+                        }
+                        var reader = new FileReader();
+                        reader.onload = function () {
+                            document.querySelectorAll("[data-logo-preview='" + input.dataset.previewTarget + "']").forEach(function (target) {
+                                target.innerHTML = "";
+                                var image = document.createElement("img");
+                                image.src = String(reader.result || "");
+                                image.alt = "Logo preview";
+                                target.appendChild(image);
+                            });
+                        };
+                        reader.readAsDataURL(file);
+                    });
+                </script>
+            </div>
+        </t>
+    </template>
+</odoo>
