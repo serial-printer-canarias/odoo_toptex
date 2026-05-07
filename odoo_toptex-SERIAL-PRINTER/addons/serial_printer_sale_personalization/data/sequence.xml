@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="seq_sp_personalization_order" model="ir.sequence">
+        <field name="name">Serial Printer Personalization Sequence</field>
+        <field name="code">sp.personalization.order</field>
+        <field name="prefix">SPP-</field>
+        <field name="padding">5</field>
+    </record>
+</odoo>
