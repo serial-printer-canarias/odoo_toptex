@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_sp_personalization_order_list" model="ir.ui.view">
+        <field name="name">sp.personalization.order.list</field>
+        <field name="model">sp.personalization.order</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="partner_id"/>
+                <field name="sale_order_id"/>
+                <field name="account_move_id"/>
+                <field name="state"/>
+                <field name="group_count"/>
+                <field name="marking_count"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_sp_personalization_order_form" model="ir.ui.view">
+        <field name="name">sp.personalization.order.form</field>
+        <field name="model">sp.personalization.order</field>
+        <field name="arch" type="xml">
+            <form string="Ficha de personalización">
+                <header>
+                    <button name="action_send_to_customer" type="object" string="Registrar envío" class="btn-primary"/>
+                    <button name="action_regenerate_groups_from_source" type="object" string="Cargar líneas"/>
+                    <button name="action_open_portal" type="object" string="Abrir formulario"/>
+                    <button name="action_print_report" type="object" string="PDF taller"/>
+                    <button name="action_mark_reviewed" type="object" string="Revisado"/>
+                    <button name="action_mark_production" type="object" string="Producción"/>
+                    <button name="action_mark_done" type="object" string="Finalizado"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,sent,customer_done,reviewed,production,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title"><h1><field name="name"/></h1></div>
+                    <group>
+                        <group>
+                            <field name="partner_id"/>
+                            <field name="sale_order_id"/>
+                            <field name="account_move_id"/>
+                            <field name="company_id"/>
+                        </group>
+                        <group>
+                            <field name="portal_url" readonly="1"/>
+                            <field name="source_display_name" readonly="1"/>
+                            <field name="confirmed_date" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Grupos y marcajes">
+                            <field name="group_ids">
+                                <list editable="bottom">
+                                    <field name="product_image_1920" widget="image"/>
+                                    <field name="product_name"/>
+                                    <field name="product_ref"/>
+                                    <field name="color_name"/>
+                                    <field name="qty_total"/>
+                                    <field name="size_summary"/>
+                                    <field name="status"/>
+                                    <field name="qty_status_text"/>
+                                    <field name="sale_line_count" optional="hide"/>
+                                </list>
+                                <form>
+                                    <sheet>
+                                        <group>
+                                            <field name="product_image_1920" widget="image"/>
+                                            <field name="product_name"/>
+                                            <field name="product_ref"/>
+                                            <field name="color_name"/>
+                                            <field name="qty_total"/>
+                                            <field name="size_summary"/>
+                                            <field name="original_line_summary" readonly="1"/>
+                                            <field name="status"/>
+                                            <field name="qty_status_text" readonly="1"/>
+                                            <field name="sale_line_count" readonly="1"/>
+                                        </group>
+                                        <button name="action_personalize" type="object" string="Personalizar" class="btn-primary"/>
+                                        <button name="action_split_two_markings" type="object" string="Dividir en 2 logos"/>
+                                        <button name="action_mark_no_personalization" type="object" string="No personalizar"/>
+                                        <button name="action_add_marking" type="object" string="Añadir marcaje" class="btn-primary"/>
+                                        <button name="action_split_by_sale_lines" type="object" string="Separar por líneas del presupuesto"/>
+                                        <field name="marking_ids">
+                                            <list editable="bottom">
+                                                <field name="name"/>
+                                                <field name="technique"/>
+                                                <field name="position"/>
+                                                <field name="print_color"/>
+                                                <field name="qty_total"/>
+                                                <field name="size_mode"/>
+                                                <field name="width_cm"/>
+                                                <field name="height_cm"/>
+                                            </list>
+                                            <form>
+                                                <sheet>
+                                                    <group>
+                                                        <field name="name"/>
+                                                        <field name="technique"/>
+                                                        <field name="position"/>
+                                                        <field name="print_color"/>
+                                                        <field name="print_color_hex" readonly="1"/>
+                                                        <field name="size_mode"/>
+                                                        <field name="width_cm"/>
+                                                        <field name="height_cm"/>
+                                                        <field name="notes"/>
+                                                    </group>
+                                                    <notebook>
+                                                        <page string="Tallas">
+                                                            <field name="size_ids">
+                                                                <list editable="bottom">
+                                                                    <field name="size_name"/>
+                                                                    <field name="qty"/>
+                                                                </list>
+                                                            </field>
+                                                        </page>
+                                                        <page string="Archivos por ubicación">
+                                                            <field name="placement_ids">
+                                                                <list editable="bottom">
+                                                                    <field name="placement_label"/>
+                                                                    <field name="side"/>
+                                                                    <field name="preview_image" widget="image"/>
+                                                                    <field name="production_attachment_id"/>
+                                                                    <field name="preview_attachment_id"/>
+                                                                </list>
+                                                            </field>
+                                                        </page>
+                                                    </notebook>
+                                                </sheet>
+                                            </form>
+                                        </field>
+                                    </sheet>
+                                </form>
+                            </field>
+                        </page>
+                        <page string="Notas">
+                            <field name="customer_notes"/>
+                            <field name="internal_notes"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_sp_personalization_order" model="ir.actions.act_window">
+        <field name="name">Fichas de personalización</field>
+        <field name="res_model">sp.personalization.order</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_sp_personalization_root" name="Personalizaciones" parent="sale.sale_menu_root" sequence="90"/>
+    <menuitem id="menu_sp_personalization_orders" name="Fichas de personalización" parent="menu_sp_personalization_root" action="action_sp_personalization_order" sequence="10"/>
+</odoo>
