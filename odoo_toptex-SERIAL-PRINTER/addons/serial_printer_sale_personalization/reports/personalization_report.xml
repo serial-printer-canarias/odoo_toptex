@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_report_sp_personalization" model="ir.actions.report">
+        <field name="name">Ficha taller personalización</field>
+        <field name="model">sp.personalization.order</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">serial_printer_sale_personalization.report_sp_personalization_document</field>
+        <field name="report_file">serial_printer_sale_personalization.report_sp_personalization_document</field>
+        <field name="print_report_name">'Ficha taller - %s' % (object.name)</field>
+    </record>
+</odoo>
